@@ -1,0 +1,13 @@
+**/node_modules/
+**/dist/
+**/build/
+**/.env
+**/logs/
+**/*.db
+**/*.db-journal
+**/.dart_tool/
+**/.pub/
+**/.pub-cache/
+**/.idea/
+**/.vscode/
+al_markazia_backend/prisma/dev.db

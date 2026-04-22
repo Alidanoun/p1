@@ -1,0 +1,186 @@
+import 'package:flutter/material.dart';
+import '../../models/order_model.dart';
+import '../../models/cart_item.dart';
+import '../cart/cart_controller.dart';
+import '../checkout/models/delivery_zone.dart';
+import '../../services/api_service.dart';
+import '../../services/session_service.dart';
+import '../../services/storage_service.dart';
+
+class CheckoutController extends ChangeNotifier {
+  final ApiService _api;
+  final StorageService _storage;
+
+  CheckoutController({ApiService? apiService, StorageService? storageService}) 
+      : _api = apiService ?? ApiService(),
+        _storage = storageService ?? StorageService.instance;
+
+  // ❄️ Snapshot Data (ReadOnly)
+  List<CartItem> _snapshotItems = [];
+  double _subtotal = 0.0;
+
+  List<CartItem> get snapshotItems => _snapshotItems;
+  double get subtotal => _subtotal;
+
+  // 📦 Order Context (State)
+  String orderType = 'delivery'; // 'delivery' or 'takeaway'
+  String? selectedBranch;
+  List<DeliveryZone> zones = [];
+  DeliveryZone? selectedZone;
+  double deliveryFee = 0.0;
+  
+  String customerName = '';
+  String customerPhone = '';
+  String street = '';
+  String building = '';
+  String notes = '';
+  
+  String pickupTiming = 'asap'; // 'asap' or 'atTime'
+  TimeOfDay? selectedTime;
+
+  bool isLoading = false;
+  String? errorMessage;
+
+  // ❄️ Initialize Snapshot (The Golden Rule)
+  void initialize(CartController cartController) {
+    // Take a frozen copy
+    _snapshotItems = List.from(cartController.items);
+    _subtotal = cartController.subtotal;
+    
+    // Default user info
+    customerName = SessionService.instance.name ?? '';
+    customerPhone = SessionService.instance.phone ?? '';
+    
+    // Reset state for new checkout
+    deliveryFee = 0.0;
+    selectedZone = null;
+    errorMessage = null;
+    isLoading = false;
+    
+    // Fetch fresh zones in background
+    fetchZones();
+    
+    notifyListeners();
+  }
+
+  Future<void> fetchZones() async {
+    try {
+      zones = await _api.fetchDeliveryZones();
+      notifyListeners();
+    } catch (e) {
+      print('Error fetching zones: $e');
+    }
+  }
+
+  // ⚙️ Logic
+  void setOrderType(String type) {
+    orderType = type;
+    if (orderType == 'takeaway') {
+      deliveryFee = 0.0;
+      selectedZone = null;
+    }
+    notifyListeners();
+  }
+
+  void setZone(DeliveryZone zone) {
+    selectedZone = zone;
+    deliveryFee = zone.price;
+    notifyListeners();
+  }
+
+  void setBranch(String branch) {
+    selectedBranch = branch;
+    notifyListeners();
+  }
+
+  void updatePickupTiming(String timing) {
+    pickupTiming = timing;
+    notifyListeners();
+  }
+
+  void updateSelectedTime(TimeOfDay? time) {
+    selectedTime = time;
+    notifyListeners();
+  }
+
+  double get total => _subtotal + (orderType == 'delivery' ? deliveryFee : 0.0);
+
+  bool get isMinOrderSatisfied {
+    if (orderType != 'delivery' || selectedZone == null) return true;
+    final minOrder = selectedZone?.minOrder ?? 0.0;
+    return _subtotal >= minOrder;
+  }
+
+  String? get minOrderWarning {
+    if (orderType != 'delivery' || selectedZone == null) return null;
+    final minOrder = selectedZone?.minOrder ?? 0.0;
+    if (_subtotal < minOrder) {
+      return 'الحد الأدنى للطلب لهذه المنطقة هو ${minOrder.toStringAsFixed(2)} د.أ (ينقصك ${(minOrder - _subtotal).toStringAsFixed(2)} د.أ)';
+    }
+    return null;
+  }
+
+  // 🚀 SUBMIT FLOW
+  Future<OrderModel?> confirmOrder(CartController liveCart) async {
+    errorMessage = null;
+    isLoading = true;
+    notifyListeners();
+
+    try {
+      // 1️⃣ Final Validation against LIVE Cart
+      if (liveCart.itemCount != _snapshotItems.length) {
+         throw Exception('تغيرت محتويات السلة! يرجى مراجعة الطلب مرة أخرى.');
+      }
+      
+      // Check for price changes (Simplified for now, could be per item)
+      if ((liveCart.subtotal - _subtotal).abs() > 0.01) {
+         throw Exception('تغيرت الأسعار في السلة! يرجى مراجعة الطلب مرة أخرى.');
+      }
+
+      // 3️⃣ Minimum Order Validation
+      if (!isMinOrderSatisfied) {
+        throw Exception(minOrderWarning ?? 'لم يتم الوصول للحد الأدنى للطلب');
+      }
+
+      // 2️⃣ Build Order Model
+      final order = OrderModel(
+        orderId: 'ORD-${DateTime.now().millisecondsSinceEpoch}',
+        timestamp: DateTime.now(),
+        customerName: customerName,
+        customerPhone: customerPhone,
+        orderType: orderType == 'delivery' ? 'delivery' : 'pickup',
+        address: orderType == 'delivery' 
+            ? 'المنطقة: ${selectedZone?.name}\nالشارع: $street - البناية: $building' 
+            : null,
+        notes: notes,
+        cartItems: _snapshotItems,
+        totalPrice: total,
+        subtotal: _subtotal,
+        deliveryFee: orderType == 'delivery' ? deliveryFee : 0.0,
+        branch: selectedBranch,
+        deliveryZoneId: orderType == 'delivery' ? selectedZone?.id : null,
+      );
+
+      // 3️⃣ Send to API
+      final sentOrder = await _api.placeOrder(order);
+      
+      if (sentOrder != null) {
+        // 4️⃣ Clear LIVE Cart only on success
+        await liveCart.clearCart();
+        
+        // Save to local history as well (legacy compatibility)
+        await _storage.saveOrder(sentOrder);
+      }
+
+      isLoading = false;
+      notifyListeners();
+      return sentOrder;
+
+    } catch (e) {
+      isLoading = false;
+      errorMessage = e.toString().replaceAll('Exception: ', '');
+      notifyListeners();
+      return null;
+    }
+  }
+}
