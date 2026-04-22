@@ -1,0 +1,81 @@
+name: al_markazia_app
+description: "A new Flutter project for Central Restaurant."
+publish_to: 'none'
+
+version: 1.0.1+2
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+  flutter_dotenv: ^5.1.0
+  video_player: ^2.8.1
+  
+  # HTTP for json-server
+  http: ^1.2.0
+  
+  # Local Storage for cart, favorites, orders, user demo
+  shared_preferences: ^2.2.2
+  
+  # Animations for typewriter effect, bounce, fade, etc.
+  flutter_animate: ^4.5.0
+  
+  # Rating bar for order rating modal
+  flutter_rating_bar: ^4.0.1
+  
+  # For saving order receipts
+  screenshot: ^2.3.0
+  path_provider: ^2.1.2
+  url_launcher: ^6.3.2
+  cached_network_image: ^3.3.1
+  
+  # Notifications
+  # Notifications
+  socket_io_client: ^2.0.3+1
+  flutter_local_notifications: ^17.1.2
+  firebase_core: ^3.10.1
+  firebase_messaging: ^15.2.2
+  intl: ^0.20.2
+  provider: ^6.1.2
+  shimmer: ^3.0.0
+  flutter_secure_storage: ^10.0.0
+  lottie: ^3.1.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+  flutter_launcher_icons: ^0.13.1
+  mocktail: ^1.0.3
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/icon/logo.png"
+  adaptive_icon_background: "#000000"
+  adaptive_icon_foreground: "assets/icon/logo.png"
+  min_sdk_android: 21
+
+flutter:
+  generate: true
+  uses-material-design: true
+  
+  # Optional: You can download and add Cairo font files to assets/fonts/Cairo
+  # For this demo, we'll try to use a standard font or Google Fonts if added.
+  # fonts:
+  #   - family: Cairo
+  #     fonts:
+  #       - asset: assets/fonts/Cairo-Regular.ttf
+  #       - asset: assets/fonts/Cairo-Bold.ttf
+  #         weight: 700
+
+  assets:
+    - assets/images/
+    - assets/icon/logo.png
+    - assets/videos/splash_video_official.mp4
+    - .env

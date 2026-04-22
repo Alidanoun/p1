@@ -1,0 +1,48 @@
+{
+  "name": "al_markazia_backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node ../scripts/sync-ip.js && node --watch src/server.js",
+    "seed": "node prisma/seed.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@bull-board/api": "^7.0.0",
+    "@bull-board/express": "^7.0.0",
+    "@prisma/client": "^6.19.2",
+    "bcrypt": "^6.0.0",
+    "bullmq": "^5.74.1",
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.3.2",
+    "firebase-admin": "^13.1.0",
+    "helmet": "^8.1.0",
+    "ioredis": "^5.10.1",
+    "jsonwebtoken": "^9.0.3",
+    "k6": "^0.0.0",
+    "morgan": "^1.10.1",
+    "multer": "^2.1.1",
+    "node-cache": "^5.1.2",
+    "node-cron": "^4.2.1",
+    "prisma": "^6.19.2",
+    "socket.io": "^4.8.3",
+    "sqlite3": "^6.0.1",
+    "uuid": "^14.0.0",
+    "winston": "^3.19.0",
+    "winston-daily-rotate-file": "^5.0.0",
+    "xss": "^1.0.15"
+  },
+  "prisma": {
+    "seed": "node prisma/seed.js"
+  },
+  "devDependencies": {
+    "autocannon": "^8.0.0"
+  }
+}

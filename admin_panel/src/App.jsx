@@ -1,0 +1,84 @@
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { useAuth } from './contexts/AuthContext';
+import { SocketProvider } from './contexts/SocketContext';
+import { ThemeProvider, useTheme } from './contexts/ThemeContext';
+import { Toaster } from 'sonner';
+import Sidebar from './components/Sidebar';
+import Login from './pages/Login';
+import LiveDashboard from './pages/LiveDashboard';
+import LiveOrders from './pages/LiveOrders';
+import MenuManager from './pages/MenuManager';
+import Reports from './pages/Reports';
+import Settings from './pages/Settings';
+import BroadcastNotifications from './pages/BroadcastNotifications';
+import ReviewsManager from './pages/ReviewsManager';
+import CancelledOrders from './pages/CancelledOrders';
+import LoyaltyManager from './pages/LoyaltyManager';
+import DeliveryZonesManager from './pages/DeliveryZonesManager';
+
+const ProtectedLayout = ({ children }) => {
+  const { user, loading } = useAuth();
+  const { theme } = useTheme();
+  
+  if (loading) return null;
+  
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return (
+    <SocketProvider>
+      <div className="flex bg-background w-full h-screen overflow-hidden text-text-main font-sans selection:bg-primary/20">
+        <Sidebar />
+      <main className="flex-1 overflow-y-auto overflow-x-hidden relative h-full">
+        {children}
+      </main>
+      
+      {/* Premium Notification Toaster */}
+      <Toaster 
+        theme={theme} 
+        position="top-center" 
+        toastOptions={{
+          style: {
+            background: theme === 'dark' ? '#1e293b' : '#ffffff',
+            border: theme === 'dark' ? '1px solid rgba(255, 255, 255, 0.05)' : '1px solid rgba(0, 0, 0, 0.05)',
+            color: theme === 'dark' ? '#f8fafc' : '#0f172a',
+            fontFamily: 'Tajawal, sans-serif'
+          },
+          className: 'backdrop-blur-md shadow-2xl'
+        }} 
+      />
+      </div>
+    </SocketProvider>
+  );
+};
+
+function App() {
+  const { user } = useAuth();
+
+  return (
+    <ThemeProvider>
+      <Router>
+        <Routes>
+          <Route 
+            path="/login" 
+            element={user ? <Navigate to="/" replace /> : <Login />} 
+          />
+          
+          <Route path="/" element={<ProtectedLayout><LiveDashboard /></ProtectedLayout>} />
+          <Route path="/orders" element={<ProtectedLayout><LiveOrders /></ProtectedLayout>} />
+          <Route path="/menu" element={<ProtectedLayout><MenuManager /></ProtectedLayout>} />
+          <Route path="/broadcast" element={<ProtectedLayout><BroadcastNotifications /></ProtectedLayout>} />
+          <Route path="/reviews" element={<ProtectedLayout><ReviewsManager /></ProtectedLayout>} />
+          <Route path="/cancelled-orders" element={<ProtectedLayout><CancelledOrders /></ProtectedLayout>} />
+          <Route path="/loyalty" element={<ProtectedLayout><LoyaltyManager /></ProtectedLayout>} />
+          <Route path="/delivery-zones" element={<ProtectedLayout><DeliveryZonesManager /></ProtectedLayout>} />
+          <Route path="/reports" element={<ProtectedLayout><Reports /></ProtectedLayout>} />
+          <Route path="/settings" element={<ProtectedLayout><Settings /></ProtectedLayout>} />
+        </Routes>
+      </Router>
+    </ThemeProvider>
+  );
+}
+
+export default App;

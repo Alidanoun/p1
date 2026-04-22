@@ -1,0 +1,123 @@
+const jwt = require('jsonwebtoken');
+const logger = require('../utils/logger');
+const prisma = require('../lib/prisma');
+
+// Security Configurations
+const ACCESS_TOKEN_SECRET = process.env.JWT_SECRET || 'your-access-secret-key-change-it';
+const REFRESH_TOKEN_SECRET = process.env.REFRESH_TOKEN_SECRET || 'your-refresh-secret-key-change-it';
+
+const ACCESS_TOKEN_EXPIRY = '15m'; // 🚀 Hardened: Short lived 15 min session
+const REFRESH_TOKEN_EXPIRY = '7d';  // Persistent session
+const REFRESH_TOKEN_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Enterprise Token Service (Level 4 Security)
+ * Handles generation, DB-backed storage, and rotation of JWT tokens.
+ */
+class TokenService {
+  /**
+   * Generates a signed Access Token for short-term authorization
+   */
+  static generateAccessToken(user) {
+    return jwt.sign(
+      { 
+        id: user.uuid, 
+        phone: user.phone,
+        role: user.role || 'customer'
+      },
+      ACCESS_TOKEN_SECRET,
+      { expiresIn: ACCESS_TOKEN_EXPIRY }
+    );
+  }
+
+  /**
+   * Generates AND SAVES a signed Refresh Token for session persistence
+   */
+  static async generateAndSaveRefreshToken(user) {
+    const role = user.role || 'customer';
+    const token = jwt.sign(
+      { id: user.uuid, role: role }, // 🚀 Role added for server-side lookup
+      REFRESH_TOKEN_SECRET,
+      { expiresIn: REFRESH_TOKEN_EXPIRY }
+    );
+
+    // Persist to DB for revocation support
+    await prisma.refreshToken.create({
+      data: {
+        token,
+        userId: user.uuid,
+        role,
+        expiresAt: new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS)
+      }
+    });
+
+    return token;
+  }
+
+  /**
+   * Verifies an Access Token and returns the decoded payload
+   */
+  static verifyAccessToken(token) {
+    try {
+      return jwt.verify(token, ACCESS_TOKEN_SECRET);
+    } catch (error) {
+      if (error.name === 'TokenExpiredError') {
+        throw new Error('TOKEN_EXPIRED');
+      }
+      throw new Error('INVALID_TOKEN');
+    }
+  }
+
+  /**
+   * Implements Secure Rotation & Abuse Detection
+   * Logic: If a token is reused or missing from DB while being a valid JWT -> REUSE DETECTED.
+   */
+  static async validateAndRotate(oldTokenString) {
+    try {
+      // 1. JWT Standard Verification
+      const decoded = jwt.verify(oldTokenString, REFRESH_TOKEN_SECRET);
+      
+      // 2. Database Lookup
+      const tokenRecord = await prisma.refreshToken.findUnique({
+        where: { token: oldTokenString }
+      });
+
+      // 🚨 ABUSE DETECTION: Token used but not in DB (or revoked)
+      if (!tokenRecord || tokenRecord.isRevoked) {
+        logger.security('REUSE_ATTEMPT_DETECTED: Critical breach warning', { 
+          userId: decoded.id, 
+          tokenHash: oldTokenString.substring(0, 10) + '...' 
+        });
+        
+        // Nuclear Option: Invalidate ALL sessions for this user
+        await this.revokeAllSessions(decoded.id);
+        throw new Error('TOKEN_REUSE_DETECTED');
+      }
+
+      // 3. Delete Old Token (Invalidation)
+      await prisma.refreshToken.delete({ where: { id: tokenRecord.id } });
+
+      return decoded; // Contains id and role
+    } catch (error) {
+      if (error.message === 'TOKEN_REUSE_DETECTED') throw error;
+      throw new Error('REFRESH_TOKEN_INVALID');
+    }
+  }
+
+  /**
+   * Manual Revocation (Logout)
+   */
+  static async revokeToken(tokenString) {
+    await prisma.refreshToken.deleteMany({ where: { token: tokenString } });
+  }
+
+  /**
+   * Panic Revocation (Security Breach)
+   */
+  static async revokeAllSessions(userId) {
+    await prisma.refreshToken.deleteMany({ where: { userId } });
+    logger.info('Panic: All sessions revoked for user', { userId });
+  }
+}
+
+module.exports = TokenService;
