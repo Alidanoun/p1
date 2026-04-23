@@ -116,6 +116,7 @@ model Order {
   payment        Payment?
   cancellation   OrderCancellation?
   auditLogs      OrderAuditLog[]
+  reviews        Review[]
   branch         String?     // Madina St, Khalda
   version        Int         @default(1)
 
@@ -205,6 +206,7 @@ model Customer {
   createdAt         DateTime  @default(now())
   orders            Order[]
   auditLogs         CustomerAuditLog[]
+  reviews           Review[]
 
   @@index([isBlacklisted])
 }
@@ -253,15 +255,32 @@ model Notification {
 
 // --- Reviews ---
 model Review {
-  id          Int      @id @default(autoincrement())
-  itemId      Int
-  customerName String
-  rating      Int      // 1 to 5
-  comment     String?
-  isApproved  Boolean  @default(false)
-  createdAt   DateTime @default(now())
+  id              Int       @id @default(autoincrement())
+  itemId          Int
+  item            Item      @relation(fields: [itemId], references: [id], onDelete: Cascade)
   
-  item        Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  customerId      Int
+  customer        Customer  @relation(fields: [customerId], references: [id])
+  
+  orderId         Int?      // Link to actual order for verified purchase
+  order           Order?    @relation(fields: [orderId], references: [id])
+  
+  rating          Int       // 1 to 5
+  comment         String?   @db.VarChar(500)
+  
+  isVerifiedPurchase Boolean @default(false)
+  isApproved      Boolean   @default(true)
+  isFlagged       Boolean   @default(false)
+  
+  ipAddress       String?
+  userAgent       String?
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  @@unique([customerId, itemId])
+  @@index([itemId, isApproved, createdAt])
+  @@index([customerId, createdAt])
 }
 
 model OrderCancellation {

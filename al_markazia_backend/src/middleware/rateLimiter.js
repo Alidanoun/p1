@@ -58,9 +58,39 @@ const searchLimiter = rateLimit({
   }
 });
 
+// تقييد التقييمات (Review Limiter)
+// 5 تقييمات لكل زبون في الساعة الواحدة
+const reviewLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  keyGenerator: (req) => req.user?.id || req.ip,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { 
+    error: 'لقد تجاوزت الحد المسموح من التقييمات، حاول لاحقاً', 
+    code: 'REVIEW_RATE_LIMIT' 
+  },
+  handler: (req, res, next, options) => {
+    logger.warn(`Review Rate Limit Exceeded: User ${req.user?.id || req.ip}`);
+    res.status(options.statusCode).json(options.message);
+  }
+});
+
+// تقييد الإبلاغ (Flag Limiter)
+const flagLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  keyGenerator: (req) => req.user?.id || req.ip,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many flag requests' }
+});
+
 module.exports = {
   globalLimiter,
   authLimiter,
   orderLimiter,
-  searchLimiter
+  searchLimiter,
+  reviewLimiter,
+  flagLimiter
 };
