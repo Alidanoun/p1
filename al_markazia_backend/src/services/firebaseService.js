@@ -1,22 +1,37 @@
 const admin = require('firebase-admin');
 const path = require('path');
+const fs = require('fs');
 const logger = require('../utils/logger');
 
 // Initialize Firebase Admin with the service account file
 const serviceAccountPath = path.resolve(__dirname, '../../firebase-service-account.json');
-const serviceAccount = require(serviceAccountPath);
+let fcmEnabled = false;
 
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount)
-});
+try {
+  if (fs.existsSync(serviceAccountPath)) {
+    const serviceAccount = require(serviceAccountPath);
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount)
+    });
+    fcmEnabled = true;
+    logger.info('🚀 Firebase Admin SDK initialized successfully.');
+  } else {
+    logger.warn('⚠️ Firebase service account file NOT FOUND. FCM notifications are DISABLED.');
+    logger.warn(`Expected path: ${serviceAccountPath}`);
+  }
+} catch (error) {
+  logger.error('❌ Failed to initialize Firebase Admin SDK:', { error: error.message });
+}
 
 /**
  * Sends a push notification to a specific device token.
  */
 const sendToToken = async (token, title, body, data = {}) => {
-  if (!token) return;
+  if (!fcmEnabled || !token) {
+    if (!fcmEnabled) logger.debug('[FCM] Skip sending: FCM is disabled.');
+    return false;
+  }
   
-  // Ensure all data values are strings (required by FCM)
   const stringData = {};
   Object.keys(data).forEach(key => {
     stringData[key] = String(data[key]);
@@ -35,34 +50,22 @@ const sendToToken = async (token, title, body, data = {}) => {
     }
   };
 
-  logger.debug('[FCM] Dispatching message', { 
-    token: token.slice(0, 15) + '...',
-    title, 
-    body,
-    channelId: 'almarkazia_channel'
-  });
-
   try {
     const response = await admin.messaging().send(message);
-    logger.info('[FCM] Sent successfully 🚀', { 
-      responseId: response, 
-      token: token.slice(0, 15) + '...' 
-    });
+    logger.info('[FCM] Sent successfully 🚀', { responseId: response });
     return true;
   } catch (error) {
-    logger.error('[FCM] Send Error ❌', { 
-      error: error.message, 
-      errorCode: error.code,
-      token: token.slice(0, 15) + '...' 
-    });
+    logger.error('[FCM] Send Error ❌', { error: error.message });
     return false;
   }
 };
 
 /**
- * Sends a broadcast message to all users subscribed to the 'all_users' topic.
+ * Sends a broadcast message to all users.
  */
 const sendBroadcast = async (title, body, data = {}) => {
+  if (!fcmEnabled) return null;
+
   const stringData = {};
   Object.keys(data).forEach(key => {
     stringData[key] = String(data[key]);
@@ -74,21 +77,7 @@ const sendBroadcast = async (title, body, data = {}) => {
     topic: 'all_users',
     android: {
       priority: 'high',
-      notification: {
-        channelId: 'almarkazia_channel',
-        priority: 'high',
-        sound: 'default',
-      }
-    },
-    apns: {
-      payload: {
-        aps: {
-          alert: { title, body },
-          sound: 'default',
-          badge: 1,
-          contentAvailable: true,
-        }
-      }
+      notification: { channelId: 'almarkazia_channel', priority: 'high', sound: 'default' }
     }
   };
 
@@ -106,6 +95,8 @@ const sendBroadcast = async (title, body, data = {}) => {
  * Sends a notification to a specific FCM topic.
  */
 const sendToTopic = async (topic, title, body, data = {}) => {
+  if (!fcmEnabled) return null;
+
   const stringData = {};
   Object.keys(data).forEach(key => {
     stringData[key] = String(data[key]);
@@ -117,11 +108,7 @@ const sendToTopic = async (topic, title, body, data = {}) => {
     topic: topic,
     android: {
       priority: 'high',
-      notification: {
-        channelId: 'almarkazia_channel',
-        priority: 'high',
-        sound: 'default'
-      }
+      notification: { channelId: 'almarkazia_channel', priority: 'high', sound: 'default' }
     }
   };
 
@@ -135,4 +122,4 @@ const sendToTopic = async (topic, title, body, data = {}) => {
   }
 };
 
-module.exports = { admin, sendToToken, sendBroadcast, sendToTopic };
+module.exports = { admin, sendToToken, sendBroadcast, sendToTopic, isFcmEnabled: () => fcmEnabled };
