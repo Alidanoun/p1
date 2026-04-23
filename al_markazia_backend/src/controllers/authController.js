@@ -2,46 +2,57 @@ const bcrypt = require('bcrypt');
 const prisma = require('../lib/prisma');
 const logger = require('../utils/logger');
 const TokenService = require('../services/tokenService');
+const { REFRESH_TOKEN_EXPIRY_MS } = require('../config/secrets');
 const { error: responseError } = require('../utils/response');
 
+// ── Helper: Secure Cookie Config ──────────────────────
+const refreshCookieOptions = (req) => ({
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',  // HTTPS only in production
+  sameSite: 'strict',                              // Anti-CSRF protection
+  path: '/auth',                                   // Restricted scope for security
+  maxAge: REFRESH_TOKEN_EXPIRY_MS
+});
+
+/**
+ * 🔄 Refresh Token Rotation (Hardened)
+ * Supports both Cookie (Modern) and Body (Legacy Fallback).
+ */
 const refreshToken = async (req, res) => {
-  const { refreshToken } = req.body;
-  if (!refreshToken) {
-    return responseError(res, 'Refresh token is required', 'MISSING_TOKEN', 400);
+  // 🛡️ Backward Compatible: Check cookie first, then body
+  const token = req.cookies?.refreshToken || req.body?.refreshToken;
+
+  if (!token) {
+    return responseError(res, 'Refresh token is required', 'MISSING_TOKEN', 401);
   }
 
   try {
     // 🛡️ Secure Rotation & Abuse Detection
-    const decoded = await TokenService.validateAndRotate(refreshToken);
+    const { accessToken, newRefreshToken, user } = await TokenService.validateAndRotate(token);
     
-    // Identity lookup based on role
-    let user;
-    if (decoded.role === 'admin' || decoded.role === 'super_admin') {
-      user = await prisma.user.findFirst({ where: { uuid: decoded.id } });
-    } else {
-      user = await prisma.customer.findFirst({ where: { uuid: decoded.id } });
-    }
+    // ✅ Set Secure Cookie
+    res.cookie('refreshToken', newRefreshToken, refreshCookieOptions(req));
 
-    if (!user) {
-      logger.security('Refresh token for non-existent user/customer', { uuid: decoded.id, role: decoded.role });
-      return responseError(res, 'الجلسة غير صالحة', 'INVALID_SESSION', 401);
-    }
-
-    // Issue New Pair (Rotation)
-    const newAccessToken = TokenService.generateAccessToken(user);
-    const newRefreshToken = await TokenService.generateAndSaveRefreshToken(user);
-
-    logger.info('Session rotated successfully', { userId: user.uuid, role: user.role || 'customer' });
-    res.json({ accessToken: newAccessToken, refreshToken: newRefreshToken });
+    // ✅ Return both (Body is for legacy transition)
+    res.json({ 
+      accessToken, 
+      refreshToken: newRefreshToken 
+    });
   } catch (error) {
     if (error.message === 'TOKEN_REUSE_DETECTED') {
+      res.clearCookie('refreshToken', { path: '/auth' });
       return responseError(res, 'تنبيه أمني: تم اكتشاف محاولة اختراق الجلسة. تم تسجيل الخروج من كافة الأجهزة.', 'SECURITY_BREACH', 401);
     }
+    
+    res.clearCookie('refreshToken', { path: '/auth' });
     logger.security('Invalid refresh attempt', { error: error.message });
     return responseError(res, 'انتهت صلاحية الجلسة، يرجى تسجيل الدخول', 'SESSION_EXPIRED', 401);
   }
 };
 
+/**
+ * 🔑 Enterprise Login Orchestrator
+ */
 const login = async (req, res) => {
   const { email, password, fcmToken } = req.body;
   try {
@@ -70,6 +81,9 @@ const login = async (req, res) => {
     const accessToken = TokenService.generateAccessToken(user);
     const refreshToken = await TokenService.generateAndSaveRefreshToken(user);
     
+    // ✅ Set Secure Cookie
+    res.cookie('refreshToken', refreshToken, refreshCookieOptions(req));
+
     logger.security('Valid login', { 
       role: user.role,
       uuid: user.uuid, 
@@ -78,7 +92,7 @@ const login = async (req, res) => {
 
     res.json({ 
       accessToken, 
-      refreshToken, 
+      refreshToken, // ✅ Body included for legacy transition
       user: { 
         id: user.uuid,
         email: user.email, 
@@ -91,4 +105,32 @@ const login = async (req, res) => {
   }
 };
 
-module.exports = { login, refreshToken };
+/**
+ * 🚪 Secure Logout (Revoke & Clear)
+ */
+const logout = async (req, res) => {
+  const token = req.cookies?.refreshToken || req.body?.refreshToken;
+  
+  if (token) {
+    await TokenService.revokeToken(token);
+  }
+
+  res.clearCookie('refreshToken', { path: '/auth' });
+  return res.json({ success: true, message: 'Logged out successfully' });
+};
+
+/**
+ * 👤 Identity Bootstrap (Who am I?)
+ */
+const getMe = async (req, res) => {
+  res.json({ 
+    success: true, 
+    data: {
+      id: req.user.id,
+      phone: req.user.phone,
+      role: req.user.role
+    } 
+  });
+};
+
+module.exports = { login, refreshToken, logout, getMe };

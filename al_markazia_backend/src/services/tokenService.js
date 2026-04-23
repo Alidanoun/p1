@@ -97,7 +97,21 @@ class TokenService {
       // 3. Delete Old Token (Invalidation)
       await prisma.refreshToken.delete({ where: { id: tokenRecord.id } });
 
-      return decoded; // Contains id and role
+      // 4. Resolve Identity
+      let user;
+      if (decoded.role === 'admin' || decoded.role === 'super_admin') {
+        user = await prisma.user.findFirst({ where: { uuid: decoded.id } });
+      } else {
+        user = await prisma.customer.findFirst({ where: { uuid: decoded.id } });
+      }
+
+      if (!user) throw new Error('USER_NOT_FOUND');
+
+      // 5. Generate New Pair
+      const accessToken = this.generateAccessToken(user);
+      const newRefreshToken = await this.generateAndSaveRefreshToken(user);
+
+      return { accessToken, newRefreshToken, user };
     } catch (error) {
       if (error.message === 'TOKEN_REUSE_DETECTED') throw error;
       throw new Error('REFRESH_TOKEN_INVALID');
