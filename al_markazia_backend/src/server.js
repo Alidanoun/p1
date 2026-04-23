@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
 const morgan = require('morgan');
 require('dotenv').config();
@@ -66,6 +67,8 @@ app.use(helmet({
 const { globalLimiter, authLimiter, orderLimiter } = require('./middleware/rateLimiter');
 app.use(globalLimiter);
 
+app.use(cookieParser());
+
 // 2️⃣ CORS & Body Parsers
 const allowedOrigins = (process.env.CORS_ORIGIN || '')
   .split(',')
@@ -74,13 +77,17 @@ const allowedOrigins = (process.env.CORS_ORIGIN || '')
 
 app.use(cors({
   origin: (origin, callback) => {
+    // 🛡️ Explicit Origins for Credentials-based Auth
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      callback(new Error(`CORS blocked: ${origin}`));
+      // 🚀 Improvement: Return false instead of Error to avoid 500 crashes
+      callback(null, false);
     }
   },
-  credentials: true,
+  credentials: true, // ✅ Required for HttpOnly Cookies
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
