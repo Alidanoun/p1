@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { tokenStore } from './tokenStore';
 
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
@@ -18,14 +19,16 @@ const processQueue = (error, token = null) => {
 
 const api = axios.create({
   baseURL: BASE_URL,
+  withCredentials: true, // ✅ Required to send HttpOnly Cookies automatically
+  timeout: 15000,
   headers: {
     'Content-Type': 'application/json'
   }
 });
 
-// Add a request interceptor to attach JWT token
+// Add a request interceptor to attach JWT token from MEMORY
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
+  const token = tokenStore.get(); // 🔒 Secure: Read from memory, not localStorage
   if (token) {
     config.headers['Authorization'] = `Bearer ${token}`;
   }
@@ -34,22 +37,22 @@ api.interceptors.request.use((config) => {
   return Promise.reject(error);
 });
 
-// Add a response interceptor with automatic token refresh
+// Add a response interceptor with automatic silent refresh
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
 
+    // Avoid infinite loops if the refresh itself fails
+    if (originalRequest.url.includes('/auth/refresh')) {
+      tokenStore.clear();
+      forceLogout();
+      return Promise.reject(error);
+    }
+
     // If 401 and we haven't already retried this request
     if (error.response && error.response.status === 401 && !originalRequest._retry) {
-      const refreshToken = localStorage.getItem('refreshToken');
       
-      // If no refresh token, force logout
-      if (!refreshToken) {
-        forceLogout();
-        return Promise.reject(error);
-      }
-
       if (isRefreshing) {
         // Queue this request until refresh completes
         return new Promise((resolve, reject) => {
@@ -64,23 +67,21 @@ api.interceptors.response.use(
       isRefreshing = true;
 
       try {
-        const response = await axios.post(`${BASE_URL}/auth/refresh`, { refreshToken });
-        const { accessToken, refreshToken: newRefreshToken } = response.data;
+        // 🔄 Silent Refresh: No need to pass token in body, it's in the HttpOnly cookie
+        const response = await axios.post(`${BASE_URL}/auth/refresh`, {}, { withCredentials: true });
+        const { accessToken } = response.data;
 
-        localStorage.setItem('token', accessToken);
-        localStorage.setItem('refreshToken', newRefreshToken);
+        tokenStore.set(accessToken); // Save new short-lived token to memory
 
         api.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
         originalRequest.headers['Authorization'] = `Bearer ${accessToken}`;
 
         processQueue(null, accessToken);
 
-        // Dispatch event so SocketContext can reconnect with new token
-        window.dispatchEvent(new CustomEvent('token:refreshed', { detail: { token: accessToken } }));
-
         return api(originalRequest);
       } catch (refreshError) {
         processQueue(refreshError, null);
+        tokenStore.clear();
         forceLogout();
         return Promise.reject(refreshError);
       } finally {
@@ -101,17 +102,19 @@ api.interceptors.response.use(
 );
 
 const forceLogout = () => {
+  // 🧹 Mandatory Cleanup: Ensure nothing sensitive remains in localStorage
   localStorage.removeItem('token');
   localStorage.removeItem('refreshToken');
   localStorage.removeItem('user');
-  window.location.href = '/'; // Force reload to login screen
+  
+  // 🚀 Improvement: Redirect to login instead of root to avoid redirect loops
+  window.location.href = '/login'; 
 };
 
 export const getImageUrl = (path) => {
   if (!path) return '';
   if (path.startsWith('http')) return path;
   
-  // 🚀 User Request: Handle Windows-style backslashes and ensure correct slash usage
   const cleanPath = path.replace(/\\/g, '/');
   const separator = cleanPath.startsWith('/') ? '' : '/';
   
