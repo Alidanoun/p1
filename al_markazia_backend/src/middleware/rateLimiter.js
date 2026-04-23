@@ -2,10 +2,10 @@ const rateLimit = require('express-rate-limit');
 const logger = require('../utils/logger');
 
 // التقييد العام للنظام (Global Limiter)
-// 120 طلب لكل رقم IP في الدقيقة الواحدة
 const globalLimiter = rateLimit({
   windowMs: 60 * 1000, 
   max: 300, 
+  validate: false,
   standardHeaders: true, 
   legacyHeaders: false, 
   message: { success: false, message: 'Too many requests' },
@@ -16,11 +16,10 @@ const globalLimiter = rateLimit({
 });
 
 // تقييد المصادقة (Auth Limiter)
-// حماية طلبات تسجيل الدخول والتوثيق لمنع Brute Force
-// 30 طلب لكل رقم IP في الدقيقة الواحدة
 const authLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 10,
+  validate: false,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: 'Too many authentication attempts. Please try again later.' },
@@ -31,10 +30,10 @@ const authLimiter = rateLimit({
 });
 
 // تقييد إنشاء الطلبات (Order Creation Limiter)
-// 40 مسودة أو طلب لكل رقم IP في الدقيقة الواحدة لمنع الـ Spam
 const orderLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 40,
+  validate: false,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: 'Too many orders placed in a short period. Please slow down.' },
@@ -45,10 +44,10 @@ const orderLimiter = rateLimit({
 });
 
 // تقييد البحث (Search Limiter)
-// 50 طلب بحث لكل رقم IP في الدقيقة الواحدة لمنع الـ Scraping والـ Spam
 const searchLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 50,
+  validate: false,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: 'Too many search requests. Please slow down.' },
@@ -59,12 +58,11 @@ const searchLimiter = rateLimit({
 });
 
 // تقييد التقييمات (Review Limiter)
-// 5 تقييمات لكل زبون في الساعة الواحدة
 const reviewLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 5,
   keyGenerator: (req) => req.user?.id || req.ip,
-  validate: { keyGenerator: false }, // 🛡️ Disable IPv6 validation crash
+  validate: false,
   standardHeaders: true,
   legacyHeaders: false,
   message: { 
@@ -82,7 +80,7 @@ const flagLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 20,
   keyGenerator: (req) => req.user?.id || req.ip,
-  validate: { keyGenerator: false },
+  validate: false,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many flag requests' }
