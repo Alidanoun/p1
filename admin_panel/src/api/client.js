@@ -46,7 +46,7 @@ api.interceptors.response.use(
     // Avoid infinite loops if the refresh itself fails
     if (originalRequest.url.includes('/auth/refresh')) {
       tokenStore.clear();
-      forceLogout();
+      // ⚠️ Do NOT call forceLogout() here to avoid infinite redirect loops during bootstrap
       return Promise.reject(error);
     }
 
