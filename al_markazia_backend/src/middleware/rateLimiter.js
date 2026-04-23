@@ -5,7 +5,7 @@ const logger = require('../utils/logger');
 // 120 طلب لكل رقم IP في الدقيقة الواحدة
 const globalLimiter = rateLimit({
   windowMs: 60 * 1000, 
-  max: 120, 
+  max: 300, 
   standardHeaders: true, 
   legacyHeaders: false, 
   message: { success: false, message: 'Too many requests' },
@@ -20,7 +20,7 @@ const globalLimiter = rateLimit({
 // 30 طلب لكل رقم IP في الدقيقة الواحدة
 const authLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 30,
+  max: 100,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: 'Too many authentication attempts. Please try again later.' },
