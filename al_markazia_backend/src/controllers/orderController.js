@@ -213,6 +213,20 @@ exports.createOrder = async (req, res) => {
   }
 };
 
+/**
+ * Batch Accept (One-click confirmation)
+ */
+exports.acceptAllNewOrders = async (req, res) => {
+  try {
+    const adminEmail = req.user?.email || 'Admin';
+    const result = await orderService.batchAcceptOrders(adminEmail);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    logger.error('Batch accept error', { error: error.message });
+    res.status(500).json({ error: 'Batch operation failed' });
+  }
+};
+
 exports.updateOrderStatus = async (req, res) => {
    try {
      const orderId = parseInt(req.params.id);
@@ -225,6 +239,40 @@ exports.updateOrderStatus = async (req, res) => {
    } catch (error) {
      res.status(500).json({ error: 'Status update failed' });
    }
+};
+
+/**
+ * ⏲️ Update estimated ready time (Admin)
+ */
+exports.updateOrderTimer = async (req, res) => {
+  try {
+    const { estimatedReadyAt } = req.body;
+    const order = await prisma.order.update({
+      where: { id: parseInt(req.params.id) },
+      data: { estimatedReadyAt: new Date(estimatedReadyAt) },
+      include: ORDER_INCLUDE_FULL
+    });
+    res.json(mapOrderResponse(order));
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update timer' });
+  }
+};
+
+/**
+ * ⭐ Submit Order Rating
+ */
+exports.submitOrderRating = async (req, res) => {
+  try {
+    const { rating, comment } = req.body;
+    const order = await prisma.order.update({
+      where: { id: parseInt(req.params.id) },
+      data: { rating, ratingComment: comment, isRatingApproved: false },
+      include: ORDER_INCLUDE_FULL
+    });
+    res.json(mapOrderResponse(order));
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to submit rating' });
+  }
 };
 
 exports.cancelOrder = async (req, res) => {
@@ -291,6 +339,87 @@ exports.cancelOrder = async (req, res) => {
     logger.error('cancelOrder failed', { error: error.message });
     res.status(500).json({ error: 'Cancellation failed' });
   }
+};
+
+/**
+ * Handle cancellation request (approve/reject from admin)
+ */
+exports.handleCancellationRequest = async (req, res) => {
+  try {
+    const orderId = parseInt(req.params.id);
+    const { action, rejectionReason } = req.body;
+
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { cancellation: true, customer: true }
+    });
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+    if (order.status !== 'waiting_cancellation') return res.status(400).json({ error: 'Order is not pending cancellation' });
+
+    if (action === 'approve') {
+      const result = await exports.performStatusUpdate(orderId, 'cancelled');
+      if (order.cancellation) {
+        await prisma.orderCancellation.update({
+          where: { orderId },
+          data: { status: 'approved', adminName: req.user?.email }
+        });
+      }
+      return res.json(result || { success: true });
+    } else {
+      // Reject — restore previous status
+      const previousStatus = order.cancellation?.previousStatus || 'preparing';
+      const result = await exports.performStatusUpdate(orderId, previousStatus);
+      if (order.cancellation) {
+        await prisma.orderCancellation.update({
+          where: { orderId },
+          data: { status: 'rejected', rejectionReason, adminName: req.user?.email }
+        });
+      }
+      return res.json(result || { success: true });
+    }
+  } catch (error) {
+    logger.error('handleCancellationRequest failed', { error: error.message });
+    res.status(500).json({ error: 'Failed to handle cancellation request' });
+  }
+};
+
+/**
+ * Partial Cancellation Handlers
+ */
+exports.requestPartialCancel = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { items, reason } = req.body;
+
+    const order = await prisma.order.findUnique({
+      where: { id: parseInt(orderId) },
+      include: { customer: true }
+    });
+
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+
+    await prisma.notification.create({
+      data: {
+        title: 'طلب إلغاء جزئي ⚠️',
+        message: `طلب تعديل للطلب #${order.orderNumber} من ${order.customerName}`,
+        type: 'partial_cancel_requested',
+        orderId: order.id,
+        targetRoute: `/orders?id=${order.id}`
+      }
+    });
+
+    res.json({ success: true, message: 'تم إرسال طلب التعديل للإدارة' });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to request partial cancel' });
+  }
+};
+
+exports.handlePartialCancelRequest = async (req, res) => {
+  res.json({ message: 'تم استلام الطلب، جاري مراجعته من قبل الإدارة' });
+};
+
+exports.getPendingPartialCancels = async (req, res) => {
+  res.json([]);
 };
 
 /**
