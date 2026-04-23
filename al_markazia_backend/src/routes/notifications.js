@@ -3,24 +3,19 @@ const router = express.Router();
 const notificationController = require('../controllers/notificationController');
 const { authenticateToken, isAdmin } = require('../middleware/auth');
 
-// Secure Identity Route: Get my notifications
+// ✅ Customer: own notifications
 router.get('/my-notifications', authenticateToken, notificationController.getMyNotifications);
 
-// Legacy/Admin Route: Get notifications by phone or for admin
-router.get('/', (req, res, next) => {
-  if (req.query.phone) return next();
-  return authenticateToken(req, res, next);
-}, notificationController.getNotifications);
+// ✅ Admin: all admin notifications
+router.get('/', authenticateToken, isAdmin, notificationController.getAdminNotifications);
 
-// Mark as read (Secure + Legacy)
-router.put('/read-all', (req, res, next) => {
-  if (req.query.phone) return next();
-  return authenticateToken(req, res, next);
-}, notificationController.markAllAsRead);
-
+// ✅ Mark single as read (ownership-checked)
 router.put('/:id/read', authenticateToken, notificationController.markAsRead);
 
-// Protect the broadcast so only admins can do it
+// ✅ Mark all as read (uses JWT identity only)
+router.put('/read-all', authenticateToken, notificationController.markAllAsRead);
+
+// ✅ Admin broadcast
 router.post('/broadcast', authenticateToken, isAdmin, notificationController.broadcast);
 
 module.exports = router;

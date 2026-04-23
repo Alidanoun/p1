@@ -20,7 +20,7 @@ const globalLimiter = rateLimit({
 // 30 طلب لكل رقم IP في الدقيقة الواحدة
 const authLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 100,
+  max: 5000,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: 'Too many authentication attempts. Please try again later.' },

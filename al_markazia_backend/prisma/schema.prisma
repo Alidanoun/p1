@@ -201,6 +201,7 @@ model Customer {
   riskScore         Float     @default(0)   // Calculated score 0-100
   riskScoreUpdatedAt DateTime?
   
+  phoneVerifiedAt   DateTime? // New: Track when the phone was last verified via OTP
   createdAt         DateTime  @default(now())
   orders            Order[]
   auditLogs         CustomerAuditLog[]
@@ -411,4 +412,20 @@ model HealthMetric {
 
   @@index([createdAt])
   @@index([status])
+}
+
+model OtpCode {
+  id          String   @id @default(uuid())
+  phone       String
+  codeHash    String   // Hashed version of the OTP (bcrypt)
+  attempts    Int      @default(0)
+  used        Boolean  @default(false)
+  purpose     String   @default("login")  // login | register | password_reset
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  ipAddress   String?
+  userAgent   String?
+
+  @@index([phone, purpose, used])
+  @@index([expiresAt])
 }
