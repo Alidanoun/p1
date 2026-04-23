@@ -94,6 +94,11 @@ exports.submitReview = async (req, res) => {
     }
 
     res.status(201).json({ success: true, review });
+
+    // 🚀 Update Item Cache (Background)
+    if (review.isApproved) {
+      updateItemStats(itemIdInt).catch(e => logger.error('Cache update failed', { error: e.message }));
+    }
   } catch (error) {
     logger.error('Submit review error:', error);
     res.status(500).json({ error: 'فشل إرسال التقييم' });
@@ -108,7 +113,6 @@ exports.getItemReviews = async (req, res) => {
     const itemId = parseInt(req.params.itemId);
     if (isNaN(itemId)) return res.status(400).json({ error: 'Item ID is required' });
 
-    // ✅ Pagination
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(50, parseInt(req.query.limit) || 20);
     const skip = (page - 1) * limit;
@@ -147,12 +151,10 @@ exports.getItemReviews = async (req, res) => {
  */
 exports.getAllReviews = async (req, res) => {
   try {
-    // ✅ Admin Pagination
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(100, parseInt(req.query.limit) || 50);
     const skip = (page - 1) * limit;
 
-    // 1. Item Reviews
     const itemReviews = await prisma.review.findMany({
       include: {
         item: { select: { title: true, id: true, image: true } },
@@ -170,7 +172,6 @@ exports.getAllReviews = async (req, res) => {
       customerPhone: r.customer.phone
     }));
 
-    // 2. Order Ratings
     const orderRatings = await prisma.order.findMany({
       where: { rating: { not: null } },
       orderBy: { createdAt: 'desc' },
@@ -210,7 +211,6 @@ exports.toggleApproval = async (req, res) => {
     const { id } = req.params;
     const { isApproved } = req.body;
 
-    // ✅ Validation for Order IDs
     if (typeof id === 'string' && id.startsWith('order-')) {
       const realId = parseInt(id.replace('order-', ''));
       if (isNaN(realId)) return res.status(400).json({ error: 'Invalid Order ID' });
@@ -222,7 +222,6 @@ exports.toggleApproval = async (req, res) => {
       return res.json({ success: true });
     }
 
-    // ✅ Validation for Review IDs
     const reviewId = parseInt(id);
     if (isNaN(reviewId)) return res.status(400).json({ error: 'Invalid Review ID' });
 
@@ -230,6 +229,10 @@ exports.toggleApproval = async (req, res) => {
       where: { id: reviewId },
       data: { isApproved: Boolean(isApproved), isFlagged: false }
     });
+
+    // 🚀 Update Item Cache (Background)
+    updateItemStats(review.itemId).catch(e => logger.error('Cache update failed', { error: e.message }));
+
     res.json(review);
   } catch (error) {
     res.status(500).json({ error: 'Failed to update status' });
@@ -262,9 +265,32 @@ exports.deleteReview = async (req, res) => {
     const reviewId = parseInt(req.params.id);
     if (isNaN(reviewId)) return res.status(400).json({ error: 'Invalid ID' });
 
-    await prisma.review.delete({ where: { id: reviewId } });
+    const review = await prisma.review.delete({ where: { id: reviewId } });
+
+    // 🚀 Update Item Cache (Background)
+    updateItemStats(review.itemId).catch(e => logger.error('Cache update failed', { error: e.message }));
+
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: 'Delete failed' });
   }
 };
+
+/**
+ * ⚡ Performance Helper: Atomic Item Stats Synchronization
+ */
+async function updateItemStats(itemId) {
+  const stats = await prisma.review.aggregate({
+    where: { itemId, isApproved: true },
+    _avg: { rating: true },
+    _count: { id: true }
+  });
+
+  await prisma.item.update({
+    where: { id: itemId },
+    data: {
+      cachedAvgRating: stats._avg.rating || 0,
+      cachedReviewCount: stats._count.id || 0
+    }
+  });
+}

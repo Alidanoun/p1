@@ -23,20 +23,37 @@ exports.getAllItems = async (req, res) => {
 
     const items = await prisma.item.findMany({
       where: filter,
-      include: {
-        category: true,
+      select: {
+        id: true,
+        title: true,
+        titleEn: true,
+        description: true,
+        descriptionEn: true,
+        basePrice: true,
+        image: true,
+        categoryId: true,
+        isAvailable: true,
+        isFeatured: true,
+        preparationTime: true,
+        cachedAvgRating: true,
+        cachedReviewCount: true,
+        category: {
+          select: { id: true, name: true, nameEn: true }
+        },
         optionGroups: {
+          where: { isActive: true },
           include: {
-            options: true
+            options: { where: { isActive: true }, orderBy: { sortOrder: 'asc' } }
           },
           orderBy: { sortOrder: 'asc' }
         }
       },
-      orderBy: { createdAt: 'desc' }
+      orderBy: [
+        { isFeatured: 'desc' },
+        { createdAt: 'desc' }
+      ]
     });
 
-    // 🛡️ Architectural V19: Independent data delivery.
-    // We return raw flags to allow the UI to handle visibility independently of analytics.
     res.json(items);
   } catch (error) {
     logger.error('Failed to fetch items', { error: error.message, stack: error.stack });
