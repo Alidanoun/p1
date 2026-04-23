@@ -64,6 +64,7 @@ const reviewLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 5,
   keyGenerator: (req) => req.user?.id || req.ip,
+  validate: { keyGenerator: false }, // 🛡️ Disable IPv6 validation crash
   standardHeaders: true,
   legacyHeaders: false,
   message: { 
@@ -81,6 +82,7 @@ const flagLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 20,
   keyGenerator: (req) => req.user?.id || req.ip,
+  validate: { keyGenerator: false },
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many flag requests' }
