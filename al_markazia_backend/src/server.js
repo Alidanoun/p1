@@ -109,8 +109,21 @@ app.use(morgan(
   }
 ));
 
-// Static folder for uploading images
-app.use('/uploads', express.static('uploads'));
+// 🛡️ Secure Static File Serving (V21 Hardened)
+app.use('/uploads', express.static('uploads', {
+  maxAge: '7d',
+  immutable: true,
+  index: false,
+  dotfiles: 'deny',
+  setHeaders: (res) => {
+    // Prevent MIME-sniffing
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    // Ensure inline display instead of forced download
+    res.setHeader('Content-Disposition', 'inline');
+    // Basic CSP for assets
+    res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'");
+  }
+}));
 
 // BullMQ Monitoring Dashboard (Secured with Admin Key)
 app.use('/admin/queues', (req, res, next) => {
