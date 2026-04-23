@@ -1,6 +1,10 @@
 const express = require('express');
 const { orderLimiter } = require('../middleware/rateLimiter');
-const { authenticateToken: authMiddleware, isAdmin: adminMiddleware } = require('../middleware/auth');
+const { 
+  authenticateToken: authMiddleware, 
+  isAdmin: adminMiddleware,
+  optionalAuth
+} = require('../middleware/auth');
 const { healthGuard } = require('../middleware/healthGuard');
 const { 
   createOrder, 
@@ -29,17 +33,8 @@ const logger = require('../utils/logger');
 
 const router = express.Router();
 
-// Allow guests (app) to create orders - Improved: Fail gracefully to guest mode if token is invalid
-router.post('/', (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  if (!authHeader) return next();
-  
-  // Try to authenticate, but don't block if it fails (just proceed as guest)
-  authMiddleware(req, res, () => {
-    // If authMiddleware attached req.user, great. If not, we just continue.
-    next();
-  });
-}, healthGuard('db'), orderLimiter, createOrder);
+// Allow guests (app) to create orders while identifying registered customers
+router.post('/', optionalAuth, healthGuard('db'), orderLimiter, createOrder);
 
 // New Secure Identity Route: Get orders for the authenticated customer
 router.get('/my-orders', authMiddleware, getMyOrders);
