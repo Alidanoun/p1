@@ -64,10 +64,19 @@ exports.createOrder = async (req, res) => {
   }
 
   try {
-    // 2. 🧠 Delegate Business Logic to Service
-    const newOrder = await orderService.createOrder(req.body, req.user);
+    const authUser = req.user; // null for guests, { id, phone, role } for authenticated
 
-    // 3. Resolve Idempotency
+    // 2. 🛡️ Explicit Validation: Guest must provide phone
+    if (!authUser && !req.body.phone) {
+      const response = { success: false, error: 'رقم الهاتف مطلوب لإتمام الطلب كضيف' };
+      if (idempotencyKey) await IdempotencyService.resolveRequest(idempotencyKey, 400, response);
+      return res.status(400).json(response);
+    }
+
+    // 3. 🧠 Delegate Business Logic to Service
+    const newOrder = await orderService.createOrder(req.body, authUser);
+
+    // 4. Resolve Idempotency
     if (idempotencyKey) await IdempotencyService.resolveRequest(idempotencyKey, 201, newOrder);
 
     res.status(201).json(newOrder);

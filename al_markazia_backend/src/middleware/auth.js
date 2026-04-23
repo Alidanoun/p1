@@ -66,4 +66,46 @@ const requireRoles = (allowedRoles) => (req, res, next) => {
 
 const isAdmin = requireRoles(['admin', 'super_admin']);
 
-module.exports = { authenticateToken, isAdmin, requireRoles };
+/**
+ * 🟡 Optional Authentication Middleware
+ * Allows guests (no token) while validating existing tokens.
+ */
+const optionalAuth = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  // 1. Guest Case: No token provided at all
+  if (!token) {
+    req.user = null;
+    return next();
+  }
+
+  // 2. Token Provided: MUST be valid
+  try {
+    const decoded = TokenService.verifyAccessToken(token);
+    req.user = {
+      id: decoded.id,
+      phone: decoded.phone,
+      role: (decoded.role || '').toLowerCase()
+    };
+    next();
+  } catch (error) {
+    const isExpired = error.message === 'TOKEN_EXPIRED';
+    const errorCode = isExpired ? 'TOKEN_EXPIRED' : 'INVALID_TOKEN';
+    const message = isExpired ? 'الجلسة منتهية، يرجى تسجيل الدخول مجدداً' : 'رمز الدخول غير صالح';
+
+    logger.security(`Optional Auth Failed: ${error.message}`, {
+      ip: req.ip,
+      endpoint: req.originalUrl
+    });
+
+    return responseError(res, message, errorCode, 401);
+  }
+};
+
+module.exports = { 
+  authenticateToken, 
+  isAdmin, 
+  requireRoles,
+  optionalAuth
+};
