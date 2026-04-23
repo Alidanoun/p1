@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const MaintenanceService = require('../services/maintenanceService');
 const logger = require('../utils/logger');
+const otpService = require('../services/otpService');
 
 /**
  * Automated Maintenance Jobs - Granite Architecture
@@ -8,13 +9,14 @@ const logger = require('../utils/logger');
  */
 function initCronJobs(io = null) {
   
-  // 1. Cleanup Expired Idempotency Keys - Every Hour
+  // 1. Cleanup Expired Idempotency Keys & OTPs - Every Hour
   cron.schedule('0 * * * *', async () => {
     try {
-      logger.info('Cron Job Trace: Starting Idempotency Cleanup...');
+      logger.info('Cron Job Trace: Starting Idempotency & OTP Cleanup...');
       await MaintenanceService.cleanupIdempotency();
+      await otpService.cleanupExpired();
     } catch (err) {
-      logger.error('Cron Job Failed: Idempotency Cleanup', { error: err.message });
+      logger.error('Cron Job Failed: Idempotency/OTP Cleanup', { error: err.message });
     }
   });
 
@@ -76,6 +78,7 @@ function initCronJobs(io = null) {
       await MaintenanceService.cleanupStuckOrders();
       await MaintenanceService.cleanupOldIdempotencyRecords();
       await MaintenanceService.cleanupNotificationLogs();
+      await otpService.cleanupExpired();
     } catch (err) {
       logger.error('Startup Cleanup Failed', { error: err.message });
     }
