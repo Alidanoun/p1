@@ -8,6 +8,7 @@ const rateLimit = require('express-rate-limit');
 const unblockRateLimit = rateLimit({
   windowMs: 1 * 60 * 1000, 
   max: 10, 
+  validate: false,
   message: { success: false, error: { message: 'محاولات كثيرة جداً، يرجى الانتظار دقيقة واحدة.', code: 'RATE_LIMIT_EXCEEDED' } }
 });
 
@@ -15,6 +16,7 @@ const unblockRateLimit = rateLimit({
 const otpRequestLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 3,
+  validate: false,
   message: { success: false, error: { message: 'محاولات كثيرة، حاول بعد ساعة', code: 'OTP_LIMIT' } },
   standardHeaders: true,
   legacyHeaders: false,
@@ -25,6 +27,7 @@ const otpRequestLimiter = rateLimit({
 const otpVerifyLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 10,
+  validate: false,
   message: { success: false, error: { message: 'محاولات كثيرة، يرجى طلب رمز جديد', code: 'VERIFY_LIMIT' } }
 });
 
