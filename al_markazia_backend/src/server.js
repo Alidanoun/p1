@@ -30,6 +30,8 @@ const { shadowMirrorMiddleware } = require('./middleware/shadowMirrorMiddleware'
 const IdempotencyService = require('./services/idempotencyService');
 const externalProbeController = require('./controllers/externalProbeController');
 const warmupService = require('./services/warmupService');
+const prisma = require('./lib/prisma');
+const queryProfiler = require('./middleware/queryProfiler');
 
 // Initialize Intelligence & Alerting Layer
 require('./services/alertService');
@@ -55,6 +57,11 @@ initHealthWorker();
 // CRM Tracing & Architecture Layers
 app.use(requestTracing);
 app.use(shadowMirrorMiddleware); // 🪞 Big Tech Traffic Mirroring
+
+// 🔍 Performance Monitoring (Dev only)
+if (process.env.NODE_ENV !== 'production') {
+  app.use(queryProfiler(prisma));
+}
 
 const PORT = process.env.PORT || 5000;
 

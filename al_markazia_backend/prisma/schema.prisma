@@ -50,6 +50,12 @@ model Item {
   optionGroups    ItemOptionGroup[]
   orderItems      OrderItem[]
   reviews         Review[]
+
+  @@index([categoryId, isAvailable])
+  @@index([isAvailable, createdAt])
+  
+  cachedAvgRating   Float?   @default(0)
+  cachedReviewCount Int?     @default(0)
 }
 
 model ItemOptionGroup {
@@ -125,11 +131,10 @@ model Order {
   deliveryZoneName  String?
   deliveryMinOrder  Decimal?   @db.Decimal(10, 2)
 
-  @@index([status])
-  @@index([customerPhone])
-  @@index([customerId])
-  @@index([createdAt])
+  @@index([status, createdAt(sort: Desc)])
+  @@index([customerId, createdAt(sort: Desc)])
   @@index([orderNumber])
+  @@index([createdAt])
   @@index([tenantId])
 }
 
@@ -168,6 +173,9 @@ model OrderItem {
   item            Item?   @relation(fields: [itemId], references: [id], onDelete: SetNull)
   status          OrderItemStatus @default(normal)
   rejectionReason String?
+  
+  @@index([orderId])
+  @@index([itemId])
 }
 
 enum OrderItemStatus {
@@ -279,7 +287,7 @@ model Review {
   updatedAt       DateTime  @updatedAt
   
   @@unique([customerId, itemId])
-  @@index([itemId, isApproved, createdAt])
+  @@index([itemId, isApproved, createdAt(sort: Desc)])
   @@index([customerId, createdAt])
 }
 
