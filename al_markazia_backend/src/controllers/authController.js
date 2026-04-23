@@ -10,7 +10,7 @@ const refreshCookieOptions = (req) => ({
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',  // HTTPS only in production
   sameSite: 'lax',                                 // Better compatibility for local dev/cross-origin
-  path: '/auth',                                   // Restricted scope for security
+  path: '/',                                       // Global scope for easier cross-origin handshake
   maxAge: REFRESH_TOKEN_EXPIRY_MS
 });
 
@@ -40,11 +40,11 @@ const refreshToken = async (req, res) => {
     });
   } catch (error) {
     if (error.message === 'TOKEN_REUSE_DETECTED') {
-      res.clearCookie('refreshToken', { path: '/auth' });
+      res.clearCookie('refreshToken', { path: '/' });
       return response.error(res, 'تنبيه أمني: تم اكتشاف محاولة اختراق الجلسة. تم تسجيل الخروج من كافة الأجهزة.', 'SECURITY_BREACH', 401);
     }
     
-    res.clearCookie('refreshToken', { path: '/auth' });
+    res.clearCookie('refreshToken', { path: '/' });
     logger.security('Invalid refresh attempt', { error: error.message });
     return response.error(res, 'انتهت صلاحية الجلسة، يرجى تسجيل الدخول', 'SESSION_EXPIRED', 401);
   }
@@ -115,7 +115,7 @@ const logout = async (req, res) => {
     await TokenService.revokeToken(token);
   }
 
-  res.clearCookie('refreshToken', { path: '/auth' });
+  res.clearCookie('refreshToken', { path: '/' });
   return res.json({ success: true, message: 'Logged out successfully' });
 };
 
