@@ -336,12 +336,16 @@ const LiveOrders = () => {
 
   const fetchOrders = async () => {
     try {
-      const { data } = await api.get('/orders?active_only=true');
-      setOrders(data);
-      prevOrdersCount.current = data.length;
+      const { data: response } = await api.get('/orders?active_only=true');
+      
+      // ✅ Handle both wrapped { success, data, pagination } and legacy [array] formats
+      const ordersList = Array.isArray(response) ? response : (response.data || []);
+      
+      setOrders(ordersList);
+      prevOrdersCount.current = ordersList.length;
       setLoading(false);
-    } catch {
-      console.error('Failed to fetch orders');
+    } catch (err) {
+      console.error('Failed to fetch orders', err);
       setLoading(false);
     }
   };

@@ -12,7 +12,7 @@ exports.submitReview = async (req, res) => {
     
     // ✅ Role check: Only customers can review
     if (req.user.role !== 'customer') {
-      return res.status(403).json({ error: 'فقط الزبائن يقدرون يضيفوا تقييم' });
+      return res.status(403).json({ success: false, error: 'فقط الزبائن يقدرون يضيفوا تقييم' });
     }
 
     const userUuid = req.user.id;
@@ -93,15 +93,13 @@ exports.submitReview = async (req, res) => {
       io.to(SOCKET_ROOMS.ADMIN).emit(SOCKET_EVENTS.NEW_REVIEW, { review });
     }
 
-    res.status(201).json({ success: true, review });
-
-    // 🚀 Update Item Cache (Background)
-    if (review.isApproved) {
-      updateItemStats(itemIdInt).catch(e => logger.error('Cache update failed', { error: e.message }));
-    }
+    res.status(201).json({
+      success: true,
+      data: review
+    });
   } catch (error) {
-    logger.error('Submit review error:', error);
-    res.status(500).json({ error: 'فشل إرسال التقييم' });
+    logger.error('Submit review error', { error: error.message });
+    res.status(500).json({ success: false, error: 'فشل إرسال التقييم' });
   }
 };
 
@@ -111,7 +109,7 @@ exports.submitReview = async (req, res) => {
 exports.getItemReviews = async (req, res) => {
   try {
     const itemId = parseInt(req.params.itemId);
-    if (isNaN(itemId)) return res.status(400).json({ error: 'Item ID is required' });
+    if (isNaN(itemId)) return res.status(400).json({ success: false, error: 'Item ID is required' });
 
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(50, parseInt(req.query.limit) || 20);
@@ -138,11 +136,11 @@ exports.getItemReviews = async (req, res) => {
     res.json({
       success: true,
       data: reviews,
-      pagination: { total, page, limit, hasMore: (page * limit) < total }
+      pagination: { total, page, limit, pages: Math.ceil(total / limit) }
     });
   } catch (error) {
-    logger.error('Get item reviews error:', error);
-    res.status(500).json({ error: 'فشل جلب التقييمات' });
+    logger.error('Fetch item reviews error', { itemId: req.params.itemId, error: error.message });
+    res.status(500).json({ success: false, error: 'Failed to fetch reviews' });
   }
 };
 
@@ -196,10 +194,10 @@ exports.getAllReviews = async (req, res) => {
       new Date(b.createdAt) - new Date(a.createdAt)
     );
 
-    res.json(all);
+    res.json({ success: true, data: all });
   } catch (error) {
     logger.error('Get all reviews error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ success: false, error: 'Internal server error' });
   }
 };
 

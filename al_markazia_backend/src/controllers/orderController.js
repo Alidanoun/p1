@@ -178,9 +178,13 @@ exports.getOrderById = async (req, res) => {
         }
     }
 
-    res.json(mapOrderResponse(order));
+    res.json({
+      success: true,
+      data: mapOrderResponse(order)
+    });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch order' });
+    logger.error('Fetch order by ID error', { error: error.message, orderId: req.params.id });
+    res.status(500).json({ success: false, error: 'Failed to fetch order' });
   }
 };
 
@@ -205,11 +209,12 @@ exports.createOrder = async (req, res) => {
     }
 
     const newOrder = await orderService.createOrder(req.body, authUser);
-    if (idempotencyKey) await IdempotencyService.resolveRequest(idempotencyKey, 201, newOrder);
-    res.status(201).json(newOrder);
+    const response = { success: true, data: newOrder };
+    if (idempotencyKey) await IdempotencyService.resolveRequest(idempotencyKey, 201, response);
+    res.status(201).json(response);
   } catch (error) {
     logger.error('Order Creation Error', { error: error.message });
-    res.status(500).json({ error: error.message || 'فشل إنشاء الطلب' });
+    res.status(500).json({ success: false, error: error.message || 'فشل إنشاء الطلب' });
   }
 };
 

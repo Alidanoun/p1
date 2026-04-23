@@ -1,5 +1,6 @@
 import { createContext, useState, useEffect, useContext } from 'react';
-import api from '../api/client';
+import api, { BASE_URL } from '../api/client';
+import axios from 'axios';
 import { tokenStore } from '../api/tokenStore';
 
 const AuthContext = createContext();
@@ -22,13 +23,18 @@ export const AuthProvider = ({ children }) => {
       localStorage.removeItem('user');
 
       try {
-        // 🔄 Silent Refresh: Try to acquire access token using the cookie
-        const { data } = await api.post('/auth/refresh');
-        tokenStore.set(data.accessToken);
+        // 🔄 Silent Refresh
+        const refreshResponse = await axios.post(`${BASE_URL}/auth/refresh`, {}, { withCredentials: true });
+        const refreshData = refreshResponse.data.success ? refreshResponse.data.data : refreshResponse.data;
+        const { accessToken } = refreshData;
+        tokenStore.set(accessToken);
 
-        // 👤 Fetch Identity
-        const me = await api.get('/auth/me');
-        setUser(me.data.data);
+        // 👤 Fetch Identity using raw axios with the fresh token
+        const meResponse = await axios.get(`${BASE_URL}/auth/me`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          withCredentials: true
+        });
+        setUser(meResponse.data.data);
       } catch (err) {
         tokenStore.clear();
         setUser(null);
@@ -42,13 +48,14 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
-      const response = await api.post('/auth/login', { email, password });
-      const { accessToken, user } = response.data;
+      const { data: response } = await api.post('/auth/login', { email, password });
+      const authData = response.success ? response.data : response;
+      const { accessToken, user } = authData;
 
       // 🔒 Save to memory only
       tokenStore.set(accessToken);
       setUser(user);
-      
+
       return { success: true };
     } catch (error) {
       return { success: false, error: error.response?.data?.error || 'Login failed' };

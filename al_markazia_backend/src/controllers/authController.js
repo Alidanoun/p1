@@ -3,7 +3,7 @@ const prisma = require('../lib/prisma');
 const logger = require('../utils/logger');
 const TokenService = require('../services/tokenService');
 const { REFRESH_TOKEN_EXPIRY_MS } = require('../config/secrets');
-const { error: responseError } = require('../utils/response');
+const response = require('../utils/response');
 
 // ── Helper: Secure Cookie Config ──────────────────────
 const refreshCookieOptions = (req) => ({
@@ -23,7 +23,7 @@ const refreshToken = async (req, res) => {
   const token = req.cookies?.refreshToken || req.body?.refreshToken;
 
   if (!token) {
-    return responseError(res, 'Refresh token is required', 'MISSING_TOKEN', 401);
+    return response.error(res, 'Refresh token is required', 'MISSING_TOKEN', 401);
   }
 
   try {
@@ -34,19 +34,19 @@ const refreshToken = async (req, res) => {
     res.cookie('refreshToken', newRefreshToken, refreshCookieOptions(req));
 
     // ✅ Return both (Body is for legacy transition)
-    res.json({ 
+    response.success(res, { 
       accessToken, 
       refreshToken: newRefreshToken 
     });
   } catch (error) {
     if (error.message === 'TOKEN_REUSE_DETECTED') {
       res.clearCookie('refreshToken', { path: '/auth' });
-      return responseError(res, 'تنبيه أمني: تم اكتشاف محاولة اختراق الجلسة. تم تسجيل الخروج من كافة الأجهزة.', 'SECURITY_BREACH', 401);
+      return response.error(res, 'تنبيه أمني: تم اكتشاف محاولة اختراق الجلسة. تم تسجيل الخروج من كافة الأجهزة.', 'SECURITY_BREACH', 401);
     }
     
     res.clearCookie('refreshToken', { path: '/auth' });
     logger.security('Invalid refresh attempt', { error: error.message });
-    return responseError(res, 'انتهت صلاحية الجلسة، يرجى تسجيل الدخول', 'SESSION_EXPIRED', 401);
+    return response.error(res, 'انتهت صلاحية الجلسة، يرجى تسجيل الدخول', 'SESSION_EXPIRED', 401);
   }
 };
 
@@ -59,13 +59,13 @@ const login = async (req, res) => {
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
       logger.security('Invalid login attempt: User not found', { identifier: email, ip: req.ip });
-      return responseError(res, 'بيانات الدخول غير صحيحة', 'INVALID_CREDENTIALS', 401);
+      return response.error(res, 'بيانات الدخول غير صحيحة', 'INVALID_CREDENTIALS', 401);
     }
 
     const match = await bcrypt.compare(password, user.password);
     if (!match) {
       logger.security('Invalid login attempt: Password mismatch', { identifier: email, ip: req.ip });
-      return responseError(res, 'بيانات الدخول غير صحيحة', 'INVALID_CREDENTIALS', 401);
+      return response.error(res, 'بيانات الدخول غير صحيحة', 'INVALID_CREDENTIALS', 401);
     }
 
     // --- 📡 Smart FCM Token Sync ---
@@ -90,9 +90,9 @@ const login = async (req, res) => {
       ip: req.ip 
     });
 
-    res.json({ 
+    response.success(res, { 
       accessToken, 
-      refreshToken, // ✅ Body included for legacy transition
+      refreshToken, 
       user: { 
         id: user.uuid,
         email: user.email, 
@@ -101,7 +101,7 @@ const login = async (req, res) => {
     });
   } catch (error) {
     logger.error('Login error', { error: error.message });
-    responseError(res, 'Internal Server Error', 'SERVER_ERROR', 500);
+    response.error(res, 'Internal Server Error', 'SERVER_ERROR', 500);
   }
 };
 

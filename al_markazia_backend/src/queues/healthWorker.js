@@ -97,6 +97,10 @@ async function checkSocket() {
 }
 
 async function checkFCM() {
+  const firebaseService = require('../services/firebaseService');
+  if (!firebaseService.isFcmEnabled()) {
+    return true; // Healthy because it's intentionally disabled
+  }
   // Dry-run check: verify admin SDK is initialized and app is accessible
   return !!admin.app() && !!admin.messaging();
 }

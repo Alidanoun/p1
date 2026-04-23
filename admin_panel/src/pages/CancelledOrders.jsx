@@ -57,13 +57,13 @@ const CancelledOrders = () => {
 
   const fetchCancellations = async () => {
     try {
-      // In a real app, I'd create a specific endpoint for cancellations.
-      // For now, I'll fetch orders with status 'cancelled' and include the cancellation model.
-      const { data } = await api.get('/orders?time_range=month');
-      // The backend returns mapped objects. I need to ensure cancellation data is present.
-      // Since I added the cancellation model to Prisma, I should fetch it.
+      const { data: response } = await api.get('/orders?time_range=month');
+      
+      // ✅ Handle both wrapped and legacy formats
+      const ordersList = Array.isArray(response) ? response : (response.data || []);
+      
       // Filter for cancelled orders only.
-      const cancelledOnes = data.filter(o => o.status === 'cancelled');
+      const cancelledOnes = ordersList.filter(o => o.status === 'cancelled');
       setCancellations(cancelledOnes);
       setLoading(false);
     } catch (error) {
@@ -88,8 +88,10 @@ const CancelledOrders = () => {
 
   const fetchBlacklistCount = async () => {
     try {
-      const { data } = await api.get('/customers/blacklist/count');
-      if (data.success) setBlacklistCount(data.data.count);
+      const { data: response } = await api.get('/customers/blacklist/count');
+      // Already handles success: true wrapper but let's be safe
+      const count = response.success ? response.data.count : (response.count || 0);
+      setBlacklistCount(count);
     } catch (error) {
       console.error('Failed to fetch blacklist count', error);
     }
@@ -98,10 +100,9 @@ const CancelledOrders = () => {
   const fetchBlacklistedCustomers = useCallback(async () => {
     setIsBlacklistLoading(true);
     try {
-      const { data } = await api.get(`/customers/blacklisted?search=${debouncedSearch}`);
-      if (data.success) {
-        setBlacklistedCustomers(data.data.customers);
-      }
+      const { data: response } = await api.get(`/customers/blacklisted?search=${debouncedSearch}`);
+      const customers = response.success ? response.data.customers : (Array.isArray(response) ? response : []);
+      setBlacklistedCustomers(customers);
     } catch (error) {
        const msg = error.response?.data?.error?.message || 'فشل في جلب القائمة السوداء';
        toast.error(msg);

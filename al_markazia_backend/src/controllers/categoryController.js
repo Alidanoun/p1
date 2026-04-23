@@ -11,10 +11,13 @@ exports.getAllCategories = async (req, res) => {
       where: filter,
       orderBy: { sortOrder: 'asc' }
     });
-    res.json(categories);
+    res.json({
+      success: true,
+      data: categories
+    });
   } catch (error) {
     logger.error('Failed to fetch categories', { error: error.message, stack: error.stack });
-    res.status(500).json({ error: 'Failed to fetch categories' });
+    res.status(500).json({ success: false, error: 'Failed to fetch categories' });
   }
 };
 
@@ -41,10 +44,13 @@ exports.createCategory = async (req, res) => {
     });
 
     logger.info('Category created', { name: category.name, categoryId: category.id });
-    res.status(201).json(category);
+    res.status(201).json({
+      success: true,
+      data: category
+    });
   } catch (error) {
     logger.error('Create category error', { error: error.message, body: req.body });
-    res.status(500).json({ error: 'فشل في إنشاء الفئة' });
+    res.status(500).json({ success: false, error: 'فشل في إنشاء الفئة' });
   }
 };
 
@@ -83,16 +89,19 @@ exports.updateCategory = async (req, res) => {
       updateData.image = req.file.path;
     }
 
-    const category = await prisma.category.update({
+    const updatedCategory = await prisma.category.update({
       where: { id: parseInt(id) },
       data: updateData
     });
 
-    logger.info('Category updated', { categoryId: id, name: category.name });
-    res.json(category);
+    logger.info('Category updated', { categoryId: id, name: updatedCategory.name });
+    res.json({
+      success: true,
+      data: updatedCategory
+    });
   } catch (error) {
-    logger.error('Update category error', { error: error.message, categoryId: req.params.id });
-    res.status(500).json({ error: 'Failed to update category' });
+    logger.error('Update category error', { id: req.params.id, error: error.message });
+    res.status(500).json({ success: false, error: 'فشل في تحديث الفئة' });
   }
 };
 

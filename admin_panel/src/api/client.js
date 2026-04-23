@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { tokenStore } from './tokenStore';
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+export const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 let isRefreshing = false;
 let failedQueue = [];
@@ -52,7 +52,7 @@ api.interceptors.response.use(
 
     // If 401 and we haven't already retried this request
     if (error.response && error.response.status === 401 && !originalRequest._retry) {
-      
+
       if (isRefreshing) {
         // Queue this request until refresh completes
         return new Promise((resolve, reject) => {
@@ -69,7 +69,8 @@ api.interceptors.response.use(
       try {
         // 🔄 Silent Refresh: No need to pass token in body, it's in the HttpOnly cookie
         const response = await axios.post(`${BASE_URL}/auth/refresh`, {}, { withCredentials: true });
-        const { accessToken } = response.data;
+        const refreshData = response.data.success ? response.data.data : response.data;
+        const { accessToken } = refreshData;
 
         tokenStore.set(accessToken); // Save new short-lived token to memory
 
@@ -106,18 +107,18 @@ const forceLogout = () => {
   localStorage.removeItem('token');
   localStorage.removeItem('refreshToken');
   localStorage.removeItem('user');
-  
+
   // 🚀 Improvement: Redirect to login instead of root to avoid redirect loops
-  window.location.href = '/login'; 
+  window.location.href = '/login';
 };
 
 export const getImageUrl = (path) => {
   if (!path) return '';
   if (path.startsWith('http')) return path;
-  
+
   const cleanPath = path.replace(/\\/g, '/');
   const separator = cleanPath.startsWith('/') ? '' : '/';
-  
+
   return `${BASE_URL}${separator}${cleanPath}`;
 };
 

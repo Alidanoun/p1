@@ -159,7 +159,9 @@ class ApiService {
       if (response.statusCode == 401) throw Exception('401');
       
       if (response.statusCode == 200) {
-        final List data = json.decode(utf8.decode(response.bodyBytes));
+        final decoded = json.decode(utf8.decode(response.bodyBytes));
+        final List data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : (decoded is List ? decoded : []);
+        
         final categories = data.map((json) {
           if (json['image'] != null && json['image'].toString().startsWith('/')) {
             json['image'] = '$baseUrl${json['image']}';
@@ -195,7 +197,9 @@ class ApiService {
       if (response.statusCode == 401) throw Exception('401');
 
       if (response.statusCode == 200) {
-        final List data = json.decode(utf8.decode(response.bodyBytes));
+        final decoded = json.decode(utf8.decode(response.bodyBytes));
+        final List data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : (decoded is List ? decoded : []);
+        
         final items = data.map((json) {
           if (json['image'] != null && json['image'].toString().startsWith('/')) {
             json['image'] = '$baseUrl${json['image']}';
@@ -309,7 +313,8 @@ class ApiService {
     try {
       final response = await http.get(Uri.parse('$baseUrl/reviews/item/$itemId')).timeout(const Duration(seconds: 5));
       if (response.statusCode == 200) {
-        final List data = json.decode(utf8.decode(response.bodyBytes));
+        final decoded = json.decode(utf8.decode(response.bodyBytes));
+        final List data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : (decoded is List ? decoded : []);
         return data.map((json) => Review.fromJson(json)).toList();
       }
       return [];
@@ -345,7 +350,9 @@ class ApiService {
     ).timeout(const Duration(seconds: 8));
 
     if (response.statusCode == 200) {
-      final List data = json.decode(utf8.decode(response.bodyBytes));
+      final decoded = json.decode(utf8.decode(response.bodyBytes));
+      final List data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : (decoded is List ? decoded : []);
+      
       return data.map((json) {
         if (json['image'] != null && json['image'].toString().startsWith('/')) {
           json['image'] = '$baseUrl${json['image']}';

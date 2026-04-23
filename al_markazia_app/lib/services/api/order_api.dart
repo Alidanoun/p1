@@ -29,7 +29,9 @@ class OrderApi {
     _checkAuth(response);
 
     if (response.statusCode == 201) {
-      final Map<String, dynamic> data = json.decode(utf8.decode(response.bodyBytes));
+      final Map<String, dynamic> decoded = json.decode(utf8.decode(response.bodyBytes));
+      final Map<String, dynamic> data = decoded.containsKey('data') ? decoded['data'] : decoded;
+      
       // Map cart items for local model consistency
       data['cartItems'] = order.cartItems.map((e) => e.toJson()).toList();
       return OrderModel.fromJson(data);
@@ -65,9 +67,11 @@ class OrderApi {
     
     if (response.statusCode == 200) {
       final decoded = json.decode(utf8.decode(response.bodyBytes));
-      if (decoded is Map && decoded.containsKey('data')) {
-        final List data = decoded['data'];
+      if (decoded is Map) {
+        final List data = decoded['data'] ?? [];
         return data.map((json) => OrderModel.fromJson(json)).toList();
+      } else if (decoded is List) {
+        return decoded.map((json) => OrderModel.fromJson(json)).toList();
       }
     } else {
        final Map<String, dynamic> errorData = json.decode(utf8.decode(response.bodyBytes));
