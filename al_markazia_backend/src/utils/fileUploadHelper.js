@@ -9,11 +9,16 @@ const logger = require('./logger');
 const deleteFile = (relativePath) => {
   if (!relativePath) return;
   try {
-    // Determine the absolute path. This assumes relativePath starts with '/' and root is one directory up from src
+    const UPLOAD_DIR = path.resolve(__dirname, '../../uploads');
     const filename = path.basename(relativePath);
-    const directory = path.dirname(relativePath).replace(/^\//, ''); // Removes leading slash
-    const fullPath = path.join(__dirname, '..', '..', directory, filename);
+    const fullPath = path.resolve(UPLOAD_DIR, filename);
     
+    // 🛡️ Path Traversal Guard: Ensure the resolved path is inside UPLOAD_DIR
+    if (!fullPath.startsWith(UPLOAD_DIR + path.sep)) {
+      logger.security('Refused to delete file outside UPLOAD_DIR', { path: relativePath });
+      return;
+    }
+
     if (fs.existsSync(fullPath)) {
       fs.unlinkSync(fullPath);
       logger.info('Deleted file', { path: relativePath });

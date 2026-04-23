@@ -138,7 +138,7 @@ exports.createItem = async (req, res) => {
       return res.status(400).json({ error: 'الفئة غير صالحة' });
     }
 
-    const imageUrl = req.file ? `/uploads/${req.file.filename}` : null;
+    const imageUrl = req.file ? req.file.path : null;
 
     const optionGroups = req.body.optionGroups ? JSON.parse(req.body.optionGroups) : [];
 
@@ -256,7 +256,7 @@ exports.updateItem = async (req, res) => {
         logger.error('[UpdateItem] Pre-update cleanup error', { error: err.message, itemId: id });
       }
 
-      updateData.image = `/uploads/${req.file.filename}`;
+      updateData.image = req.file.path;
     }
 
     let optionGroups = req.body.optionGroups;
