@@ -9,7 +9,7 @@ const response = require('../utils/response');
 const refreshCookieOptions = (req) => ({
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',  // HTTPS only in production
-  sameSite: 'strict',                              // Anti-CSRF protection
+  sameSite: 'lax',                                 // Better compatibility for local dev/cross-origin
   path: '/auth',                                   // Restricted scope for security
   maxAge: REFRESH_TOKEN_EXPIRY_MS
 });

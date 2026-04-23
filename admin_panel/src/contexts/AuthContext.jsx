@@ -1,6 +1,5 @@
 import { createContext, useState, useEffect, useContext } from 'react';
 import api, { BASE_URL } from '../api/client';
-import axios from 'axios';
 import { tokenStore } from '../api/tokenStore';
 
 const AuthContext = createContext();
@@ -23,19 +22,17 @@ export const AuthProvider = ({ children }) => {
       localStorage.removeItem('user');
 
       try {
-        // 🔄 Silent Refresh
-        const refreshResponse = await axios.post(`${BASE_URL}/auth/refresh`, {}, { withCredentials: true });
-        const refreshData = refreshResponse.data.success ? refreshResponse.data.data : refreshResponse.data;
+        // 🔄 Silent Refresh using the configured api instance
+        const response = await api.post('/auth/refresh');
+        const refreshData = response.data.success ? response.data.data : response.data;
         const { accessToken } = refreshData;
         tokenStore.set(accessToken);
 
-        // 👤 Fetch Identity using raw axios with the fresh token
-        const meResponse = await axios.get(`${BASE_URL}/auth/me`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-          withCredentials: true
-        });
+        // 👤 Fetch Identity
+        const meResponse = await api.get('/auth/me');
         setUser(meResponse.data.data);
       } catch (err) {
+        console.warn('Session bootstrap failed:', err.response?.data?.error || err.message);
         tokenStore.clear();
         setUser(null);
       } finally {
