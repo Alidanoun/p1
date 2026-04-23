@@ -62,9 +62,14 @@ const MenuManager = () => {
         api.get('/items?admin=true'),
         api.get('/categories?admin=true')
       ]);
-      setItems(itemsRes.data || []);
-      setCategories(catRes.data || []);
-    } catch {  
+      
+      const itemsData = Array.isArray(itemsRes.data) ? itemsRes.data : (itemsRes.data.data || []);
+      const catsData = Array.isArray(catRes.data) ? catRes.data : (catRes.data.data || []);
+      
+      setItems(itemsData);
+      setCategories(catsData);
+    } catch (err) {  
+      console.error('Fetch error:', err);
       toast.error('خطأ في تحميل البيانات');
     } finally {
       setLoading(false);
@@ -342,11 +347,11 @@ const MenuManager = () => {
     setCategories(prevCats => prevCats.map(c => c.id === category.id ? { ...c, isActive: newState } : c));
     
     try {
-      const response = await api.put(`/categories/${category.id}`, { isActive: newState });
+      const { data: response } = await api.put(`/categories/${category.id}`, { isActive: newState });
       
-      if (response.data) {
-        setCategories(prevCats => prevCats.map(c => c.id === category.id ? response.data : c));
-      }
+      const updatedCat = response.success ? response.data : response;
+      
+      setCategories(prevCats => prevCats.map(c => c.id === category.id ? updatedCat : c));
       toast.success(newState ? `تم تفعيل قسم ${category.name}` : `تم إيقاف قسم ${category.name}`);
     } catch {  
       // Revert on failure
@@ -366,13 +371,11 @@ const MenuManager = () => {
     setItems(prevItems => prevItems.map(i => String(i.id) === String(item.id) ? { ...i, isAvailable: newState } : i));
     
     try {
-      // Use JSON instead of FormData for simple toggles - MUCH more reliable
-      const response = await api.put(`/items/${item.id}`, { isAvailable: newState });
+      const { data: response } = await api.put(`/items/${item.id}`, { isAvailable: newState });
       
-      // Update with final server data to ensure perfect sync
-      if (response.data) {
-        setItems(prevItems => prevItems.map(i => String(i.id) === String(item.id) ? response.data : i));
-      }
+      const updatedItem = response.success ? response.data : response;
+      
+      setItems(prevItems => prevItems.map(i => String(i.id) === String(item.id) ? updatedItem : i));
     } catch (_e) {
       // Revert on failure
       setItems(prevItems => prevItems.map(i => String(i.id) === String(item.id) ? { ...i, isAvailable: !newState } : i));
@@ -398,14 +401,14 @@ const MenuManager = () => {
 
     try {
       // Use the new atomic PATCH endpoint for guaranteed reliability
-      const response = await api.patch(`/items/${item.id}/options/toggle`, { 
+      const { data: response } = await api.patch(`/items/${item.id}/options/toggle`, { 
         optionId: currentOption.id,
         isAvailable: currentOption.isAvailable 
       });
 
-      if (response.data) {
-        setItems(prevItems => prevItems.map(i => String(i.id) === String(item.id) ? response.data : i));
-      }
+      const updatedItem = response.success ? response.data : response;
+
+      setItems(prevItems => prevItems.map(i => String(i.id) === String(item.id) ? updatedItem : i));
     } catch {  
       toast.error('فشل تحديث الإضافة');
     } finally {

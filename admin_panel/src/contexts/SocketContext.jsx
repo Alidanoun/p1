@@ -18,9 +18,13 @@ export const SocketProvider = ({ children }) => {
 
   const fetchNotifications = async () => {
     try {
-      const res = await api.get('/notifications');
-      setNotifications(res.data);
-      setUnreadCount(res.data.filter(n => !n.isRead).length);
+      const { data: response } = await api.get('/notifications');
+      
+      // ✅ Handle both wrapped and legacy formats
+      const notificationsList = response.success ? response.data : (Array.isArray(response) ? response : []);
+      
+      setNotifications(notificationsList);
+      setUnreadCount(notificationsList.filter(n => !n.isRead).length);
     } catch (err) {
       console.error('Failed to fetch notifications:', err);
     }
@@ -28,9 +32,11 @@ export const SocketProvider = ({ children }) => {
 
   const fetchLiveMetrics = async () => {
     try {
-      const res = await api.get('/dashboard/metrics');
-      if (res.data.success) {
-        setLiveMetrics(res.data.data);
+      const { data: response } = await api.get('/dashboard/metrics');
+      if (response.success) {
+        setLiveMetrics(response.data);
+      } else if (response.revenue) { // Fallback for legacy format if metrics are top-level
+        setLiveMetrics(response);
       }
     } catch (err) {
       console.error('Failed to fetch metrics:', err);

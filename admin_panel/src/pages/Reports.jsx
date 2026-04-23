@@ -22,8 +22,12 @@ const Reports = () => {
   const fetchReportData = async () => {
     setLoading(true);
     try {
-      const { data } = await api.get(`/orders/report?startDate=${startDate}&endDate=${endDate}`);
-      setData(Array.isArray(data) ? data : []);
+      const { data: response } = await api.get(`/orders/report?startDate=${startDate}&endDate=${endDate}`);
+      
+      // ✅ Handle both wrapped and legacy formats
+      const reportList = response.success ? response.data : (Array.isArray(response) ? response : []);
+      
+      setData(reportList);
     } catch (error) {
        toast.error('فشل في تحميل بيانات التقارير');
        console.error('Fetch reports error:', error);

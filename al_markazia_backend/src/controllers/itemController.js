@@ -54,10 +54,13 @@ exports.getAllItems = async (req, res) => {
       ]
     });
 
-    res.json(items);
+    res.json({
+      success: true,
+      data: items
+    });
   } catch (error) {
     logger.error('Failed to fetch items', { error: error.message, stack: error.stack });
-    res.status(500).json({ error: 'Failed to fetch items' });
+    res.status(500).json({ success: false, error: 'Failed to fetch items' });
   }
 };
 
@@ -156,16 +159,27 @@ exports.createItem = async (req, res) => {
       isAvailable,
       isFeatured,
       excludeFromStats,
-      preparationTime
+      preparationTime,
+      optionGroups
     } = req.body;
 
     if (!title || typeof title !== 'string' || title.trim() === '') {
-      return res.status(400).json({ error: 'العنوان مطلوب ولا يمكن أن يكون فارغاً' });
+      return res.status(400).json({ success: false, error: 'العنوان مطلوب ولا يمكن أن يكون فارغاً' });
     }
 
     const parsedPrice = toNumber(basePrice, -1);
     if (parsedPrice < 0) {
-      return res.status(400).json({ error: 'السعر يجب أن يكون رقماً صالحاً وغير سالب' });
+      return res.status(400).json({ success: false, error: 'السعر يجب أن يكون رقماً صالحاً وغير سالب' });
+    }
+
+    let imageUrl = null;
+    if (req.file) {
+      imageUrl = `/uploads/items/${req.file.filename}`;
+    }
+
+    let parsedGroups = [];
+    if (optionGroups) {
+      parsedGroups = typeof optionGroups === 'string' ? JSON.parse(optionGroups) : optionGroups;
     }
 
     const item = await prisma.item.create({
@@ -180,14 +194,40 @@ exports.createItem = async (req, res) => {
         isFeatured: isFeatured === 'true' || isFeatured === true,
         excludeFromStats: excludeFromStats === 'true' || excludeFromStats === true,
         preparationTime: preparationTime ? parseInt(preparationTime) : null,
-        image: req.file ? `/uploads/items/${req.file.filename}` : null
+        image: imageUrl,
+        optionGroups: {
+          create: parsedGroups.map(group => ({
+            groupName: group.groupName,
+            groupNameEn: group.groupNameEn,
+            type: group.type || 'SINGLE',
+            isRequired: group.isRequired || false,
+            minSelect: parseInt(group.minSelect) || 0,
+            maxSelect: parseInt(group.maxSelect) || 1,
+            options: {
+              create: group.options.map(opt => ({
+                name: opt.name,
+                nameEn: opt.nameEn,
+                price: parseFloat(opt.price) || 0,
+                isDefault: opt.isDefault || false,
+                isAvailable: opt.isAvailable !== false
+              }))
+            }
+          }))
+        }
+      },
+      include: {
+        category: { select: { id: true, name: true, nameEn: true } },
+        optionGroups: { include: { options: true } }
       }
     });
 
-    res.status(201).json(item);
+    res.status(201).json({
+      success: true,
+      data: item
+    });
   } catch (error) {
-    logger.error('Item creation failed', { error: error.message });
-    res.status(500).json({ error: 'فشل إنشاء الصنف' });
+    logger.error('Create item error', { error: error.message });
+    res.status(500).json({ success: false, error: 'فشل في إنشاء الصنف' });
   }
 };
 
@@ -209,7 +249,7 @@ exports.updateItem = async (req, res) => {
     } = req.body;
 
     const currentItem = await prisma.item.findUnique({ where: { id: parseInt(id) } });
-    if (!currentItem) return res.status(404).json({ error: 'Item not found' });
+    if (!currentItem) return res.status(404).json({ success: false, error: 'Item not found' });
 
     let imageUrl = currentItem.image;
 
@@ -237,13 +277,20 @@ exports.updateItem = async (req, res) => {
         excludeFromStats: excludeFromStats === 'true' || excludeFromStats === true,
         preparationTime: preparationTime ? parseInt(preparationTime) : null,
         image: imageUrl
+      },
+      include: {
+        category: { select: { id: true, name: true, nameEn: true } },
+        optionGroups: { include: { options: true } }
       }
     });
 
-    res.json(updatedItem);
+    res.json({
+      success: true,
+      data: updatedItem
+    });
   } catch (error) {
-    logger.error('Item update failed', { error: error.message, id: req.params.id });
-    res.status(500).json({ error: 'فشل تحديث الصنف' });
+    logger.error('Update item error', { id: req.params.id, error: error.message });
+    res.status(500).json({ success: false, error: 'فشل في تحديث الصنف' });
   }
 };
 
@@ -256,9 +303,9 @@ exports.deleteItem = async (req, res) => {
     if (item.image) await deleteFile(item.image);
 
     await prisma.item.delete({ where: { id: parseInt(id) } });
-    res.json({ message: 'Item deleted successfully' });
+    res.json({ success: true, message: 'Item deleted successfully' });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to delete item' });
+    res.status(500).json({ success: false, error: 'Failed to delete item' });
   }
 };
 
@@ -272,9 +319,9 @@ exports.toggleItemAvailable = async (req, res) => {
       data: { isAvailable: isAvailable === true }
     });
 
-    res.json(updatedItem);
+    res.json({ success: true, data: updatedItem });
   } catch (error) {
-    res.status(500).json({ error: 'فشل في تحديث حالة الصنف.' });
+    res.status(500).json({ success: false, error: 'فشل في تحديث حالة الصنف.' });
   }
 };
 
@@ -302,9 +349,9 @@ exports.toggleGroupActive = async (req, res) => {
       }
     });
 
-    res.json(updatedGroup.item);
+    res.json({ success: true, data: updatedGroup.item });
   } catch (error) {
-    res.status(500).json({ error: 'فشل في تحديث حالة المجموعة.' });
+    res.status(500).json({ success: false, error: 'فشل في تحديث حالة المجموعة.' });
   }
 };
 
@@ -336,10 +383,10 @@ exports.toggleOptionAvailable = async (req, res) => {
       }
     });
 
-    res.json(updatedOption.group.item);
+    res.json({ success: true, data: updatedOption.group.item });
   } catch (error) {
     logger.error('[ToggleOptionError]', { error: error.message, body: req.body });
-    res.status(500).json({ error: 'فشل في تحديث حالة الإضافة.' });
+    res.status(500).json({ success: false, error: 'فشل في تحديث حالة الإضافة.' });
   }
 };
 
@@ -362,10 +409,10 @@ exports.updateFeaturedItems = async (req, res) => {
     ]);
 
     logger.info('Featured items updated', { count: itemIds.length, itemIds });
-    res.json({ message: 'Featured items updated successfully' });
+    res.json({ success: true, message: 'Featured items updated successfully' });
   } catch (error) {
     logger.error('[UpdateFeaturedItems Error]', { error: error.message, body: req.body });
-    res.status(500).json({ error: 'فشل في تحديث الأصناف الأكثر طلباً' });
+    res.status(500).json({ success: false, error: 'فشل في تحديث الأصناف الأكثر طلباً' });
   }
 };
 
@@ -380,9 +427,9 @@ exports.toggleExclusion = async (req, res) => {
     });
 
     logger.info('Item exclusion toggled', { itemId: id, exclude: updatedItem.excludeFromStats });
-    res.json(updatedItem);
+    res.json({ success: true, data: updatedItem });
   } catch (error) {
     logger.error('[ToggleExclusionError]', { error: error.message, itemId: req.params.id });
-    res.status(500).json({ error: 'فشل في تعديل حالة استبعاد الصنف.' });
+    res.status(500).json({ success: false, error: 'فشل في تعديل حالة استبعاد الصنف.' });
   }
 };
