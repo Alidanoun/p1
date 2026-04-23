@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle, XCircle, Trash2, Star, Search, Filter, Phone, Clock, FileText, Tag } from 'lucide-react';
 import { toast } from 'sonner';
 import Header from '../components/Header';
-import api from '../api/client';
+import api, { unwrap } from '../api/client';
 import { cn } from '../lib/utils';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
@@ -23,8 +23,8 @@ const ReviewsManager = () => {
   const fetchReviews = async () => {
     setLoading(true);
     try {
-      const res = await api.get('/reviews');
-      setReviews(res.data || []);
+      const data = unwrap(await api.get('/reviews')) || [];
+      setReviews(Array.isArray(data) ? data : []);
     } catch (err) {
       toast.error('فشل في تحميل التقييمات');
     } finally {

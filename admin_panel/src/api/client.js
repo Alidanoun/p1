@@ -122,4 +122,26 @@ export const getImageUrl = (path) => {
   return `${BASE_URL}${separator}${cleanPath}`;
 };
 
+/**
+ * 🔓 يفك تغليف response الـ wrapped تلقائياً
+ * يدعم 3 أشكال:
+ *  1. Array مباشر:                    [...]
+ *  2. Wrapped جديد:                   { success, data: [...] }
+ *  3. Wrapped مع pagination:          { success, data: [...], pagination }
+ */
+export const unwrap = (response) => {
+  const body = response?.data;
+  if (Array.isArray(body)) return body;
+  if (body && typeof body === 'object' && 'data' in body) return body.data;
+  return body;
+};
+
+/**
+ * 🔓 يجلب pagination metadata لو موجودة
+ */
+export const getPagination = (response) => {
+  const body = response?.data;
+  return body?.pagination || null;
+};
+
 export default api;

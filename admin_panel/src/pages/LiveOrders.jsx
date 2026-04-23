@@ -5,7 +5,7 @@ import { Clock, CheckCircle, Package, Play, XCircle, Phone, DollarSign, Timer, A
 import { toast } from 'sonner';
 import { QRCodeSVG } from 'qrcode.react';
 import Header from '../components/Header';
-import api from '../api/client';
+import api, { unwrap } from '../api/client';
 import { cn } from '../lib/utils';
 import { AnimatePresence, motion } from 'framer-motion'; // eslint-disable-line no-unused-vars
 import { formatDistanceToNow } from 'date-fns';
@@ -79,20 +79,20 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onC
             </div>
           </div>
 
-          <h4 className="font-bold text-white mb-1">{order.customerName}</h4>
+          <h4 className="font-bold text-white mb-1">{order.customerName || order.customer?.name || '—'}</h4>
           <div className="flex items-center gap-2 text-xs text-text-muted mb-3">
             <Phone className="w-3 h-3" />
-            <span>{order.customerPhone}</span>
+            <span>{order.customerPhone || order.customer?.phone || '—'}</span>
           </div>
 
           <div className="space-y-1 mb-4">
-            {order.cartItems?.slice(0, 2).map((item, i) => (
+            {(order.cartItems || order.orderItems || []).slice(0, 2).map((item, i) => (
               <div key={i} className="text-xs flex justify-between text-text-muted transition-colors group-hover:text-white">
-                <span>{item.qty}x {item.title}</span>
+                <span>{item.qty || item.quantity}x {item.title || item.itemName || 'صنف'}</span>
               </div>
             ))}
-            {order.cartItems?.length > 2 && (
-              <p className="text-[10px] text-primary font-bold">+{order.cartItems.length - 2} أصناف أخرى</p>
+            {(order.cartItems || order.orderItems || []).length > 2 && (
+              <p className="text-[10px] text-primary font-bold">+{(order.cartItems || order.orderItems).length - 2} أصناف أخرى</p>
             )}
           </div>
 
@@ -336,16 +336,21 @@ const LiveOrders = () => {
 
   const fetchOrders = async () => {
     try {
-      const { data: response } = await api.get('/orders?active_only=true');
+      const ordersData = unwrap(await api.get('/orders?active_only=true')) || [];
       
-      // ✅ Handle both wrapped { success, data, pagination } and legacy [array] formats
-      const ordersList = Array.isArray(response) ? response : (response.data || []);
+      if (!Array.isArray(ordersData)) {
+        console.error('Unexpected orders response shape', ordersData);
+        setOrders([]);
+        setLoading(false);
+        return;
+      }
       
-      setOrders(ordersList);
-      prevOrdersCount.current = ordersList.length;
+      setOrders(ordersData);
+      prevOrdersCount.current = ordersData.length;
       setLoading(false);
     } catch (err) {
       console.error('Failed to fetch orders', err);
+      toast.error('فشل تحميل الطلبات');
       setLoading(false);
     }
   };

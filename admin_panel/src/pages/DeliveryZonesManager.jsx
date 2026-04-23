@@ -6,9 +6,9 @@ import {
 import { AnimatePresence, motion } from 'framer-motion';
 import { toast } from 'sonner';
 import Header from '../components/Header';
-import api from '../api/client';
 import { cn } from '../lib/utils';
 import Switch from '../components/Switch';
+import api, { unwrap } from '../api/client';
 
 const DeliveryZonesManager = () => {
   const [zones, setZones] = useState([]);
@@ -33,10 +33,8 @@ const DeliveryZonesManager = () => {
   const fetchZones = async () => {
     setLoading(true);
     try {
-      const response = await api.get('/delivery-zones');
-      if (response.data?.success) {
-        setZones(response.data.data || []);
-      }
+      const data = unwrap(await api.get('/delivery-zones')) || [];
+      setZones(Array.isArray(data) ? data : []);
     } catch (error) {
       toast.error('حدث خطأ أثناء تحميل مناطق التوصيل');
     } finally {
