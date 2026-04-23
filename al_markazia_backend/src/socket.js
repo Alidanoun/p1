@@ -1,5 +1,6 @@
 const { Server } = require('socket.io');
-jwt = require('jsonwebtoken');
+const jwt = require('jsonwebtoken');
+const { JWT_SECRET } = require('./config/secrets');
 const logger = require('./utils/logger');
 
 let io;
@@ -22,7 +23,7 @@ module.exports = {
         const token = socket.handshake.auth?.token || socket.handshake.headers['x-auth-token'];
         if (!token) return next(new Error('Unauthorized'));
         
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-access-secret-key-change-it');
+        const decoded = jwt.verify(token, JWT_SECRET);
         const { ROLES } = require('./shared/socketEvents');
         const role = (decoded.role || ROLES.CUSTOMER).toLowerCase();
 
