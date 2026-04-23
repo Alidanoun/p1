@@ -50,10 +50,7 @@ router.patch('/:id/timer', authMiddleware, adminMiddleware, updateOrderTimer);
 router.patch('/:id/rate', authMiddleware, submitOrderRating);
 
 // Full Cancellation
-router.post('/:id/cancel', (req, res, next) => {
-  // Always authenticate for security - Scenarios are now handled inside the controller correctly
-  return authMiddleware(req, res, next);
-}, healthGuard('db'), validateCancelOrder, cancelOrder);
+router.post('/:id/cancel', authMiddleware, healthGuard('db'), validateCancelOrder, cancelOrder);
 
 router.post('/:id/handle-cancellation', authMiddleware, adminMiddleware, handleCancellationRequest);
 
