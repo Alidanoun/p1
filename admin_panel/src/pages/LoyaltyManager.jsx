@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Stars, Settings, Save, AlertCircle, TrendingUp, Users, History, Gift } from 'lucide-react';
 import Header from '../components/Header';
-import api from '../api/client';
+import api, { unwrap } from '../api/client';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
 
@@ -18,8 +18,10 @@ const LoyaltyManager = () => {
 
   const fetchSettings = async () => {
     try {
-      const { data } = await api.get('/settings');
-      setSettings(prev => ({ ...prev, ...data }));
+      const data = unwrap(await api.get('/settings'));
+      if (data) {
+        setSettings(prev => ({ ...prev, ...data }));
+      }
     } catch (error) {
       toast.error('فشل في جلب الإعدادات');
     } finally {

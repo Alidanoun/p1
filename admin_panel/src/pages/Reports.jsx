@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Download, FileText, Table as TableIcon, Calendar, TrendingUp, DollarSign, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import Header from '../components/Header';
-import api from '../api/client';
+import api, { unwrap } from '../api/client';
 import { cn } from '../lib/utils';
 import { formatCurrencyArabic } from '../lib/formatters';
 import * as XLSX from 'xlsx';
@@ -22,12 +22,8 @@ const Reports = () => {
   const fetchReportData = async () => {
     setLoading(true);
     try {
-      const { data: response } = await api.get(`/orders/report?startDate=${startDate}&endDate=${endDate}`);
-      
-      // ✅ Handle both wrapped and legacy formats
-      const reportList = response.success ? response.data : (Array.isArray(response) ? response : []);
-      
-      setData(reportList);
+      const reportList = unwrap(await api.get(`/orders/report?startDate=${startDate}&endDate=${endDate}`)) || [];
+      setData(Array.isArray(reportList) ? reportList : []);
     } catch (error) {
        toast.error('فشل في تحميل بيانات التقارير');
        console.error('Fetch reports error:', error);

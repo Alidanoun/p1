@@ -63,11 +63,11 @@ const MenuManager = () => {
         api.get('/categories?admin=true')
       ]);
       
-      const itemsData = Array.isArray(itemsRes.data) ? itemsRes.data : (itemsRes.data.data || []);
-      const catsData = Array.isArray(catRes.data) ? catRes.data : (catRes.data.data || []);
+      const itemsData = unwrap(itemsRes) || [];
+      const catsData = unwrap(catRes) || [];
       
-      setItems(itemsData);
-      setCategories(catsData);
+      setItems(Array.isArray(itemsData) ? itemsData : []);
+      setCategories(Array.isArray(catsData) ? catsData : []);
     } catch (err) {  
       console.error('Fetch error:', err);
       toast.error('خطأ في تحميل البيانات');

@@ -16,6 +16,8 @@ import CancelledOrders from './pages/CancelledOrders';
 import LoyaltyManager from './pages/LoyaltyManager';
 import DeliveryZonesManager from './pages/DeliveryZonesManager';
 
+import ErrorBoundary from './components/ErrorBoundary';
+
 const ProtectedLayout = ({ children }) => {
   const { user, loading } = useAuth();
   const { theme } = useTheme();
@@ -31,7 +33,9 @@ const ProtectedLayout = ({ children }) => {
       <div className="flex bg-background w-full h-screen overflow-hidden text-text-main font-sans selection:bg-primary/20">
         <Sidebar />
       <main className="flex-1 overflow-y-auto overflow-x-hidden relative h-full">
-        {children}
+        <ErrorBoundary>
+          {children}
+        </ErrorBoundary>
       </main>
       
       {/* Premium Notification Toaster */}

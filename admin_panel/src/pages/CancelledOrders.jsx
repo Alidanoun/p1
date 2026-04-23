@@ -5,7 +5,7 @@ import {
   ExternalLink, TrendingDown, Clock3
 } from 'lucide-react';
 import Header from '../components/Header';
-import api from '../api/client';
+import api, { unwrap } from '../api/client';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { cn } from '../lib/utils';
@@ -57,13 +57,17 @@ const CancelledOrders = () => {
 
   const fetchCancellations = async () => {
     try {
-      const { data: response } = await api.get('/orders?time_range=month');
+      const orders = unwrap(await api.get('/orders?time_range=month')) || [];
       
-      // ✅ Handle both wrapped and legacy formats
-      const ordersList = Array.isArray(response) ? response : (response.data || []);
+      if (!Array.isArray(orders)) {
+        console.error('Unexpected orders response shape', orders);
+        setCancellations([]);
+        setLoading(false);
+        return;
+      }
       
       // Filter for cancelled orders only.
-      const cancelledOnes = ordersList.filter(o => o.status === 'cancelled');
+      const cancelledOnes = orders.filter(o => o.status === 'cancelled');
       setCancellations(cancelledOnes);
       setLoading(false);
     } catch (error) {
@@ -88,9 +92,14 @@ const CancelledOrders = () => {
 
   const fetchBlacklistCount = async () => {
     try {
-      const { data: response } = await api.get('/customers/blacklist/count');
-      // Already handles success: true wrapper but let's be safe
-      const count = response.success ? response.data.count : (response.count || 0);
+      const response = await api.get('/customers/blacklist/count');
+      const data = response.data;
+      // data could be a number, or {success, data: {count}}, or {count}
+      let count = 0;
+      if (typeof data === 'number') count = data;
+      else if (data?.success && typeof data.data?.count === 'number') count = data.data.count;
+      else if (typeof data?.count === 'number') count = data.count;
+      
       setBlacklistCount(count);
     } catch (error) {
       console.error('Failed to fetch blacklist count', error);
@@ -100,8 +109,9 @@ const CancelledOrders = () => {
   const fetchBlacklistedCustomers = useCallback(async () => {
     setIsBlacklistLoading(true);
     try {
-      const { data: response } = await api.get(`/customers/blacklisted?search=${debouncedSearch}`);
-      const customers = response.success ? response.data.customers : (Array.isArray(response) ? response : []);
+      const list = unwrap(await api.get(`/customers/blacklisted?search=${debouncedSearch}`)) || [];
+      // Handle the case where unwrap returns the whole object if it doesn't match expected array patterns
+      const customers = Array.isArray(list) ? list : (list.customers || []);
       setBlacklistedCustomers(customers);
     } catch (error) {
        const msg = error.response?.data?.error?.message || 'فشل في جلب القائمة السوداء';
@@ -291,8 +301,8 @@ const CancelledOrders = () => {
                       </td>
                       <td className="p-4">
                         <div className="flex flex-col">
-                          <span className="text-sm font-bold text-white">{order.customerName}</span>
-                          <span className="text-[10px] text-text-muted">{order.customerPhone}</span>
+                          <span className="text-sm font-bold text-white">{order.customerName || order.customer?.name || '—'}</span>
+                          <span className="text-[10px] text-text-muted">{order.customerPhone || order.customer?.phone || '—'}</span>
                         </div>
                       </td>
                       <td className="p-4 max-w-[250px]">

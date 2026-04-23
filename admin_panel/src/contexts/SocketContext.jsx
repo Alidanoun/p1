@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { io } from 'socket.io-client';
 import { toast } from 'sonner';
-import api from '../api/client';
+import api, { unwrap } from '../api/client';
 import { tokenStore } from '../api/tokenStore';
 
 const SocketContext = createContext();
@@ -18,13 +18,12 @@ export const SocketProvider = ({ children }) => {
 
   const fetchNotifications = async () => {
     try {
-      const { data: response } = await api.get('/notifications');
+      const response = await api.get('/notifications');
+      const notificationsList = unwrap(response) || [];
       
-      // ✅ Handle both wrapped and legacy formats
-      const notificationsList = response.success ? response.data : (Array.isArray(response) ? response : []);
-      
-      setNotifications(notificationsList);
-      setUnreadCount(notificationsList.filter(n => !n.isRead).length);
+      const list = Array.isArray(notificationsList) ? notificationsList : [];
+      setNotifications(list);
+      setUnreadCount(list.filter(n => !n.isRead).length);
     } catch (err) {
       console.error('Failed to fetch notifications:', err);
     }
@@ -32,11 +31,14 @@ export const SocketProvider = ({ children }) => {
 
   const fetchLiveMetrics = async () => {
     try {
-      const { data: response } = await api.get('/dashboard/metrics');
-      if (response.success) {
+      const response = await api.get('/dashboard/metrics');
+      const data = unwrap(response);
+      
+      if (data) {
+        setLiveMetrics(data);
+      } else if (response.data && response.data.revenue) { 
+        // Fallback for legacy format if metrics are top-level and not under 'data'
         setLiveMetrics(response.data);
-      } else if (response.revenue) { // Fallback for legacy format if metrics are top-level
-        setLiveMetrics(response);
       }
     } catch (err) {
       console.error('Failed to fetch metrics:', err);
