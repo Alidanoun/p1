@@ -8,7 +8,7 @@ import {
 import { AnimatePresence, motion } from 'framer-motion'; // eslint-disable-line no-unused-vars
 import { toast } from 'sonner';
 import Header from '../components/Header';
-import api, { getImageUrl } from '../api/client';
+import api, { getImageUrl, unwrap } from '../api/client';
 import { cn } from '../lib/utils';
 import Switch from '../components/Switch';
 
