@@ -72,6 +72,7 @@ async function processAndSaveImage(buffer, originalName) {
       fit: 'inside',
       withoutEnlargement: true
     })
+    .withMetadata({ exif: {}, icc: undefined }) // 🛡️ Hardened: Strip all sensitive EXIF/GPS data
     .webp({ quality: 80, effort: 4 })
     .toBuffer();
 
