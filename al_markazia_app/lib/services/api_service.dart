@@ -126,7 +126,9 @@ class ApiService {
       ).timeout(const Duration(seconds: 12));
 
       if (response.statusCode == 200) {
-        final data = json.decode(utf8.decode(response.bodyBytes));
+        final decoded = json.decode(utf8.decode(response.bodyBytes));
+        final data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : decoded;
+        
         await SessionService.instance.saveSession(
           accessToken: data['accessToken'],
           refreshToken: data['refreshToken'],
