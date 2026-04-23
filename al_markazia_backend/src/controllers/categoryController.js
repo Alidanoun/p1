@@ -26,7 +26,7 @@ exports.createCategory = async (req, res) => {
       return res.status(400).json({ error: 'اسم الفئة مطلوب' });
     }
 
-    const imageUrl = req.file ? `/uploads/${req.file.filename}` : null;
+    const imageUrl = req.file ? req.file.path : null;
 
     const category = await prisma.category.create({
       data: {
@@ -80,7 +80,7 @@ exports.updateCategory = async (req, res) => {
         logger.error('[UpdateCategory] Pre-update cleanup error', { error: err.message, categoryId: id });
       }
 
-      updateData.image = `/uploads/${req.file.filename}`;
+      updateData.image = req.file.path;
     }
 
     const category = await prisma.category.update({

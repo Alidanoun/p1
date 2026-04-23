@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node ../scripts/sync-ip.js && node --watch src/server.js",
+    "dev": "node ../scripts/sync-ip.js && nodemon src/server.js",
     "seed": "node prisma/seed.js"
   },
   "keywords": [],
@@ -46,6 +46,7 @@
     "seed": "node prisma/seed.js"
   },
   "devDependencies": {
-    "autocannon": "^8.0.0"
+    "autocannon": "^8.0.0",
+    "nodemon": "^3.1.14"
   }
 }
