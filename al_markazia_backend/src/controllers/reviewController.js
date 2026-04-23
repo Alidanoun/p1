@@ -9,7 +9,13 @@ const { SOCKET_EVENTS, SOCKET_ROOMS } = require('../shared/socketEvents');
 exports.submitReview = async (req, res) => {
   try {
     const { itemId, rating, comment } = req.body;
-    const userUuid = req.user.id; // From JWT
+    
+    // ✅ Role check: Only customers can review
+    if (req.user.role !== 'customer') {
+      return res.status(403).json({ error: 'فقط الزبائن يقدرون يضيفوا تقييم' });
+    }
+
+    const userUuid = req.user.id;
 
     // 1. Resolve Customer
     const customer = await prisma.customer.findUnique({
@@ -28,11 +34,10 @@ exports.submitReview = async (req, res) => {
     }
 
     // 3. Verified Purchase Check
-    // Check if customer has a completed order containing this item
     const purchasedOrder = await prisma.order.findFirst({
       where: {
         customerId: customer.id,
-        status: 'delivered', // or 'completed' depending on your business flow
+        status: 'delivered',
         orderItems: { some: { itemId: itemIdInt } }
       },
       orderBy: { createdAt: 'desc' },
@@ -46,7 +51,7 @@ exports.submitReview = async (req, res) => {
       });
     }
 
-    // 4. Duplicate Check (One review per customer per item)
+    // 4. Duplicate Check
     const existing = await prisma.review.findUnique({
       where: { customerId_itemId: { customerId: customer.id, itemId: itemIdInt } }
     });
@@ -58,12 +63,11 @@ exports.submitReview = async (req, res) => {
       });
     }
 
-    // 5. Content Sanitization & Safety
+    // 5. Content Sanitization
     const cleanComment = sanitizeComment(comment);
     if (cleanComment) {
       const safety = isContentSafe(cleanComment);
       if (!safety.safe) {
-        logger.security('Unsafe review content blocked', { customerId: customer.id, reason: safety.reason });
         return res.status(400).json({ error: 'التعليق يحتوي على محتوى غير مسموح' });
       }
     }
@@ -77,53 +81,61 @@ exports.submitReview = async (req, res) => {
         rating: ratingInt,
         comment: cleanComment,
         isVerifiedPurchase: true,
-        isApproved: ratingInt > 2, // Auto-approve if rating > 2, else wait for admin
+        isApproved: ratingInt > 2,
         ipAddress: req.ip,
         userAgent: req.get('User-Agent')?.substring(0, 200)
       },
-      include: {
-          item: { select: { title: true } }
-      }
+      include: { item: { select: { title: true } } }
     });
 
-    // 7. Real-time Admin Notification
     const io = req.app.get('io');
     if (io) {
-      io.to(SOCKET_ROOMS.ADMIN).emit(SOCKET_EVENTS.NEW_REVIEW, { 
-          review, 
-          message: `تقييم جديد للصنف: ${review.item.title}` 
-      });
+      io.to(SOCKET_ROOMS.ADMIN).emit(SOCKET_EVENTS.NEW_REVIEW, { review });
     }
 
     res.status(201).json({ success: true, review });
   } catch (error) {
-    logger.error('Submit review error:', { error: error.message, stack: error.stack });
+    logger.error('Submit review error:', error);
     res.status(500).json({ error: 'فشل إرسال التقييم' });
   }
 };
 
 /**
- * 📖 Public: Fetch approved reviews for an item
+ * 📖 Public: Fetch approved reviews for an item (With Pagination)
  */
 exports.getItemReviews = async (req, res) => {
   try {
     const itemId = parseInt(req.params.itemId);
     if (isNaN(itemId)) return res.status(400).json({ error: 'Item ID is required' });
 
-    const reviews = await prisma.review.findMany({
-      where: { itemId, isApproved: true },
-      orderBy: { createdAt: 'desc' },
-      select: {
-        id: true,
-        rating: true,
-        comment: true,
-        isVerifiedPurchase: true,
-        createdAt: true,
-        customer: { select: { name: true } }
-      }
-    });
+    // ✅ Pagination
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(50, parseInt(req.query.limit) || 20);
+    const skip = (page - 1) * limit;
 
-    res.json(reviews);
+    const [reviews, total] = await Promise.all([
+      prisma.review.findMany({
+        where: { itemId, isApproved: true },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          rating: true,
+          comment: true,
+          isVerifiedPurchase: true,
+          createdAt: true,
+          customer: { select: { name: true } }
+        }
+      }),
+      prisma.review.count({ where: { itemId, isApproved: true } })
+    ]);
+
+    res.json({
+      success: true,
+      data: reviews,
+      pagination: { total, page, limit, hasMore: (page * limit) < total }
+    });
   } catch (error) {
     logger.error('Get item reviews error:', error);
     res.status(500).json({ error: 'فشل جلب التقييمات' });
@@ -131,17 +143,24 @@ exports.getItemReviews = async (req, res) => {
 };
 
 /**
- * 👮 Admin: Fetch all reviews (Consolidated)
+ * 👮 Admin: Fetch all reviews (Consolidated + Pagination)
  */
 exports.getAllReviews = async (req, res) => {
   try {
+    // ✅ Admin Pagination
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, parseInt(req.query.limit) || 50);
+    const skip = (page - 1) * limit;
+
     // 1. Item Reviews
     const itemReviews = await prisma.review.findMany({
       include: {
         item: { select: { title: true, id: true, image: true } },
         customer: { select: { name: true, phone: true } }
       },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit
     });
 
     const mappedItemReviews = itemReviews.map(r => ({
@@ -151,11 +170,12 @@ exports.getAllReviews = async (req, res) => {
       customerPhone: r.customer.phone
     }));
 
-    // 2. Order Ratings (Legacy/Direct)
+    // 2. Order Ratings
     const orderRatings = await prisma.order.findMany({
       where: { rating: { not: null } },
-      include: { orderItems: true },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit
     });
 
     const mappedOrderRatings = orderRatings.map(o => ({
@@ -190,8 +210,11 @@ exports.toggleApproval = async (req, res) => {
     const { id } = req.params;
     const { isApproved } = req.body;
 
+    // ✅ Validation for Order IDs
     if (typeof id === 'string' && id.startsWith('order-')) {
       const realId = parseInt(id.replace('order-', ''));
+      if (isNaN(realId)) return res.status(400).json({ error: 'Invalid Order ID' });
+      
       await prisma.order.update({
         where: { id: realId },
         data: { isRatingApproved: Boolean(isApproved) }
@@ -199,8 +222,12 @@ exports.toggleApproval = async (req, res) => {
       return res.json({ success: true });
     }
 
+    // ✅ Validation for Review IDs
+    const reviewId = parseInt(id);
+    if (isNaN(reviewId)) return res.status(400).json({ error: 'Invalid Review ID' });
+
     const review = await prisma.review.update({
-      where: { id: parseInt(id) },
+      where: { id: reviewId },
       data: { isApproved: Boolean(isApproved), isFlagged: false }
     });
     res.json(review);
@@ -214,12 +241,14 @@ exports.toggleApproval = async (req, res) => {
  */
 exports.flagReview = async (req, res) => {
   try {
-    const { id } = req.params;
+    const reviewId = parseInt(req.params.id);
+    if (isNaN(reviewId)) return res.status(400).json({ error: 'Invalid ID' });
+
     await prisma.review.update({
-      where: { id: parseInt(id) },
+      where: { id: reviewId },
       data: { isFlagged: true }
     });
-    res.json({ success: true, message: 'Review flagged for moderation' });
+    res.json({ success: true, message: 'Review flagged' });
   } catch (error) {
     res.status(500).json({ error: 'Action failed' });
   }
@@ -230,8 +259,10 @@ exports.flagReview = async (req, res) => {
  */
 exports.deleteReview = async (req, res) => {
   try {
-    const { id } = req.params;
-    await prisma.review.delete({ where: { id: parseInt(id) } });
+    const reviewId = parseInt(req.params.id);
+    if (isNaN(reviewId)) return res.status(400).json({ error: 'Invalid ID' });
+
+    await prisma.review.delete({ where: { id: reviewId } });
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: 'Delete failed' });
