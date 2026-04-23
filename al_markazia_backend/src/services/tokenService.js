@@ -2,13 +2,13 @@ const jwt = require('jsonwebtoken');
 const logger = require('../utils/logger');
 const prisma = require('../lib/prisma');
 
-// Security Configurations
-const ACCESS_TOKEN_SECRET = process.env.JWT_SECRET || 'your-access-secret-key-change-it';
-const REFRESH_TOKEN_SECRET = process.env.REFRESH_TOKEN_SECRET || 'your-refresh-secret-key-change-it';
-
-const ACCESS_TOKEN_EXPIRY = '15m'; // 🚀 Hardened: Short lived 15 min session
-const REFRESH_TOKEN_EXPIRY = '7d';  // Persistent session
-const REFRESH_TOKEN_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
+const {
+  JWT_SECRET: ACCESS_TOKEN_SECRET,
+  REFRESH_TOKEN_SECRET,
+  ACCESS_TOKEN_EXPIRY,
+  REFRESH_TOKEN_EXPIRY,
+  REFRESH_TOKEN_EXPIRY_MS
+} = require('../config/secrets');
 
 /**
  * Enterprise Token Service (Level 4 Security)
