@@ -19,20 +19,32 @@ class SessionService {
   SharedPreferences? _prefs;
   final _secureStorage = const FlutterSecureStorage();
 
+  // 🔒 Memory cache for synchronous getters
+  String? _uuid;
+  String? _role;
+  String? _phone;
+
   /// Initializes services. Must be called early (e.g. main.dart)
   Future<void> init() async {
     _prefs ??= await SharedPreferences.getInstance();
-    await _handleLegacyCleanup();
-  }
-
-  /// 🧹 Legacy Cleanup (Architect Directive)
-  /// Deletes unencrypted phone data once we have a secure UUID/JWT session.
-  Future<void> _handleLegacyCleanup() async {
-    if (_prefs == null) return;
+    _uuid = await _secureStorage.read(key: _userUuidKey);
+    _role = await _secureStorage.read(key: _userRoleKey);
+    _phone = await _secureStorage.read(key: _userPhoneKey);
     
-    final hasNewSession = await _secureStorage.containsKey(key: _accessTokenKey);
-    if (hasNewSession && _prefs!.containsKey(_userPhoneKey)) {
-      print('🧹 SessionService: Cleaning up legacy user_phone data...');
+    // Auto-migrate legacy prefs to secure storage if found
+    if (_prefs!.containsKey(_userUuidKey)) {
+      _uuid = _prefs!.getString(_userUuidKey);
+      await _secureStorage.write(key: _userUuidKey, value: _uuid);
+      await _prefs!.remove(_userUuidKey);
+    }
+    if (_prefs!.containsKey(_userRoleKey)) {
+      _role = _prefs!.getString(_userRoleKey);
+      await _secureStorage.write(key: _userRoleKey, value: _role);
+      await _prefs!.remove(_userRoleKey);
+    }
+    if (_prefs!.containsKey(_userPhoneKey)) {
+      _phone = _prefs!.getString(_userPhoneKey);
+      await _secureStorage.write(key: _userPhoneKey, value: _phone);
       await _prefs!.remove(_userPhoneKey);
     }
   }
@@ -61,20 +73,25 @@ class SessionService {
   }) async {
     if (_prefs == null) await init();
     
-    // Encrypted Storage for Tokens
+    // Encrypted Storage for Tokens & Identity
     if (accessToken != null) await _secureStorage.write(key: _accessTokenKey, value: accessToken);
     if (refreshToken != null) await _secureStorage.write(key: _refreshTokenKey, value: refreshToken);
     
+    if (uuid != null) {
+      await _secureStorage.write(key: _userUuidKey, value: uuid);
+      _uuid = uuid;
+    }
+    if (role != null) {
+      await _secureStorage.write(key: _userRoleKey, value: role);
+      _role = role;
+    }
+    if (phone != null) {
+      await _secureStorage.write(key: _userPhoneKey, value: phone);
+      _phone = phone;
+    }
+
     // Persistent UI state
     if (name != null) await _prefs!.setString(_userNameKey, name);
-    if (uuid != null) await _prefs!.setString(_userUuidKey, uuid);
-    if (role != null) await _prefs!.setString(_userRoleKey, role);
-    if (phone != null) await _prefs!.setString(_userPhoneKey, phone);
-
-    // After saving new session, ensure legacy phone is CLEAN if we have a new UUID-based session
-    // Wait, actually if we want to support phone display, we should KEEP it.
-    // The previous _handleLegacyCleanup was deleting it. I will remove that call.
-    // await _handleLegacyCleanup();
   }
 
   /// Gets the current access token from secure storage
@@ -90,18 +107,22 @@ class SessionService {
     // Wipe Secure Storage
     await _secureStorage.deleteAll();
     
+    _uuid = null;
+    _role = null;
+    _phone = null;
+
     // Wipe Prefs
     await _prefs!.remove(_userNameKey);
     await _prefs!.remove(_userUuidKey);
     await _prefs!.remove(_userRoleKey);
-    await _prefs!.remove(_userPhoneKey); // Ensure legacy is wiped too
+    await _prefs!.remove(_userPhoneKey); 
   }
 
   // --- Getters ---
-  String? get uuid => _prefs?.getString(_userUuidKey);
+  String? get uuid => _uuid;
   String? get name => _prefs?.getString(_userNameKey);
-  String? get role => _prefs?.getString(_userRoleKey);
-  String? get phone => _prefs?.getString(_userPhoneKey);
+  String? get role => _role;
+  String? get phone => _phone;
 
   /// Check if a user is currently logged in (based on existence of secure token)
   Future<bool> get isLoggedIn async {

@@ -1,7 +1,12 @@
 import axios from 'axios';
 import { tokenStore } from './tokenStore';
 
-export const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const getBaseUrl = () => {
+  if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
+  if (import.meta.env.PROD) throw new Error('CRITICAL: VITE_API_URL is missing in production');
+  return 'http://localhost:5000';
+};
+export const BASE_URL = getBaseUrl();
 
 let isRefreshing = false;
 let failedQueue = [];

@@ -14,7 +14,7 @@ class IdempotencyService {
    */
   static generateSignature(key, payload) {
     const data = typeof payload === 'string' ? payload : JSON.stringify(payload);
-    return crypto.createHash('md5').update(`${key}:${data}`).digest('hex');
+    return crypto.createHash('sha256').update(`${key}:${data}`).digest('hex');
   }
 
   /**
@@ -28,7 +28,7 @@ class IdempotencyService {
       return result === 'OK';
     } catch (err) {
       logger.error('[Idempotency] Redis lock failed', { error: err.message });
-      return true; // Fail-open to avoid blocking users if Redis is down
+      throw new Error('REDIS_DOWN');
     }
   }
 
@@ -38,28 +38,33 @@ class IdempotencyService {
    */
   static guard() {
     return async (req, res, next) => {
-      const idKey = req.headers['x-idempotency-key'] || req.headers['idempotency-key'];
-      
-      if (!idKey) {
-        return next();
-      }
-
-      const signature = this.generateSignature(req.path, idKey);
-      const isNew = await this.acquireLock(signature);
-
-      if (!isNew) {
-        logger.warn(`[Idempotency] 🛡️ Duplicate Request Blocked`, { 
-          path: req.path, 
-          key: idKey 
-        });
+      try {
+        const idKey = req.headers['x-idempotency-key'] || req.headers['idempotency-key'];
         
-        return res.status(409).json({
-          error: 'طلب مكرر',
-          message: 'نحن نعالج هذا الطلب بالفعل. يرجى مراجعة سجل الطلبات الخاص بك.'
-        });
-      }
+        if (!idKey) {
+          return next();
+        }
 
-      next();
+        const signature = this.generateSignature(req.path, idKey);
+        const isNew = await this.acquireLock(signature);
+
+        if (!isNew) {
+          logger.warn(`[Idempotency] 🛡️ Duplicate Request Blocked`, { 
+            path: req.path, 
+            key: idKey 
+          });
+          
+          return res.status(409).json({
+            error: 'طلب مكرر',
+            message: 'نحن نعالج هذا الطلب بالفعل. يرجى مراجعة سجل الطلبات الخاص بك.'
+          });
+        }
+
+        next();
+      } catch (err) {
+        logger.error('[Idempotency] Error in guard', { error: err.message });
+        return res.status(503).json({ error: 'الخدمة غير متوفرة حاليا' });
+      }
     };
   }
 }
