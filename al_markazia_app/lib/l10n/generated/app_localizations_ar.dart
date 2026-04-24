@@ -301,6 +301,12 @@ class AppLocalizationsAr extends AppLocalizations {
   String get fullNameLabel => 'الاسم الكامل';
 
   @override
+  String get email => 'البريد الإلكتروني';
+
+  @override
+  String get password => 'كلمة المرور';
+
+  @override
   String get loginSuccessMsg => 'تم تسجيل الدخول بنجاح';
 
   @override

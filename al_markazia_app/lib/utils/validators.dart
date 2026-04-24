@@ -42,4 +42,16 @@ class Validators {
     }
     return null;
   }
+
+  /// Validates standard Email format
+  static String? validateEmail(String? value, String errorMsgEmpty, String errorMsgInvalid) {
+    if (value == null || value.trim().isEmpty) {
+      return errorMsgEmpty;
+    }
+    final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+    if (!emailRegex.hasMatch(value.trim())) {
+      return errorMsgInvalid;
+    }
+    return null;
+  }
 }

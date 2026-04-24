@@ -148,4 +148,103 @@ const getMe = async (req, res) => {
   }
 };
 
-module.exports = { login, refreshToken, logout, getMe };
+const EmailService = require('../services/emailService');
+
+/**
+ * 📝 Phase 1: Registration Request (Send OTP)
+ */
+const register = async (req, res) => {
+  const { name, email, password } = req.body;
+  try {
+    // 1. Validate if user exists
+    const existingUser = await prisma.user.findUnique({ where: { email } });
+    if (existingUser) {
+      return response.error(res, 'البريد الإلكتروني مسجل مسبقاً', 'EMAIL_EXISTS', 400);
+    }
+
+    // 2. Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
+
+    // 3. Hash Password for temporary storage
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // 4. Save to OtpCode with metadata
+    await prisma.otpCode.create({
+      data: {
+        email,
+        codeHash: await bcrypt.hash(otp, 10),
+        purpose: 'registration',
+        expiresAt,
+        metadata: { name, email, password: hashedPassword }
+      }
+    });
+
+    // 5. Dispatch Email
+    await EmailService.sendOtp(email, otp);
+
+    response.success(res, { 
+      message: 'تم إرسال كود التحقق إلى بريدك الإلكتروني'
+    });
+  } catch (error) {
+    logger.error('Registration OTP error', { error: error.message });
+    response.error(res, 'حدث خطأ أثناء إرسال كود التحقق', 'SERVER_ERROR', 500);
+  }
+};
+
+/**
+ * ✅ Phase 2: Verify Registration OTP & Create User
+ */
+const verifyRegistration = async (req, res) => {
+  const { email, code } = req.body;
+  try {
+    // 1. Find the latest valid OTP
+    const otpRecord = await prisma.otpCode.findFirst({
+      where: { email, purpose: 'registration', used: false },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    if (!otpRecord || otpRecord.expiresAt < new Date()) {
+      return response.error(res, 'كود التحقق غير صحيح أو منتهي الصلاحية', 'INVALID_OTP', 400);
+    }
+
+    // 2. Verify Code
+    const isMatch = await bcrypt.compare(code, otpRecord.codeHash);
+    if (!isMatch) {
+      return response.error(res, 'كود التحقق غير صحيح', 'INVALID_OTP', 400);
+    }
+
+    // 3. Extract Metadata & Create User
+    const { name, password } = otpRecord.metadata;
+    const user = await prisma.user.create({
+      data: {
+        name,
+        email,
+        password,
+        role: 'customer'
+      }
+    });
+
+    // 4. Mark OTP as used
+    await prisma.otpCode.update({
+      where: { id: otpRecord.id },
+      data: { used: true }
+    });
+
+    // 5. Generate Session
+    const accessToken = TokenService.generateAccessToken(user);
+    const refreshToken = await TokenService.generateAndSaveRefreshToken(user);
+    
+    res.cookie('refreshToken', refreshToken, refreshCookieOptions(req));
+
+    response.success(res, { 
+      accessToken, 
+      user: { id: user.uuid, email: user.email, role: user.role } 
+    });
+  } catch (error) {
+    logger.error('Verify registration error', { error: error.message });
+    response.error(res, 'حدث خطأ أثناء تفعيل الحساب', 'SERVER_ERROR', 500);
+  }
+};
+
+module.exports = { login, register, verifyRegistration, refreshToken, logout, getMe };

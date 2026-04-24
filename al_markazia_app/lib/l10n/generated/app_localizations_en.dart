@@ -303,6 +303,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get fullNameLabel => 'Full Name';
 
   @override
+  String get email => 'Email Address';
+
+  @override
+  String get password => 'Password';
+
+  @override
   String get loginSuccessMsg => 'Logged in successfully';
 
   @override

@@ -96,6 +96,8 @@
   "loginTab": "دخول",
   "registerTab": "حساب جديد",
   "fullNameLabel": "الاسم الكامل",
+  "email": "البريد الإلكتروني",
+  "password": "كلمة المرور",
   "loginSuccessMsg": "تم تسجيل الدخول بنجاح",
   "registerSuccessMsg": "تم إنشاء الحساب بنجاح",
   "fieldsReviewMsg": "يرجى مراجعة الحقول المطلوبة",

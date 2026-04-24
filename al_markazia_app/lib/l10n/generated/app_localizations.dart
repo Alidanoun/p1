@@ -674,6 +674,18 @@ abstract class AppLocalizations {
   /// **'الاسم الكامل'**
   String get fullNameLabel;
 
+  /// No description provided for @email.
+  ///
+  /// In ar, this message translates to:
+  /// **'البريد الإلكتروني'**
+  String get email;
+
+  /// No description provided for @password.
+  ///
+  /// In ar, this message translates to:
+  /// **'كلمة المرور'**
+  String get password;
+
   /// No description provided for @loginSuccessMsg.
   ///
   /// In ar, this message translates to:

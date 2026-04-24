@@ -1,15 +1,10 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../../models/order_model.dart';
 import '../api_service.dart';
 
 class OrderApi {
-  static String get baseUrl {
-    final ip = dotenv.get('SERVER_IP', fallback: 'localhost');
-    final port = dotenv.get('SERVER_PORT', fallback: '5000');
-    return 'http://$ip:$port';
-  }
+  static String get baseUrl => ApiService.baseUrl;
 
   /// 🛡️ Secure Identity Layer Check
   void _checkAuth(http.Response response) {
