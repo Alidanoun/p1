@@ -90,8 +90,8 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '50kb' }));
+app.use(express.urlencoded({ extended: true, limit: '50kb' }));
 const logger = require('./utils/logger');
 
 // Morgan Integration (HTTP Request Logging)
@@ -142,6 +142,18 @@ app.use('/admin/queues', (req, res, next) => {
   }
   next();
 }, setupQueueDashboard());
+
+// 🌟 Swagger API Documentation
+const swaggerUi = require('swagger-ui-express');
+const swaggerJsdoc = require('swagger-jsdoc');
+const swaggerOptions = {
+  definition: {
+    openapi: '3.0.0',
+    info: { title: 'Al-Markazia API', version: '1.0.0' },
+  },
+  apis: ['./src/routes/*.js'],
+};
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerJsdoc(swaggerOptions)));
 
 // 4️⃣ API Routes
 app.use('/auth', governorGuard('MISSION_CRITICAL'), IdempotencyService.guard(), authRoutes);
