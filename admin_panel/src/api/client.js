@@ -4,7 +4,10 @@ import { tokenStore } from './tokenStore';
 const getBaseUrl = () => {
   if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
   if (import.meta.env.PROD) throw new Error('CRITICAL: VITE_API_URL is missing in production');
-  return 'http://localhost:5000';
+  
+  // 🌐 Smart local discovery: use the current hostname to avoid CORS/Cookie port issues
+  const host = window.location.hostname;
+  return `http://${host}:5000`;
 };
 export const BASE_URL = getBaseUrl();
 

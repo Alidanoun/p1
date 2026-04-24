@@ -2,7 +2,18 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
-// https://vite.dev/config/
+// Helper: proxy API only — serve index.html for browser navigation (SPA fallback)
+const apiProxy = (target) => ({
+  target,
+  changeOrigin: true,
+  bypass: (req) => {
+    // If the browser is requesting a page (Accept: text/html), don't proxy, serve index.html
+    if (req.headers.accept?.includes('text/html')) {
+      return '/index.html';
+    }
+  }
+});
+
 export default defineConfig({
   plugins: [
     react(),
@@ -10,20 +21,19 @@ export default defineConfig({
   ],
   server: {
     proxy: {
-      // 🛡️ Proxy API requests to avoid Cross-Origin Cookie issues in development
-      '/auth': 'http://localhost:5000',
-      '/items': 'http://localhost:5000',
-      '/orders': 'http://localhost:5000',
-      '/categories': 'http://localhost:5000',
-      '/notifications': 'http://localhost:5000',
-      '/customers': 'http://localhost:5000',
-      '/reviews': 'http://localhost:5000',
-      '/settings': 'http://localhost:5000',
-      '/metrics': 'http://localhost:5000',
-      '/analytics': 'http://localhost:5000',
-      '/system': 'http://localhost:5000',
-      '/delivery-zones': 'http://localhost:5000',
-      '/dashboard': 'http://localhost:5000',
+      '/auth':           apiProxy('http://localhost:5000'),
+      '/items':          apiProxy('http://localhost:5000'),
+      '/orders':         apiProxy('http://localhost:5000'),
+      '/categories':     apiProxy('http://localhost:5000'),
+      '/notifications':  apiProxy('http://localhost:5000'),
+      '/customers':      apiProxy('http://localhost:5000'),
+      '/reviews':        apiProxy('http://localhost:5000'),
+      '/settings':       apiProxy('http://localhost:5000'),
+      '/metrics':        apiProxy('http://localhost:5000'),
+      '/analytics':      apiProxy('http://localhost:5000'),
+      '/system':         apiProxy('http://localhost:5000'),
+      '/delivery-zones': apiProxy('http://localhost:5000'),
+      '/dashboard':      apiProxy('http://localhost:5000'),
     }
   }
 })
