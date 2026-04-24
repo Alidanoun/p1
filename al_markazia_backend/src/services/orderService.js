@@ -40,10 +40,10 @@ class OrderService {
       throw new Error('EMPTY_ORDER_NOT_ALLOWED');
     }
 
-    const customerPhone = data.phone || data.customerPhone;
+    const phoneInput = data.phone || customerPhone;
 
     // 1. 🆔 Identity & Blacklist Resolution
-    const resolvedCustomer = await this._resolveAndValidateCustomer(customerPhone, authUser);
+    const resolvedCustomer = await this._resolveAndValidateCustomer(phoneInput, authUser);
 
     // 2. 🛡️ Spam Protection (Multi-factor)
     await this._validateSpamLimits(resolvedCustomer.phone);
