@@ -252,9 +252,13 @@ exports.updateOrderStatus = async (req, res) => {
 exports.updateOrderTimer = async (req, res) => {
   try {
     const { estimatedReadyAt } = req.body;
+    const date = new Date(estimatedReadyAt);
+    if (isNaN(date.getTime())) {
+      return res.status(400).json({ error: 'تاريخ غير صالح' });
+    }
     const order = await prisma.order.update({
       where: { id: parseInt(req.params.id) },
-      data: { estimatedReadyAt: new Date(estimatedReadyAt) },
+      data: { estimatedReadyAt: date },
       include: ORDER_INCLUDE_FULL
     });
     res.json(mapOrderResponse(order));

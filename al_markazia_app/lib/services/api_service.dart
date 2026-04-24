@@ -130,9 +130,18 @@ class ApiService {
         final decoded = json.decode(utf8.decode(response.bodyBytes));
         final data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : decoded;
         
+        String? newRefresh = data['refreshToken'];
+        if (newRefresh == null) {
+          final setCookieStr = response.headers['set-cookie'];
+          if (setCookieStr != null) {
+            final match = RegExp(r'refreshToken=([^;]+)').firstMatch(setCookieStr);
+            if (match != null) newRefresh = match.group(1);
+          }
+        }
+        
         await SessionService.instance.saveSession(
           accessToken: data['accessToken'],
-          refreshToken: data['refreshToken'],
+          refreshToken: newRefresh ?? refresh,
         );
         return true;
       }
