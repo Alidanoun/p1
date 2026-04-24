@@ -94,22 +94,43 @@ class TokenService {
         throw new Error('TOKEN_REUSE_DETECTED');
       }
 
-      // 3. Delete Old Token (Invalidation)
-      await prisma.refreshToken.delete({ where: { id: tokenRecord.id } });
+      // 3. ATOMIC ROTATION: Delete old + Create new in ONE transaction
+      let user, newRefreshToken;
+      await prisma.$transaction(async (tx) => {
+        // Delete old token
+        await tx.refreshToken.delete({ where: { id: tokenRecord.id } });
 
-      // 4. Resolve Identity
-      let user;
-      if (decoded.role === 'admin' || decoded.role === 'super_admin') {
-        user = await prisma.user.findFirst({ where: { uuid: decoded.id } });
-      } else {
-        user = await prisma.customer.findFirst({ where: { uuid: decoded.id } });
-      }
+        // Resolve Identity
+        if (decoded.role === 'admin' || decoded.role === 'super_admin') {
+          user = await tx.user.findFirst({ where: { uuid: decoded.id } });
+        } else {
+          user = await tx.customer.findFirst({ where: { uuid: decoded.id } });
+        }
 
-      if (!user) throw new Error('USER_NOT_FOUND');
+        if (!user) throw new Error('USER_NOT_FOUND');
 
-      // 5. Generate New Pair
+        // Generate and Save New Token
+        const role = user.role || 'customer';
+        const token = jwt.sign(
+          { id: user.uuid, role: role },
+          REFRESH_TOKEN_SECRET,
+          { expiresIn: REFRESH_TOKEN_EXPIRY }
+        );
+
+        await tx.refreshToken.create({
+          data: {
+            token,
+            userId: user.uuid,
+            role,
+            expiresAt: new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS)
+          }
+        });
+
+        newRefreshToken = token;
+      });
+
+      // 4. Generate Access Token (Safe to do outside transaction)
       const accessToken = this.generateAccessToken(user);
-      const newRefreshToken = await this.generateAndSaveRefreshToken(user);
 
       return { accessToken, newRefreshToken, user };
     } catch (error) {
