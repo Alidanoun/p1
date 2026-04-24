@@ -16,6 +16,7 @@ import 'features/orders/order_controller.dart';
 import 'features/cart/cart_controller.dart';
 import 'features/checkout/checkout_controller.dart';
 import 'services/session_service.dart';
+import 'services/secure_client.dart';
 
 import 'l10n/generated/app_localizations.dart';
 
@@ -31,9 +32,9 @@ void main() async {
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
   // Essential fast inits
-  await dotenv.load(fileName: ".env");
   await StorageService.instance.init();
   await SessionService.instance.init();
+  await initSecurePinning();
 
   runApp(
     MultiProvider(

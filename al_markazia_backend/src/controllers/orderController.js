@@ -9,6 +9,7 @@ const eventTypes = require('../events/eventTypes');
 const { toNumber } = require('../utils/number');
 const { SOCKET_EVENTS, SOCKET_ROOMS } = require('../shared/socketEvents');
 const { ORDER_INCLUDE_FULL } = require('../shared/prismaConstants');
+const { parsePagination } = require('../utils/pagination');
 
 /**
  * 🥡 Order Controller (Performance Optimized)
@@ -20,9 +21,7 @@ const { ORDER_INCLUDE_FULL } = require('../shared/prismaConstants');
 exports.getMyOrders = async (req, res) => {
   try {
     const userUuid = req.user.id;
-    const page = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.min(50, parseInt(req.query.limit) || 10);
-    const skip = (page - 1) * limit;
+    const { page, limit, skip } = parsePagination(req.query);
 
     const customer = await prisma.customer.findUnique({ 
       where: { uuid: userUuid },
@@ -57,11 +56,8 @@ exports.getMyOrders = async (req, res) => {
  */
 exports.getOrders = async (req, res) => {
   try {
-    const { status, search, active_only, page = 1, limit = 50 } = req.query;
-    
-    const pageNum = Math.max(1, parseInt(page));
-    const limitNum = Math.min(100, parseInt(limit));
-    const skip = (pageNum - 1) * limitNum;
+    const { status, search, active_only } = req.query;
+    const { page: pageNum, limit: limitNum, skip } = parsePagination(req.query);
 
     const where = {};
     if (active_only === 'true') {
@@ -275,6 +271,10 @@ exports.submitOrderRating = async (req, res) => {
     const { rating, comment } = req.body;
     const orderId = parseInt(req.params.id);
 
+    if (!rating || !Number.isInteger(rating) || rating < 1 || rating > 5) {
+      return res.status(400).json({ error: 'التقييم يجب أن يكون رقماً بين 1 و 5' });
+    }
+
     const order = await prisma.order.findUnique({
       where: { id: orderId },
       include: { customer: true }
@@ -300,7 +300,7 @@ exports.submitOrderRating = async (req, res) => {
 exports.cancelOrder = async (req, res) => {
   try {
     const orderId = parseInt(req.params.id);
-    const { reason, managerPassword } = req.body;
+    const { reason } = req.body;
     
     if (reason && reason.length > 500) {
       return res.status(400).json({ error: 'سبب الإلغاء يتجاوز الحد المسموح (500 حرف)' });

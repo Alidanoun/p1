@@ -14,8 +14,8 @@ class ApiService {
   final _orderApi = OrderApi();
   
   static String get baseUrl {
-    final ip = dotenv.get('SERVER_IP', fallback: 'localhost');
-    final port = dotenv.get('SERVER_PORT', fallback: '5000');
+    const ip = String.fromEnvironment('SERVER_IP', defaultValue: 'localhost');
+    const port = String.fromEnvironment('SERVER_PORT', defaultValue: '5000');
     final scheme = const bool.fromEnvironment('dart.vm.product') ? 'https' : 'http';
     return '$scheme://$ip:$port';
   }
