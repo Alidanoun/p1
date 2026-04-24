@@ -214,7 +214,7 @@ exports.createOrder = async (req, res) => {
     res.status(201).json(response);
   } catch (error) {
     logger.error('Order Creation Error', { error: error.message });
-    res.status(500).json({ success: false, error: error.message || 'فشل إنشاء الطلب' });
+    res.status(500).json({ success: false, error: 'فشل إنشاء الطلب' });
   }
 };
 
@@ -269,12 +269,25 @@ exports.updateOrderTimer = async (req, res) => {
 exports.submitOrderRating = async (req, res) => {
   try {
     const { rating, comment } = req.body;
-    const order = await prisma.order.update({
-      where: { id: parseInt(req.params.id) },
+    const orderId = parseInt(req.params.id);
+
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { customer: true }
+    });
+    
+    if (!order) return res.status(404).json({ error: 'الطلب غير موجود' });
+    
+    if (req.user?.role !== 'admin' && order.customer?.uuid !== req.user?.id) {
+      return res.status(403).json({ error: 'غير مصرح لك بتقييم هذا الطلب' });
+    }
+
+    const updatedOrder = await prisma.order.update({
+      where: { id: orderId },
       data: { rating, ratingComment: comment, isRatingApproved: false },
       include: ORDER_INCLUDE_FULL
     });
-    res.json(mapOrderResponse(order));
+    res.json(mapOrderResponse(updatedOrder));
   } catch (error) {
     res.status(500).json({ error: 'Failed to submit rating' });
   }
@@ -284,6 +297,10 @@ exports.cancelOrder = async (req, res) => {
   try {
     const orderId = parseInt(req.params.id);
     const { reason, managerPassword } = req.body;
+    
+    if (reason && reason.length > 500) {
+      return res.status(400).json({ error: 'سبب الإلغاء يتجاوز الحد المسموح (500 حرف)' });
+    }
 
     const order = await prisma.order.findUnique({
       where: { id: orderId },
@@ -440,6 +457,21 @@ exports.performStatusUpdate = async (orderId, newStatus) => {
     if (!order || order.status === newStatus) return null;
 
     const previousStatus = order.status;
+
+    // Validate state machine sequence
+    const validTransitions = {
+      'pending': ['preparing', 'cancelled'],
+      'preparing': ['ready', 'cancelled'],
+      'ready': ['in_route', 'delivered', 'cancelled'],
+      'in_route': ['delivered', 'cancelled'],
+      'waiting_cancellation': ['cancelled', 'pending', 'preparing', 'ready', 'in_route', 'delivered'],
+      'delivered': [],
+      'cancelled': []
+    };
+
+    if (!validTransitions[previousStatus]?.includes(newStatus)) {
+      throw new Error(`Invalid status transition from ${previousStatus} to ${newStatus}`);
+    }
 
     const updatedOrder = await prisma.order.update({
       where: { id: order.id, version: order.version },

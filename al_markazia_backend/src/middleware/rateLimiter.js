@@ -19,6 +19,7 @@ const globalLimiter = rateLimit({
 const authLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 10,
+  keyGenerator: (req) => req.body?.email || req.body?.phone || req.ip,
   validate: false,
   standardHeaders: true,
   legacyHeaders: false,
@@ -33,6 +34,7 @@ const authLimiter = rateLimit({
 const orderLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 40,
+  keyGenerator: (req) => req.user?.id || req.ip,
   validate: false,
   standardHeaders: true,
   legacyHeaders: false,
@@ -47,6 +49,7 @@ const orderLimiter = rateLimit({
 const searchLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 50,
+  keyGenerator: (req) => req.user?.id || req.ip,
   validate: false,
   standardHeaders: true,
   legacyHeaders: false,
