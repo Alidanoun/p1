@@ -89,8 +89,11 @@ api.interceptors.response.use(
         return api(originalRequest);
       } catch (refreshError) {
         processQueue(refreshError, null);
-        tokenStore.clear();
-        forceLogout();
+        const status = refreshError.response?.status;
+        if (status === 401 || status === 403) {
+          tokenStore.clear();
+          forceLogout();
+        }
         return Promise.reject(refreshError);
       } finally {
         isRefreshing = false;
