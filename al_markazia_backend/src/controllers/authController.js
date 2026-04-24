@@ -121,14 +121,31 @@ const logout = async (req, res) => {
  * 👤 Identity Bootstrap (Who am I?)
  */
 const getMe = async (req, res) => {
-  res.json({ 
-    success: true, 
-    data: {
-      id: req.user.id,
-      phone: req.user.phone,
-      role: req.user.role
-    } 
-  });
+  try {
+    let user = null;
+    if (req.user.role === 'admin' || req.user.role === 'super_admin') {
+      user = await prisma.user.findUnique({ where: { uuid: req.user.id } });
+    } else {
+      user = await prisma.customer.findUnique({ where: { uuid: req.user.id } });
+    }
+
+    if (!user) {
+      return response.error(res, 'User not found', 'USER_NOT_FOUND', 404);
+    }
+
+    res.json({ 
+      success: true, 
+      data: {
+        id: user.uuid,
+        email: user.email || null,
+        phone: user.phone || null,
+        name: user.name || null,
+        role: user.role || 'customer'
+      } 
+    });
+  } catch (err) {
+    response.error(res, 'Server error', 'SERVER_ERROR', 500);
+  }
 };
 
 module.exports = { login, refreshToken, logout, getMe };

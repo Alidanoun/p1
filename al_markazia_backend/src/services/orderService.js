@@ -40,11 +40,13 @@ class OrderService {
       throw new Error('EMPTY_ORDER_NOT_ALLOWED');
     }
 
-    // 1. 🛡️ Spam Protection (Multi-factor)
-    await this._validateSpamLimits(customerPhone);
+    const customerPhone = data.phone || data.customerPhone;
 
-    // 2. 🆔 Identity & Blacklist Resolution
+    // 1. 🆔 Identity & Blacklist Resolution
     const resolvedCustomer = await this._resolveAndValidateCustomer(customerPhone, authUser);
+
+    // 2. 🛡️ Spam Protection (Multi-factor)
+    await this._validateSpamLimits(resolvedCustomer.phone);
 
     // 3. 💰 Pricing & Inventory Validation
     const { validatedItems, subtotal } = await this._calculateAndValidatePricing(cartItems);
