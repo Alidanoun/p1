@@ -78,4 +78,3 @@ flutter:
     - assets/images/
     - assets/icon/logo.png
     - assets/videos/splash_video_official.mp4
-    - .env

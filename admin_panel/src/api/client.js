@@ -107,7 +107,7 @@ api.interceptors.response.use(
   }
 );
 
-const forceLogout = () => {
+function forceLogout() {
   // 🧹 Mandatory Cleanup: Ensure nothing sensitive remains in localStorage
   localStorage.removeItem('token');
   localStorage.removeItem('refreshToken');
