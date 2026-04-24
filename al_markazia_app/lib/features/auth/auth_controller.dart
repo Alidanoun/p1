@@ -54,14 +54,14 @@ class AuthController extends ChangeNotifier {
   }
 
   // 🔐 LOGIN (Enterprise Flow)
-  Future<bool> login(String phone) async {
+  Future<bool> login(String email, String password) async {
     isLoading = true;
     errorMessage = null;
     notifyListeners();
 
     try {
       // Step 1: Auth (Returns {accessToken, refreshToken, user})
-      final authResponse = await _api.loginCustomer(phone);
+      final authResponse = await _api.loginCustomer(email, password);
       
       // Step 2: Save to Secure Storage
       await SessionService.instance.saveUser(authResponse);
@@ -88,21 +88,39 @@ class AuthController extends ChangeNotifier {
     }
   }
 
-  // 📝 REGISTER (Enterprise Flow)
-  Future<bool> register(String name, String phone) async {
+  // 📝 REGISTER (Phase 1: Request OTP)
+  Future<bool> register(String name, String email, String password) async {
     isLoading = true;
     errorMessage = null;
     notifyListeners();
 
     try {
-      final authResponse = await _api.registerCustomer(name, phone);
+      await _api.registerCustomer(name, email, password);
+      isLoading = false;
+      notifyListeners();
+      return true; // Success means OTP was sent
+    } catch (e) {
+      errorMessage = _mapError(e.toString());
+      isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  // ✅ VERIFY OTP (Phase 2: Complete Registration)
+  Future<bool> verifyOtp(String email, String code) async {
+    isLoading = true;
+    errorMessage = null;
+    notifyListeners();
+
+    try {
+      final authResponse = await _api.verifyRegistration(email, code);
       await SessionService.instance.saveUser(authResponse);
       await StorageService.instance.setCurrentUser(authResponse['user']);
       user = authResponse['user'];
-
-      // Sync Real-time & Push Identity
+      
       NotificationService().init();
-
+      
       isLoading = false;
       notifyListeners();
       return true;

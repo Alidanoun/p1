@@ -70,6 +70,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = async () => {
+    _bootstrapPromise = null; // 🔄 Allow fresh bootstrap if user logs in again without page refresh
     try {
       // 🚪 Notify server to clear cookie and revoke token
       await api.post('/auth/logout');

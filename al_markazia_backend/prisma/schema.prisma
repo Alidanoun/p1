@@ -10,6 +10,7 @@ datasource db {
 model User {
   id        Int      @id @default(autoincrement())
   email     String   @unique
+  name      String?
   password  String
   role      String   @default("admin")
   isActive  Boolean  @default(true)
@@ -413,6 +414,7 @@ model OtpCode {
   createdAt DateTime @default(now())
   ipAddress String?
   userAgent String?
+  metadata  Json?
 
   @@index([phone, purpose, used])
   @@index([email, purpose, used])

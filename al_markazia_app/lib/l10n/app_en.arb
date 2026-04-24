@@ -96,6 +96,8 @@
   "loginTab": "Login",
   "registerTab": "Register",
   "fullNameLabel": "Full Name",
+  "email": "Email Address",
+  "password": "Password",
   "loginSuccessMsg": "Logged in successfully",
   "registerSuccessMsg": "Account created successfully",
   "fieldsReviewMsg": "Please review required fields",

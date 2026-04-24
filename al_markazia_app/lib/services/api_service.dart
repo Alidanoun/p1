@@ -1,7 +1,6 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' hide Category;
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../models/menu_item.dart';
 import '../models/order_model.dart';
 import 'api/auth_api.dart';
@@ -14,7 +13,7 @@ class ApiService {
   final _orderApi = OrderApi();
   
   static String get baseUrl {
-    const ip = String.fromEnvironment('SERVER_IP', defaultValue: 'localhost');
+    const ip = String.fromEnvironment('SERVER_IP', defaultValue: '192.168.3.111');
     const port = String.fromEnvironment('SERVER_PORT', defaultValue: '5000');
     final scheme = const bool.fromEnvironment('dart.vm.product') ? 'https' : 'http';
     return '$scheme://$ip:$port';
@@ -301,22 +300,20 @@ class ApiService {
   }
 
   // --- Auth Delegation (Strangler Pattern) ---
-  Future<Map<String, dynamic>> loginCustomer(String phone) async {
-    final response = await _authApi.loginCustomer(phone);
+  Future<Map<String, dynamic>> loginCustomer(String email, String password) async {
+    final response = await _authApi.loginCustomer(email, password);
     await SessionService.instance.saveUser(response);
     return response;
   }
 
-  Future<Map<String, dynamic>> registerCustomer(String name, String phone) async {
-    final response = await _authApi.registerCustomer(name, phone);
+  Future<Map<String, dynamic>> registerCustomer(String name, String email, String password) async {
+    final response = await _authApi.registerCustomer(name, email, password);
     await SessionService.instance.saveUser(response);
     return response;
   }
 
-  Future<Map<String, dynamic>> fetchCustomerProfile(String phone) async {
-    // Profiling is now implicitly handled by the login/register responses
-    // or we can add a /me endpoint later. For now, we reuse login for profile refresh.
-    return loginCustomer(phone);
+  Future<Map<String, dynamic>> fetchCustomerProfile(String email, String password) async {
+    return loginCustomer(email, password);
   }
 
   // --- Reviews Delegation ---

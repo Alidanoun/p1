@@ -21,10 +21,12 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
   final _loginFormKey = GlobalKey<FormState>();
   final _regFormKey = GlobalKey<FormState>();
 
-  String loginPhone = '';
+  String loginEmail = '';
+  String loginPassword = '';
   
   String regName = '';
-  String regPhone = '';
+  String regEmail = '';
+  String regPassword = '';
 
   @override
   void initState() {
@@ -173,7 +175,7 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
                               const SizedBox(height: 24),
                               
                               SizedBox(
-                                height: 320,
+                                height: 350,
                                 child: TabBarView(
                                   controller: _tabController,
                                   physics: const BouncingScrollPhysics(),
@@ -185,20 +187,29 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
                                         mainAxisAlignment: MainAxisAlignment.center,
                                         children: [
                                           TextFormField(
-                                            keyboardType: TextInputType.phone,
+                                            keyboardType: TextInputType.emailAddress,
                                             decoration: InputDecoration(
-                                              labelText: AppLocalizations.of(context)!.phoneLabel.split(' (')[0],
-                                              prefixIcon: const Icon(Icons.phone_rounded, color: Color(0xFFFF6D00)),
+                                              labelText: AppLocalizations.of(context)!.email,
+                                              prefixIcon: const Icon(Icons.email_rounded, color: Color(0xFFFF6D00)),
                                               filled: true,
                                               fillColor: Colors.grey.shade50,
                                               border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
                                             ),
-                                            validator: (val) => Validators.validatePhone(
-                                              val, 
-                                              AppLocalizations.of(context)!.required, 
-                                              AppLocalizations.of(context)!.fieldsReviewMsg // Fallback for invalid phone
+                                            validator: (val) => Validators.validateEmail(val, AppLocalizations.of(context)!.required, AppLocalizations.of(context)!.required),
+                                            onSaved: (val) => loginEmail = val!.trim(),
+                                          ),
+                                          const SizedBox(height: 16),
+                                          TextFormField(
+                                            obscureText: true,
+                                            decoration: InputDecoration(
+                                              labelText: AppLocalizations.of(context)!.password,
+                                              prefixIcon: const Icon(Icons.lock_rounded, color: Color(0xFFFF6D00)),
+                                              filled: true,
+                                              fillColor: Colors.grey.shade50,
+                                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
                                             ),
-                                            onSaved: (val) => loginPhone = val!,
+                                            validator: (val) => (val == null || val.length < 6) ? AppLocalizations.of(context)!.required : null,
+                                            onSaved: (val) => loginPassword = val!,
                                           ),
                                           const SizedBox(height: 32),
                                           SizedBox(
@@ -210,7 +221,7 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
                                                   : () async {
                                                       if (_loginFormKey.currentState!.validate()) {
                                                         _loginFormKey.currentState!.save();
-                                                        final success = await context.read<AuthController>().login(loginPhone);
+                                                        final success = await context.read<AuthController>().login(loginEmail, loginPassword);
                                                         if (success) {
                                                           if (mounted) {
                                                             NotificationService().init();
@@ -245,72 +256,85 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
                                     // Register Form
                                     Form(
                                       key: _regFormKey,
-                                      child: Column(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: [
-                                          TextFormField(
-                                            decoration: InputDecoration(
-                                              labelText: AppLocalizations.of(context)!.fullNameLabel,
-                                              prefixIcon: const Icon(Icons.person_rounded, color: Color(0xFFFF6D00)),
-                                              filled: true,
-                                              fillColor: Colors.grey.shade50,
-                                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                                      child: SingleChildScrollView(
+                                        child: Column(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            TextFormField(
+                                              decoration: InputDecoration(
+                                                labelText: AppLocalizations.of(context)!.fullNameLabel,
+                                                prefixIcon: const Icon(Icons.person_rounded, color: Color(0xFFFF6D00)),
+                                                filled: true,
+                                                fillColor: Colors.grey.shade50,
+                                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                                              ),
+                                              validator: (val) => Validators.validateName(val, AppLocalizations.of(context)!.required, AppLocalizations.of(context)!.required),
+                                              onSaved: (val) => regName = val!,
                                             ),
-                                            validator: (val) => Validators.validateName(val, AppLocalizations.of(context)!.required, AppLocalizations.of(context)!.required),
-                                            onSaved: (val) => regName = val!,
-                                          ),
-                                          const SizedBox(height: 16),
-                                          TextFormField(
-                                            keyboardType: TextInputType.phone,
-                                            decoration: InputDecoration(
-                                              labelText: AppLocalizations.of(context)!.phoneLabel.split(' (')[0],
-                                              prefixIcon: const Icon(Icons.phone_rounded, color: Color(0xFFFF6D00)),
-                                              filled: true,
-                                              fillColor: Colors.grey.shade50,
-                                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                                            const SizedBox(height: 16),
+                                            TextFormField(
+                                              keyboardType: TextInputType.emailAddress,
+                                              decoration: InputDecoration(
+                                                labelText: AppLocalizations.of(context)!.email,
+                                                prefixIcon: const Icon(Icons.email_rounded, color: Color(0xFFFF6D00)),
+                                                filled: true,
+                                                fillColor: Colors.grey.shade50,
+                                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                                              ),
+                                              validator: (val) => Validators.validateEmail(val, AppLocalizations.of(context)!.required, AppLocalizations.of(context)!.required),
+                                              onSaved: (val) => regEmail = val!.trim(),
                                             ),
-                                            validator: (val) => Validators.validatePhone(val, AppLocalizations.of(context)!.required, AppLocalizations.of(context)!.required),
-                                            onSaved: (val) => regPhone = val!,
-                                          ),
-                                          const SizedBox(height: 32),
-                                          SizedBox(
-                                            width: double.infinity,
-                                            height: 56,
-                                            child: ElevatedButton(
-                                              onPressed: auth.isLoading
-                                                  ? null
-                                                  : () async {
-                                                      if (_regFormKey.currentState!.validate()) {
-                                                        _regFormKey.currentState!.save();
-                                                        final success = await context.read<AuthController>().register(regName, regPhone);
-                                                        if (success) {
-                                                          if (mounted) {
-                                                            NotificationService().init();
-                                                            showCustomSnackbar(context, AppLocalizations.of(context)!.registerSuccessMsg);
-                                                            _goToHome();
+                                            const SizedBox(height: 16),
+                                            TextFormField(
+                                              obscureText: true,
+                                              decoration: InputDecoration(
+                                                labelText: AppLocalizations.of(context)!.password,
+                                                prefixIcon: const Icon(Icons.lock_rounded, color: Color(0xFFFF6D00)),
+                                                filled: true,
+                                                fillColor: Colors.grey.shade50,
+                                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                                              ),
+                                              validator: (val) => (val == null || val.length < 6) ? AppLocalizations.of(context)!.required : null,
+                                              onSaved: (val) => regPassword = val!,
+                                            ),
+                                            const SizedBox(height: 32),
+                                            SizedBox(
+                                              width: double.infinity,
+                                              height: 56,
+                                              child: ElevatedButton(
+                                                onPressed: auth.isLoading
+                                                    ? null
+                                                    : () async {
+                                                        if (_regFormKey.currentState!.validate()) {
+                                                          _regFormKey.currentState!.save();
+                                                          final success = await context.read<AuthController>().register(regName, regEmail, regPassword);
+                                                          if (success) {
+                                                            if (mounted) {
+                                                              _showOtpDialog(context, regEmail);
+                                                            }
+                                                          } else {
+                                                            if (mounted) {
+                                                              showCustomSnackbar(context, auth.errorMessage ?? "Error", isSuccess: false);
+                                                            }
                                                           }
                                                         } else {
-                                                          if (mounted) {
-                                                            showCustomSnackbar(context, auth.errorMessage ?? "Error", isSuccess: false);
-                                                          }
+                                                          showCustomSnackbar(context, AppLocalizations.of(context)!.allFieldsRequiredMsg, isSuccess: false);
                                                         }
-                                                      } else {
-                                                        showCustomSnackbar(context, AppLocalizations.of(context)!.allFieldsRequiredMsg, isSuccess: false);
-                                                      }
-                                                    },
-                                              style: ElevatedButton.styleFrom(
-                                                backgroundColor: const Color(0xFFFF6D00),
-                                                foregroundColor: Colors.white,
-                                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                                                elevation: 8,
-                                                shadowColor: const Color(0xFFFF6D00).withOpacity(0.5),
+                                                      },
+                                                style: ElevatedButton.styleFrom(
+                                                  backgroundColor: const Color(0xFFFF6D00),
+                                                  foregroundColor: Colors.white,
+                                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                                  elevation: 8,
+                                                  shadowColor: const Color(0xFFFF6D00).withOpacity(0.5),
+                                                ),
+                                                child: auth.isLoading
+                                                  ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                                                  : Text(AppLocalizations.of(context)!.registerAction, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                                               ),
-                                              child: auth.isLoading
-                                                ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                                                : Text(AppLocalizations.of(context)!.registerAction, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                                             ),
-                                          ),
-                                        ],
+                                          ],
+                                        ),
                                       ),
                                     ),
                                   ],
@@ -327,6 +351,64 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showOtpDialog(BuildContext context, String email) {
+    final codeController = TextEditingController();
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Consumer<AuthController>(
+        builder: (context, auth, _) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text('كود التحقق', textAlign: TextAlign.center),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('يرجى إدخال الكود المرسل لبريدك الإلكتروني'),
+              const SizedBox(height: 16),
+              TextField(
+                controller: codeController,
+                keyboardType: TextInputType.number,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 24, letterSpacing: 8, fontWeight: FontWeight.bold),
+                maxLength: 6,
+                decoration: InputDecoration(
+                  counterText: "",
+                  filled: true,
+                  fillColor: Colors.grey.shade100,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                ),
+              ),
+              if (auth.errorMessage != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8.0),
+                  child: Text(auth.errorMessage!, style: const TextStyle(color: Colors.red, fontSize: 12)),
+                ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('إلغاء'),
+            ),
+            ElevatedButton(
+              onPressed: auth.isLoading ? null : () async {
+                final success = await auth.verifyOtp(email, codeController.text);
+                if (success && context.mounted) {
+                  Navigator.pop(context);
+                  _goToHome();
+                }
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFF6D00), foregroundColor: Colors.white),
+              child: auth.isLoading 
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                : const Text('تأكيد'),
+            ),
+          ],
+        ),
       ),
     );
   }

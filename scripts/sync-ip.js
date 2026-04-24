@@ -63,8 +63,17 @@ const configs = [
         path: path.join(rootPath, 'admin_panel', '.env'),
         updates: [
             { pattern: /HOST_IP=\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/g, replacement: `HOST_IP=${currentIP}` },
-            { pattern: /CORS_ORIGIN=http:\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/g, replacement: `CORS_ORIGIN=http://${currentIP}` },
-            { pattern: /VITE_API_URL=http:\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/g, replacement: `VITE_API_URL=http://${currentIP}` }
+            { pattern: /CORS_ORIGIN=http:\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/g, replacement: `CORS_ORIGIN=http://${currentIP}` }
+        ]
+    },
+    {
+        name: 'App Source Code',
+        path: path.join(rootPath, 'al_markazia_app', 'lib', 'services', 'api_service.dart'),
+        updates: [
+            { 
+                pattern: /defaultValue: '\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}'/g, 
+                replacement: `defaultValue: '${currentIP}'` 
+            }
         ]
     }
 ];
@@ -83,12 +92,12 @@ configs.forEach(config => {
 
         if (modified) {
             fs.writeFileSync(config.path, content, 'utf8');
-            console.log(`✅ Updated ${config.name} configuration.`);
+            console.log(`✅ Updated ${config.name} (${path.basename(config.path)}).`);
         } else {
-            console.log(`ℹ️ ${config.name} configuration is already up to date.`);
+            console.log(`ℹ️ ${config.name} is already up to date.`);
         }
     } else {
-        console.log(`⚠️ Skip: ${config.name} .env not found at ${config.path}`);
+        console.log(`⚠️ Skip: ${config.name} file not found at ${config.path}`);
     }
 });
 
