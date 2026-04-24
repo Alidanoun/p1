@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const prisma = require('../lib/prisma');
 const logger = require('../utils/logger');
+const { sendOtpEmail } = require('./emailService');
 
 const OTP_LENGTH = 6;
 const OTP_TTL_MINUTES = 5;
@@ -15,30 +16,33 @@ class OtpService {
    * 🎲 Cryptographically secure OTP generation
    */
   _generateCode() {
-    // 🛡️ Security: crypto.randomInt is preferred over Math.random for security codes
     return crypto.randomInt(0, 10 ** OTP_LENGTH).toString().padStart(OTP_LENGTH, '0');
   }
 
   /**
-   * 🚀 Request OTP (rate-limited, anti-enumeration)
+   * 🚀 Request OTP via Email (rate-limited, anti-enumeration)
+   * @param {Object} params
+   * @param {string} params.email - Target email address
+   * @param {string} [params.purpose='login'] - 'login' | 'register'
+   * @param {string} [params.ipAddress]
+   * @param {string} [params.userAgent]
    */
-  async requestOtp({ phone, purpose = 'login', ipAddress, userAgent }) {
-    // 1. Normalize phone (simple version, could be more complex)
-    const cleanPhone = this.normalizePhone(phone);
+  async requestOtp({ email, purpose = 'login', ipAddress, userAgent }) {
+    const cleanEmail = email.toLowerCase().trim();
 
-    // 2. Rate limit per phone: Global hour limit
+    // 1. Rate limit per email: Global hour limit
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const recentRequests = await prisma.otpCode.count({
-      where: { phone: cleanPhone, createdAt: { gte: oneHourAgo } }
+      where: { email: cleanEmail, createdAt: { gte: oneHourAgo } }
     });
 
     if (recentRequests >= MAX_REQUESTS_PER_HOUR) {
       throw new Error('TOO_MANY_OTP_REQUESTS');
     }
 
-    // 3. Resend Cooldown Check
+    // 2. Resend Cooldown Check
     const lastOtp = await prisma.otpCode.findFirst({
-      where: { phone: cleanPhone, purpose, used: false },
+      where: { email: cleanEmail, purpose, used: false },
       orderBy: { createdAt: 'desc' }
     });
 
@@ -49,21 +53,21 @@ class OtpService {
       }
     }
 
-    // 4. Generate Code & Hash
+    // 3. Generate Code & Hash
     const code = this._generateCode();
     const codeHash = await bcrypt.hash(code, 10);
     const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
 
-    // 5. Invalidate previous unused OTPs for this phone/purpose
+    // 4. Invalidate previous unused OTPs for this email/purpose
     await prisma.otpCode.updateMany({
-      where: { phone: cleanPhone, purpose, used: false },
+      where: { email: cleanEmail, purpose, used: false },
       data: { used: true }
     });
 
-    // 6. Save OTP Hash to Database
+    // 5. Save OTP Hash to Database
     const otp = await prisma.otpCode.create({
       data: { 
-        phone: cleanPhone, 
+        email: cleanEmail, 
         codeHash, 
         expiresAt, 
         purpose, 
@@ -73,14 +77,19 @@ class OtpService {
     });
 
     logger.security('OTP issued', { 
-      phone: this._maskPhone(cleanPhone), 
+      email: this._maskEmail(cleanEmail), 
       purpose, 
       ip: ipAddress,
       otpId: otp.id
     });
 
-    // 7. Dispatch SMS
-    await this._sendSms(cleanPhone, code);
+    // 6. Dispatch Email (replace SMS)
+    // In dev without GMAIL credentials, the code is logged to console
+    if (process.env.NODE_ENV === 'development' && !process.env.GMAIL_USER) {
+      logger.info(`[EMAIL SIMULATOR] OTP for ${cleanEmail}: ${code}`);
+    } else {
+      await sendOtpEmail(cleanEmail, code, purpose);
+    }
 
     return {
       otpId: otp.id,
@@ -90,19 +99,19 @@ class OtpService {
   }
 
   /**
-   * ✅ Verify OTP
+   * ✅ Verify OTP by email
    */
-  async verifyOtp({ phone, code, purpose = 'login' }) {
+  async verifyOtp({ email, code, purpose = 'login' }) {
     if (!code || code.length !== OTP_LENGTH) {
       throw new Error('INVALID_CODE_FORMAT');
     }
 
-    const cleanPhone = this.normalizePhone(phone);
+    const cleanEmail = email.toLowerCase().trim();
 
     // Find the latest valid, unused OTP
     const otp = await prisma.otpCode.findFirst({
       where: {
-        phone: cleanPhone,
+        email: cleanEmail,
         purpose,
         used: false,
         expiresAt: { gt: new Date() }
@@ -133,7 +142,7 @@ class OtpService {
       });
       
       logger.security('OTP verification failed', { 
-        phone: this._maskPhone(cleanPhone), 
+        email: this._maskEmail(cleanEmail), 
         attempt: otp.attempts + 1 
       });
       throw new Error('INVALID_OTP');
@@ -145,54 +154,21 @@ class OtpService {
       data: { used: true }
     });
 
-    logger.security('OTP verified successfully', { phone: this._maskPhone(cleanPhone) });
+    logger.security('OTP verified successfully', { email: this._maskEmail(cleanEmail) });
     return true;
   }
 
   /**
-   * 📱 SMS Dispatcher
+   * 📧 Mask email for privacy in logs
+   * e.g., "user@gmail.com" → "us***@gmail.com"
    */
-  async _sendSms(phone, code) {
-    if (process.env.NODE_ENV === 'development' || !process.env.SMS_PROVIDER) {
-      logger.info(`[SMS SIMULATOR] OTP for ${phone}: ${code}`);
-      return;
-    }
-
-    const message = `رمز التحقق الخاص بك في المركزية: ${code}\nصالح لـ ${OTP_TTL_MINUTES} دقائق.`;
-
-    try {
-      if (process.env.SMS_PROVIDER === 'twilio') {
-        const twilio = require('twilio')(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-        await twilio.messages.create({
-          body: message,
-          from: process.env.TWILIO_FROM_NUMBER,
-          to: phone
-        });
-      }
-      // Add other providers here (Unifonic, etc.)
-    } catch (error) {
-      logger.error('SMS Dispatch Failed', { error: error.message, phone });
-      // In production, we might want to log this but not necessarily block the user if it's a dev env
-      if (process.env.NODE_ENV === 'production') throw new Error('SMS_SEND_FAILED');
-    }
-  }
-
-  normalizePhone(phone) {
-    if (!phone) return '';
-    // Basic normalization: remove non-digits, handle leading 0 for Jordan
-    let cleaned = phone.replace(/\D/g, '');
-    if (cleaned.startsWith('0') && cleaned.length === 10) {
-      cleaned = '962' + cleaned.substring(1);
-    }
-    if (!cleaned.startsWith('+') && cleaned.length > 5) {
-      cleaned = '+' + cleaned;
-    }
-    return cleaned;
-  }
-
-  _maskPhone(phone) {
-    if (!phone || phone.length < 4) return '****';
-    return phone.slice(0, 4) + '****' + phone.slice(-2);
+  _maskEmail(email) {
+    if (!email || !email.includes('@')) return '****';
+    const [local, domain] = email.split('@');
+    const maskedLocal = local.length <= 2 
+      ? local[0] + '***' 
+      : local.slice(0, 2) + '***';
+    return `${maskedLocal}@${domain}`;
   }
 
   /**

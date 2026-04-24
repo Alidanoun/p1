@@ -191,8 +191,9 @@ model Customer {
   uuid              String    @unique @default(uuid())
   name              String
   username          String?   @unique
-  phone             String    @unique
-  email             String?
+  phone             String?   @unique
+  email             String?   @unique
+  emailVerifiedAt   DateTime?
   address           String?
   fcmToken          String?
   points            Int       @default(0)
@@ -443,7 +444,8 @@ model HealthMetric {
 
 model OtpCode {
   id          String   @id @default(uuid())
-  phone       String
+  phone       String?
+  email       String?
   codeHash    String   // Hashed version of the OTP (bcrypt)
   attempts    Int      @default(0)
   used        Boolean  @default(false)
@@ -454,5 +456,6 @@ model OtpCode {
   userAgent   String?
 
   @@index([phone, purpose, used])
+  @@index([email, purpose, used])
   @@index([expiresAt])
 }
