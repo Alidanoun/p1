@@ -283,7 +283,7 @@ exports.submitOrderRating = async (req, res) => {
 exports.cancelOrder = async (req, res) => {
   try {
     const orderId = parseInt(req.params.id);
-    const { reason, managerPassword, isAdmin } = req.body;
+    const { reason, managerPassword } = req.body;
 
     const order = await prisma.order.findUnique({
       where: { id: orderId },
@@ -291,7 +291,7 @@ exports.cancelOrder = async (req, res) => {
     });
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
-    const isOrderManager = isAdmin === true || req.user?.role === 'admin';
+    const isOrderManager = req.user?.role === 'admin';
     const canCancelDirectly = isOrderManager || order.status === 'pending';
     
     let targetStatus = 'cancelled';

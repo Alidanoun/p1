@@ -33,10 +33,9 @@ const refreshToken = async (req, res) => {
     // ✅ Set Secure Cookie
     res.cookie('refreshToken', newRefreshToken, refreshCookieOptions(req));
 
-    // ✅ Return both (Body is for legacy transition)
+    // ✅ Return only accessToken (refreshToken is in cookie)
     response.success(res, { 
-      accessToken, 
-      refreshToken: newRefreshToken 
+      accessToken
     });
   } catch (error) {
     if (error.message === 'TOKEN_REUSE_DETECTED') {
@@ -92,7 +91,6 @@ const login = async (req, res) => {
 
     response.success(res, { 
       accessToken, 
-      refreshToken, 
       user: { 
         id: user.uuid,
         email: user.email, 

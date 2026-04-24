@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -12,11 +13,11 @@ class ApiService {
   final _authApi = AuthApi();
   final _orderApi = OrderApi();
   
-  // --- CONFIGURATION ---
   static String get baseUrl {
     final ip = dotenv.get('SERVER_IP', fallback: 'localhost');
     final port = dotenv.get('SERVER_PORT', fallback: '5000');
-    return 'http://$ip:$port';
+    final scheme = const bool.fromEnvironment('dart.vm.product') ? 'https' : 'http';
+    return '$scheme://$ip:$port';
   }
 
   /// 🛡️ Enterprise Security: Centralized Header Injection
@@ -48,7 +49,7 @@ class ApiService {
     _menuItemCacheTime = null;
     _deliveryZoneCache = null;
     _deliveryZoneCacheTime = null;
-    print('🗑️ [Cache] Cleared all cached data.');
+    debugPrint('🗑️ [Cache] Cleared all cached data.');
   }
 
   // --- RESILIENCE & OBSERVABILITY ---
@@ -63,7 +64,7 @@ class ApiService {
         final stopwatch = Stopwatch()..start();
         final result = await action();
         stopwatch.stop();
-        print('⏱️ [API Timing] Request completed in ${stopwatch.elapsedMilliseconds}ms');
+        debugPrint('⏱️ [API Timing] Request completed in ${stopwatch.elapsedMilliseconds}ms');
         return result;
       } catch (e) {
         final errorStr = e.toString();
@@ -73,12 +74,12 @@ class ApiService {
           
           // 🛡️ Loop Guard: Only 1 refresh attempt per logical request chain
           if (refreshAttempts >= 1) {
-            print('🚨 [Auth] Refresh loop detected. Triggering Logout.');
+            debugPrint('🚨 [Auth] Refresh loop detected. Triggering Logout.');
             _handle401();
             rethrow;
           }
 
-          print('🔐 [Auth] Token Invalidation Detected. Synchronizing Refresh...');
+          debugPrint('🔐 [Auth] Token Invalidation Detected. Synchronizing Refresh...');
           
           // 🥇 Singleton Refresh: Concurrent requests will WAIT for this future
           _refreshFuture ??= _attemptTokenRefresh();
@@ -89,11 +90,11 @@ class ApiService {
           _refreshFuture = null;
 
           if (refreshed == true) {
-            print('✅ [Auth] Session Restored. Retrying original request (Attempt chain 2)...');
+            debugPrint('✅ [Auth] Session Restored. Retrying original request (Attempt chain 2)...');
             // Retry the action with incremented refreshAttempts to prevent loops
             return _withRetry(action, maxAttempts: maxAttempts, refreshAttempts: refreshAttempts + 1);
           } else {
-            print('❌ [Auth] Refresh failed. Triggering Logout.');
+            debugPrint('❌ [Auth] Refresh failed. Triggering Logout.');
             _handle401();
             rethrow;
           }
@@ -101,13 +102,13 @@ class ApiService {
 
         // --- NETWORK RETRY LAYER ---
         if (attempts >= maxAttempts) {
-          print('❌ [API Error] Max retries ($maxAttempts) reached: $errorStr');
+          debugPrint('❌ [API Error] Max retries ($maxAttempts) reached: $errorStr');
           rethrow;
         }
 
         // Exponential Backoff for Network blips
         final delay = Duration(seconds: attempts * 2);
-        print('⚠️ [API Retry] Attempt $attempts failed. Retrying in ${delay.inSeconds}s... ($errorStr)');
+        debugPrint('⚠️ [API Retry] Attempt $attempts failed. Retrying in ${delay.inSeconds}s... ($errorStr)');
         await Future.delayed(delay);
       }
     }
@@ -137,7 +138,7 @@ class ApiService {
       }
       return false;
     } catch (e) {
-      print('❌ [Critical] Atomic Refresh Failure: $e');
+      debugPrint('❌ [Critical] Atomic Refresh Failure: $e');
       return false;
     }
   }
@@ -147,7 +148,7 @@ class ApiService {
       // 🥇 Check Cache First (skip if forceRefresh)
       if (!forceRefresh && _categoryCache != null && _categoryCacheTime != null) {
         if (DateTime.now().difference(_categoryCacheTime!) < _cacheTTL) {
-          print('🚀 [Cache Hit] Categories served from cache.');
+          debugPrint('🚀 [Cache Hit] Categories served from cache.');
           return _categoryCache!;
         }
       }
@@ -185,7 +186,7 @@ class ApiService {
       // 🥇 Check Cache First (skip if forceRefresh)
       if (!forceRefresh && _menuItemCache != null && _menuItemCacheTime != null) {
         if (DateTime.now().difference(_menuItemCacheTime!) < _cacheTTL) {
-          print('🚀 [Cache Hit] Menu items served from cache.');
+          debugPrint('🚀 [Cache Hit] Menu items served from cache.');
           return _menuItemCache!;
         }
       }
@@ -224,7 +225,7 @@ class ApiService {
       // 🥇 Check Cache First (skip if forceRefresh)
       if (!forceRefresh && _deliveryZoneCache != null && _deliveryZoneCacheTime != null) {
         if (DateTime.now().difference(_deliveryZoneCacheTime!) < _longCacheTTL) {
-          print('🚀 [Cache Hit] Delivery zones served from cache.');
+          debugPrint('🚀 [Cache Hit] Delivery zones served from cache.');
           return _deliveryZoneCache!;
         }
       }
@@ -255,7 +256,7 @@ class ApiService {
   static Function()? onAuthError;
 
   void _handle401() {
-    print('Token expired or invalid: 401');
+    debugPrint('Token expired or invalid: 401');
     if (onAuthError != null) onAuthError!();
   }
 
@@ -321,7 +322,7 @@ class ApiService {
       }
       return [];
     } catch (e) {
-      print('Fetch Reviews Error: $e');
+      debugPrint('Fetch Reviews Error: $e');
       return [];
     }
   }
