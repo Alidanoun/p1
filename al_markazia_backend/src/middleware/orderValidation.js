@@ -67,5 +67,12 @@ exports.validateCancelOrder = (req, res, next) => {
     });
   }
 
+  if (reason.trim().length > 500) {
+    return res.status(400).json({
+      success: false,
+      message: 'سبب الإلغاء لا يتجاوز 500 حرف'
+    });
+  }
+
   next();
 };
