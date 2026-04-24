@@ -1,83 +1,80 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-generator client {
-  provider = "prisma-client-js"
-}
-
-// --- Users & Access ---
 model User {
-  id           Int           @id @default(autoincrement())
-  uuid         String        @unique @default(uuid())
-  email        String        @unique
-  password     String
-  role         String        @default("admin") // admin only as per requirement
-  isActive     Boolean       @default(true)
-  fcmToken     String?       // New: For targeted admin push alerts
-  createdAt    DateTime      @default(now())
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String
+  role      String   @default("admin")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  fcmToken  String?
+  uuid      String   @unique @default(uuid())
 }
 
-// --- Menu Management ---
 model Category {
-  id          Int      @id @default(autoincrement())
-  name        String
-  nameEn      String?  // English translation
-  description String?
-  descriptionEn String? // English translation
-  image       String?
-  isActive    Boolean  @default(true)
-  sortOrder   Int      @default(0)
-  items       Item[]
+  id            Int     @id @default(autoincrement())
+  name          String
+  nameEn        String?
+  description   String?
+  descriptionEn String?
+  image         String?
+  isActive      Boolean @default(true)
+  sortOrder     Int     @default(0)
+  items         Item[]
 }
 
 model Item {
-  id              Int          @id @default(autoincrement())
-  title           String
-  titleEn         String?      // English translation
-  description     String?
-  descriptionEn   String?      // English translation
-  basePrice       Decimal      @db.Decimal(10, 2) // Renamed from price to basePrice for professional use
-  image           String?      // URL of the uploaded image
-  categoryId      Int
-  isAvailable     Boolean      @default(true)
-  isFeatured      Boolean      @default(false)
-  excludeFromStats Boolean     @default(false) // 🚀 New: Persist dashboard exclusions
-  preparationTime Int?         // In minutes
-  createdAt       DateTime     @default(now())
-  category        Category          @relation(fields: [categoryId], references: [id])
-  optionGroups    ItemOptionGroup[]
-  orderItems      OrderItem[]
-  reviews         Review[]
+  id                Int               @id @default(autoincrement())
+  title             String
+  titleEn           String?
+  description       String?
+  descriptionEn     String?
+  basePrice         Decimal           @db.Decimal(10, 2)
+  image             String?
+  categoryId        Int
+  isAvailable       Boolean           @default(true)
+  isFeatured        Boolean           @default(false)
+  preparationTime   Int?
+  createdAt         DateTime          @default(now())
+  cachedAvgRating   Float?            @default(0)
+  cachedReviewCount Int?              @default(0)
+  excludeFromStats  Boolean           @default(false)
+  category          Category          @relation(fields: [categoryId], references: [id])
+  optionGroups      ItemOptionGroup[]
+  orderItems        OrderItem[]
+  reviews           Review[]
 
   @@index([categoryId, isAvailable])
   @@index([isAvailable, createdAt])
-  
-  cachedAvgRating   Float?   @default(0)
-  cachedReviewCount Int?     @default(0)
 }
 
 model ItemOptionGroup {
   id          Int          @id @default(autoincrement())
   itemId      Int
   groupName   String
-  groupNameEn String?      // English translation
-  type        String       @default("SINGLE") // SINGLE, MULTIPLE
+  groupNameEn String?
+  type        String       @default("SINGLE")
   isRequired  Boolean      @default(false)
   isActive    Boolean      @default(true)
   minSelect   Int          @default(0)
   maxSelect   Int          @default(1)
   sortOrder   Int          @default(0)
-  item        Item         @relation(fields: [itemId], references: [id], onDelete: Cascade)
   options     ItemOption[]
+  item        Item         @relation(fields: [itemId], references: [id], onDelete: Cascade)
 }
 
 model ItemOption {
   id          Int             @id @default(autoincrement())
   groupId     Int
   name        String
-  nameEn      String?         // English translation
+  nameEn      String?
   price       Decimal         @default(0) @db.Decimal(10, 2)
   isDefault   Boolean         @default(false)
   isAvailable Boolean         @default(true)
@@ -85,51 +82,41 @@ model ItemOption {
   group       ItemOptionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
 }
 
-// --- Order Management ---
 model Order {
-  id             Int         @id @default(autoincrement())
-  orderNumber    String      @unique // Professional ID (e.g., ORD-1001)
-  customerName   String
-  customerPhone  String
-  customerId     Int?        // Link to Customer record if available
-  orderType      String      // dine_in, takeaway, delivery
-  status         String      @default("pending") // pending, confirmed, preparing, ready, in_route, delivered, cancelled, waiting_cancellation
-  
-  paymentStatus  String      @default("unpaid") // paid, unpaid
-  paymentMethod  String      @default("cash")   // cash, card, online
-  
-  subtotal       Decimal     @default(0) @db.Decimal(10, 2)
-  deliveryFee    Decimal     @default(0) @db.Decimal(10, 2)
-  discount       Decimal     @default(0) @db.Decimal(10, 2)
-  tax            Decimal     @default(0) @db.Decimal(10, 2)
-  total          Decimal     @default(0) @db.Decimal(10, 2)
-  
-  tenantId       String?     @default("default-restaurant") // 🏢 Multi-tenant support
-  
-  address        String?
-  notes          String?
+  id               Int                @id @default(autoincrement())
+  orderNumber      String             @unique
+  customerName     String
+  customerPhone    String
+  customerId       Int?
+  orderType        String
+  status           String             @default("pending")
+  paymentStatus    String             @default("unpaid")
+  paymentMethod    String             @default("cash")
+  subtotal         Decimal            @default(0) @db.Decimal(10, 2)
+  deliveryFee      Decimal            @default(0) @db.Decimal(10, 2)
+  discount         Decimal            @default(0) @db.Decimal(10, 2)
+  tax              Decimal            @default(0) @db.Decimal(10, 2)
+  total            Decimal            @default(0) @db.Decimal(10, 2)
+  address          String?
+  notes            String?
   estimatedReadyAt DateTime?
-  
-  rating         Int?
-  ratingComment  String?
-  isRatingApproved Boolean @default(false)
-  
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
-  
-  orderItems     OrderItem[]
-  customer       Customer?   @relation(fields: [customerId], references: [id])
-  payment        Payment?
-  cancellation   OrderCancellation?
-  auditLogs      OrderAuditLog[]
-  reviews        Review[]
-  branch         String?     // Madina St, Khalda
-  version        Int         @default(1)
-
-  // 🚚 Delivery Snapshot (Production-grade Integrity)
-  deliveryZoneId    String?
-  deliveryZoneName  String?
-  deliveryMinOrder  Decimal?   @db.Decimal(10, 2)
+  rating           Int?
+  ratingComment    String?
+  isRatingApproved Boolean            @default(false)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  branch           String?
+  version          Int                @default(1)
+  deliveryMinOrder Decimal?           @db.Decimal(10, 2)
+  deliveryZoneId   String?
+  deliveryZoneName String?
+  tenantId         String?            @default("default-restaurant")
+  customer         Customer?          @relation(fields: [customerId], references: [id])
+  auditLogs        OrderAuditLog[]
+  cancellation     OrderCancellation?
+  orderItems       OrderItem[]
+  payment          Payment?
+  reviews          Review[]
 
   @@index([status, createdAt(sort: Desc)])
   @@index([customerId, createdAt(sort: Desc)])
@@ -138,15 +125,14 @@ model Order {
   @@index([tenantId])
 }
 
-// 📦 Event Store — The Source of Truth
 model Event {
   id            String   @id @default(uuid())
-  type          String   // e.g., "order.created"
-  aggregateId   Int      // The ID of the order
+  type          String
+  aggregateId   Int
   aggregateType String   @default("order")
-  payload       Json     // Full snapshot or delta
-  metadata      Json?    // User info, IP, source
-  version       Int      // Sequential version of the aggregate
+  payload       Json
+  metadata      Json?
+  version       Int
   tenantId      String?  @default("default-restaurant")
   createdAt     DateTime @default(now())
 
@@ -157,65 +143,54 @@ model Event {
 }
 
 model OrderItem {
-  id              Int     @id @default(autoincrement())
-  orderId         Int
-  itemId          Int?
-  itemName        String  // Snapshot name in case it changes later
-  itemNameEn      String? // Snapshot English name
-  quantity        Int     @default(1)
-  unitPrice       Decimal     @db.Decimal(10, 2)
-  selectedOptions String? // JSON stringized details of chosen options
-  selectedOptionsEn String? // JSON stringized details of chosen options in English
-  lineTotal       Decimal     @db.Decimal(10, 2)
-  notes           String?
-  
-  order           Order   @relation(fields: [orderId], references: [id])
-  item            Item?   @relation(fields: [itemId], references: [id], onDelete: SetNull)
-  status          OrderItemStatus @default(normal)
-  rejectionReason String?
-  
+  id                Int             @id @default(autoincrement())
+  orderId           Int
+  itemId            Int?
+  itemName          String
+  itemNameEn        String?
+  quantity          Int             @default(1)
+  unitPrice         Decimal         @db.Decimal(10, 2)
+  selectedOptions   String?
+  selectedOptionsEn String?
+  lineTotal         Decimal         @db.Decimal(10, 2)
+  notes             String?
+  status            OrderItemStatus @default(normal)
+  rejectionReason   String?
+  item              Item?           @relation(fields: [itemId], references: [id])
+  order             Order           @relation(fields: [orderId], references: [id])
+
   @@index([orderId])
   @@index([itemId])
 }
 
-enum OrderItemStatus {
-  normal
-  pending_partial_cancel
-  cancelled
-  rejected
-}
-
-// --- CRM & Payments ---
 model Customer {
-  id                Int       @id @default(autoincrement())
-  uuid              String    @unique @default(uuid())
-  name              String
-  username          String?   @unique
-  phone             String?   @unique
-  email             String?   @unique
-  emailVerifiedAt   DateTime?
-  address           String?
-  fcmToken          String?
-  points            Int       @default(0)
-  cancellationCount Int       @default(0)
-  
-  isBlacklisted     Boolean   @default(false)
-  blacklistedAt     DateTime?
-  blacklistExpiresAt DateTime? // New standard
-  blacklistUntil    DateTime? // Compatibility fallback (Single Source of Truth layer)
-  blacklistReason   String?
-  blacklistReasonCode String?   // Classification
-  blacklistSource   String?   // 'MANUAL' | 'AUTO' | 'SYSTEM'
-  blacklistedBy     String?   // Admin ID or System
-  blacklistSeverity String    @default("LOW") // LOW, MEDIUM, HIGH
-  riskScore         Float     @default(0)   // Calculated score 0-100
-  riskScoreUpdatedAt DateTime?
-  
-  phoneVerifiedAt   DateTime? // New: Track when the phone was last verified via OTP
-  createdAt         DateTime  @default(now())
-  orders            Order[]
-  auditLogs         CustomerAuditLog[]
-  reviews           Review[]
+  id                  Int                @id @default(autoincrement())
+  name                String
+  phone               String?            @unique
+  email               String?            @unique
+  address             String?
+  fcmToken            String?
+  points              Int                @default(0)
+  cancellationCount   Int                @default(0)
+  isBlacklisted       Boolean            @default(false)
+  blacklistedAt       DateTime?
+  blacklistExpiresAt  DateTime?
+  blacklistUntil      DateTime?
+  blacklistReason     String?
+  blacklistReasonCode String?
+  blacklistSource     String?
+  blacklistedBy       String?
+  blacklistSeverity   String             @default("LOW")
+  riskScore           Float              @default(0)
+  riskScoreUpdatedAt  DateTime?
+  createdAt           DateTime           @default(now())
+  emailVerifiedAt     DateTime?
+  phoneVerifiedAt     DateTime?
+  username            String?            @unique
+  uuid                String             @unique @default(uuid())
+  auditLogs           CustomerAuditLog[]
+  orders              Order[]
+  reviews             Review[]
 
   @@index([isBlacklisted])
 }
@@ -225,112 +200,97 @@ model Payment {
   orderId        Int       @unique
   method         String
   amount         Decimal   @db.Decimal(10, 2)
-  status         String    // completed, pending, failed
+  status         String
   transactionRef String?
   paidAt         DateTime?
   order          Order     @relation(fields: [orderId], references: [id])
 }
 
-// --- Security & Logging Removed ---
-
-// --- Notifications ---
 model Notification {
-  id             Int      @id @default(autoincrement())
-  customerPhone  String?  // If null, it's an admin notification
-  title          String
-  titleEn        String?
-  message        String
-  messageEn      String?
-  type           String   // e.g. 'order_created', 'order_status', 'broadcast'
-  isRead         Boolean  @default(false)
-  orderId        Int?
-  targetRoute    String?
-  
-  // --- 🛰️ SRE Reliability Fields ---
-  status         String   @default("PENDING") // PENDING, SENT, FAILED, DEAD
-  socketSent     Boolean  @default(false)
-  fcmSent        Boolean  @default(false)
-  retryCount     Int      @default(0)
-  lastError      String?
-  metadata       Json?    // Store payload for retries
-  
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @default(now()) @updatedAt
+  id            Int      @id @default(autoincrement())
+  customerPhone String?
+  title         String
+  titleEn       String?
+  message       String
+  messageEn     String?
+  type          String
+  isRead        Boolean  @default(false)
+  orderId       Int?
+  targetRoute   String?
+  createdAt     DateTime @default(now())
+  fcmSent       Boolean  @default(false)
+  lastError     String?
+  metadata      Json?
+  retryCount    Int      @default(0)
+  socketSent    Boolean  @default(false)
+  status        String   @default("PENDING")
+  updatedAt     DateTime @default(now()) @updatedAt
 
   @@index([customerPhone])
   @@index([status])
   @@index([createdAt])
 }
 
-// --- Reviews ---
 model Review {
-  id              Int       @id @default(autoincrement())
-  itemId          Int
-  item            Item      @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  
-  customerId      Int
-  customer        Customer  @relation(fields: [customerId], references: [id])
-  
-  orderId         Int?      // Link to actual order for verified purchase
-  order           Order?    @relation(fields: [orderId], references: [id])
-  
-  rating          Int       // 1 to 5
-  comment         String?   @db.VarChar(500)
-  
-  isVerifiedPurchase Boolean @default(false)
-  isApproved      Boolean   @default(true)
-  isFlagged       Boolean   @default(false)
-  
-  ipAddress       String?
-  userAgent       String?
-  
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  
+  id                 Int      @id @default(autoincrement())
+  itemId             Int
+  rating             Int
+  comment            String?  @db.VarChar(500)
+  isApproved         Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  customerId         Int
+  ipAddress          String?
+  isFlagged          Boolean  @default(false)
+  isVerifiedPurchase Boolean  @default(false)
+  orderId            Int?
+  updatedAt          DateTime @updatedAt
+  userAgent          String?
+  customer           Customer @relation(fields: [customerId], references: [id])
+  item               Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  order              Order?   @relation(fields: [orderId], references: [id])
+
   @@unique([customerId, itemId])
   @@index([itemId, isApproved, createdAt(sort: Desc)])
   @@index([customerId, createdAt])
 }
 
 model OrderCancellation {
-  id             Int      @id @default(autoincrement())
-  orderId        Int      @unique
-  reason         String
-  cancelledBy    String   // 'customer', 'admin', 'support'
-  previousStatus String   // status before cancellation
-  status         String   @default("pending") // pending, approved, rejected
+  id              Int      @id @default(autoincrement())
+  orderId         Int      @unique
+  reason          String
+  cancelledBy     String
+  previousStatus  String
+  status          String   @default("pending")
   rejectionReason String?
-  adminName      String?
-  createdAt      DateTime @default(now())
-  order          Order    @relation(fields: [orderId], references: [id])
+  adminName       String?
+  createdAt       DateTime @default(now())
+  order           Order    @relation(fields: [orderId], references: [id])
 }
 
 model SystemSettings {
-  id        Int      @id @default(autoincrement())
-  key       String   @unique
-  value     String
-  updatedAt DateTime @updatedAt
-
-  freeCancelWindowMinutes Int  @default(5)
-  spamCancelLimit         Int  @default(3)
-  spamTimeWindowMinutes   Int  @default(30)
-  defaultDeliveryFee      Decimal @default(1.00) @db.Decimal(10, 2)
+  id                      Int      @id @default(autoincrement())
+  key                     String   @unique
+  value                   String
+  updatedAt               DateTime @updatedAt
+  freeCancelWindowMinutes Int      @default(5)
+  spamCancelLimit         Int      @default(3)
+  spamTimeWindowMinutes   Int      @default(30)
+  defaultDeliveryFee      Decimal  @default(1.00) @db.Decimal(10, 2)
 }
 
 model OrderAuditLog {
   id              Int      @id @default(autoincrement())
   orderId         Int
-  eventType       String   // e.g., 'ORDER_CANCELLATION', 'ORDER_STATUS_CHANGE'
-  eventAction     String   // e.g., 'APPROVED', 'REJECTED', 'REQUESTED', 'UPDATED'
-  changedBy       String   // phone or email
-  changedByRole   String   // 'customer', 'admin'
-  previousData    String?  // JSON Snapshot 
-  newData         String?  // JSON Snapshot 
-  changedFields   String?  // JSON Array of field names that changed
-  rejectionReason String?  // Specific field for quick filtering
-  integrityHash   String?  // SHA256 mashup for security
+  eventType       String
+  eventAction     String
+  changedBy       String
+  changedByRole   String
+  previousData    String?
+  newData         String?
+  changedFields   String?
+  rejectionReason String?
+  integrityHash   String?
   createdAt       DateTime @default(now())
-  
   order           Order    @relation(fields: [orderId], references: [id])
 
   @@index([orderId])
@@ -356,7 +316,7 @@ model OrderAuditLogArchive {
 model IdempotencyRecord {
   id           Int      @id @default(autoincrement())
   key          String   @unique
-  status       String   @default("processing") // processing, completed, failed
+  status       String   @default("processing")
   responseCode Int?
   responseBody String?
   expiresAt    DateTime
@@ -366,43 +326,43 @@ model IdempotencyRecord {
 }
 
 model NotificationLog {
-  id              Int      @id @default(autoincrement())
-  orderId         Int
-  customerId      Int?
-  type            String   // e.g., 'CANCELLATION_APPROVED'
-  status          String   @default("pending") // pending, sent, failed
-  error           String?
-  retries         Int      @default(0)
-  maxRetries      Int      @default(3)
-  nextRetryAt     DateTime?
-  createdAt       DateTime @default(now())
+  id          Int       @id @default(autoincrement())
+  orderId     Int
+  customerId  Int?
+  type        String
+  status      String    @default("pending")
+  error       String?
+  retries     Int       @default(0)
+  maxRetries  Int       @default(3)
+  nextRetryAt DateTime?
+  createdAt   DateTime  @default(now())
 }
 
 model CustomerAuditLog {
-  id              Int      @id @default(autoincrement())
-  customerId      Int
-  eventType       String   // e.g., 'BLACKLIST_MANUAL', 'BLACKLIST_AUTO', 'UNBLOCK'
-  eventAction     String   // e.g., 'BLOCKED', 'UNBLOCKED'
-  changedBy       String   // admin email or system
-  changedByRole   String   // 'admin' or 'system'
-  reason          String?
-  previousData    String?  // JSON Snapshot
-  newData         String?  // JSON Snapshot
-  diff            String?  // JSON Patch or similar
-  severitySnapshot String? // Severity at time of log
-  requestId       String?  // E2E Tracking ID
-  actionCategory  String   @default("CUSTOMER_MODERATION") // RISK_MANAGEMENT, etc.
-  userAgent       String?
-  deviceId        String?
-  requestSource   String?  // 'admin_panel' | 'mobile_app'
-  ip              String?
-  createdAt       DateTime @default(now())
-  
-  customer        Customer @relation(fields: [customerId], references: [id])
+  id               Int      @id @default(autoincrement())
+  customerId       Int
+  eventType        String
+  eventAction      String
+  changedBy        String
+  changedByRole    String
+  reason           String?
+  previousData     String?
+  newData          String?
+  diff             String?
+  severitySnapshot String?
+  requestId        String?
+  actionCategory   String   @default("CUSTOMER_MODERATION")
+  userAgent        String?
+  deviceId         String?
+  requestSource    String?
+  ip               String?
+  createdAt        DateTime @default(now())
+  customer         Customer @relation(fields: [customerId], references: [id])
 
   @@index([customerId])
   @@index([createdAt])
 }
+
 model DeliveryZone {
   id        String   @id @default(uuid())
   nameAr    String   @unique
@@ -418,8 +378,8 @@ model DeliveryZone {
 model RefreshToken {
   id        String   @id @default(uuid())
   token     String   @unique
-  userId    String   // UUID (can be User or Customer)
-  role      String   // admin or customer
+  userId    String
+  role      String
   expiresAt DateTime
   createdAt DateTime @default(now())
   isRevoked Boolean  @default(false)
@@ -428,34 +388,40 @@ model RefreshToken {
   @@index([token])
 }
 
-// --- Observability & Metrics ---
 model HealthMetric {
-  id              Int      @id @default(autoincrement())
-  score           Int      // Global normalized score (0-100)
-  status          String   // HEALTHY, DEGRADED, CRITICAL
-  services        Json     // { db: "ok", redis: "down", ... }
-  latencies       Json     // { db: 12, redis: 4, fcm: 150 }
-  errorRate       Float?   // Percentage of failed health checks in last window
-  createdAt       DateTime @default(now())
+  id        Int      @id @default(autoincrement())
+  score     Int
+  status    String
+  services  Json
+  latencies Json
+  errorRate Float?
+  createdAt DateTime @default(now())
 
   @@index([createdAt])
   @@index([status])
 }
 
 model OtpCode {
-  id          String   @id @default(uuid())
-  phone       String?
-  email       String?
-  codeHash    String   // Hashed version of the OTP (bcrypt)
-  attempts    Int      @default(0)
-  used        Boolean  @default(false)
-  purpose     String   @default("login")  // login | register | password_reset
-  expiresAt   DateTime
-  createdAt   DateTime @default(now())
-  ipAddress   String?
-  userAgent   String?
+  id        String   @id @default(uuid())
+  phone     String?
+  email     String?
+  codeHash  String
+  attempts  Int      @default(0)
+  used      Boolean  @default(false)
+  purpose   String   @default("login")
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  ipAddress String?
+  userAgent String?
 
   @@index([phone, purpose, used])
   @@index([email, purpose, used])
   @@index([expiresAt])
+}
+
+enum OrderItemStatus {
+  normal
+  pending_partial_cancel
+  cancelled
+  rejected
 }
