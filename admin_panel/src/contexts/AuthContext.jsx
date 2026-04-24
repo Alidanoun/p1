@@ -1,4 +1,4 @@
-import { createContext, useState, useEffect, useContext } from 'react';
+import { createContext, useState, useEffect, useContext, useRef } from 'react';
 import api, { BASE_URL } from '../api/client';
 import { tokenStore } from '../api/tokenStore';
 
@@ -14,7 +14,12 @@ export const AuthProvider = ({ children }) => {
    * 🛡️ Bootstrap: Restore session without localStorage
    * Logic: Try to refresh from HttpOnly cookie. If it works, we get a new access token.
    */
+  const bootstrapRun = useRef(false);
+
   useEffect(() => {
+    if (bootstrapRun.current) return;
+    bootstrapRun.current = true;
+
     const bootstrap = async () => {
       // 🧹 Cleanup legacy storage (Migration)
       localStorage.removeItem('token');
