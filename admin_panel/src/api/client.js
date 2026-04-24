@@ -108,12 +108,10 @@ api.interceptors.response.use(
 );
 
 function forceLogout() {
-  // 🧹 Mandatory Cleanup: Ensure nothing sensitive remains in localStorage
-  localStorage.removeItem('token');
-  localStorage.removeItem('refreshToken');
-  localStorage.removeItem('user');
+  // 🧹 Ensure memory store is cleared
+  tokenStore.clear();
 
-  // 🚀 Improvement: Redirect to login instead of root to avoid redirect loops
+  // 🚀 Redirect to login
   window.location.href = '/login';
 };
 
