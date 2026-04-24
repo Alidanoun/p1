@@ -5,9 +5,14 @@ const getBaseUrl = () => {
   if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
   if (import.meta.env.PROD) throw new Error('CRITICAL: VITE_API_URL is missing in production');
   
-  // 🌐 Smart local discovery: use the current hostname to avoid CORS/Cookie port issues
-  const host = window.location.hostname;
-  return `http://${host}:5000`;
+  /** 
+   * 🌐 Smart Local Proxy:
+   * By returning an empty string, requests become relative (e.g., /auth/login).
+   * This forces them to go through the Vite Proxy in vite.config.js.
+   * This makes the browser treat the requests as "Same-Origin", ensuring 
+   * HttpOnly Cookies are sent reliably without Cross-Origin/SameSite issues.
+   */
+  return '';
 };
 export const BASE_URL = getBaseUrl();
 
