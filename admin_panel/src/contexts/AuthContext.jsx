@@ -6,46 +6,51 @@ const AuthContext = createContext();
 
 export const useAuth = () => useContext(AuthContext);
 
+/**
+ * 🛡️ Module-level Singleton Promise
+ * Persists across React StrictMode mount/unmount cycles.
+ * Guarantees only ONE /auth/refresh request is ever made during app bootstrap.
+ */
+let _bootstrapPromise = null;
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
   /**
    * 🛡️ Bootstrap: Restore session without localStorage
-   * Logic: Try to refresh from HttpOnly cookie. If it works, we get a new access token.
    */
-  const bootstrapRun = useRef(false);
-
   useEffect(() => {
-    if (bootstrapRun.current) return;
-    bootstrapRun.current = true;
-
-    const bootstrap = async () => {
+    if (!_bootstrapPromise) {
       // 🧹 Cleanup legacy storage (Migration)
       localStorage.removeItem('token');
       localStorage.removeItem('refreshToken');
       localStorage.removeItem('user');
 
-      try {
-        // 🔄 Silent Refresh using the configured api instance
-        const response = await api.post('/auth/refresh');
-        const refreshData = response.data.success ? response.data.data : response.data;
-        const { accessToken } = refreshData;
-        tokenStore.set(accessToken);
+      _bootstrapPromise = (async () => {
+        try {
+          // 🔄 Silent Refresh using the configured api instance
+          const response = await api.post('/auth/refresh');
+          const refreshData = response.data.success ? response.data.data : response.data;
+          const { accessToken } = refreshData;
+          tokenStore.set(accessToken);
 
-        // 👤 Fetch Identity
-        const meResponse = await api.get('/auth/me');
-        setUser(meResponse.data.data);
-      } catch (err) {
-        console.warn('Session bootstrap failed:', err.response?.data?.error || err.message);
-        tokenStore.clear();
-        setUser(null);
-      } finally {
-        setLoading(false);
-      }
-    };
+          // 👤 Fetch Identity
+          const meResponse = await api.get('/auth/me');
+          return meResponse.data.data;
+        } catch (err) {
+          console.warn('Session bootstrap failed:', err.response?.data?.error || err.message);
+          tokenStore.clear();
+          return null;
+        }
+      })();
+    }
 
-    bootstrap();
+    // Both StrictMode calls attach to the SAME promise → only ONE HTTP request hits the wire
+    _bootstrapPromise.then((resolvedUser) => {
+      setUser(resolvedUser);
+      setLoading(false);
+    });
   }, []);
 
   const login = async (email, password) => {
