@@ -234,10 +234,10 @@ class AuthController extends ChangeNotifier {
   // ════════════════════════════════════════════════════════
   Future<void> logout() async {
     await BiometricService.instance.cancelAuthentication();
+    await BiometricService.instance.disable(); // 🔥 Reset biometric preference on logout
     await SessionService.instance.clearSession();
     await StorageService.instance.setCurrentUser(null);
     user = null;
-    await _refreshBiometricState();
     notifyListeners();
   }
 

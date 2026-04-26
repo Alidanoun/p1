@@ -89,11 +89,25 @@ const flagLimiter = rateLimit({
   message: { error: 'Too many flag requests' }
 });
 
+// تقييد استعادة كلمة المرور (Forgot Password Limiter)
+const forgotPasswordLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5, // 5 requests per hour
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'تم تجاوز الحد المسموح. حاول بعد ساعة.' },
+  handler: (req, res, next, options) => {
+    logger.warn(`Forgot Password Rate Limit Exceeded: IP ${req.ip}`);
+    res.status(options.statusCode).json(options.message);
+  }
+});
+
 module.exports = {
   globalLimiter,
   authLimiter,
   orderLimiter,
   searchLimiter,
   reviewLimiter,
-  flagLimiter
+  flagLimiter,
+  forgotPasswordLimiter
 };
