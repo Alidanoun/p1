@@ -3,7 +3,10 @@ const prisma = require('../lib/prisma');
 const logger = require('../utils/logger');
 const TokenService = require('../services/tokenService');
 const { REFRESH_TOKEN_EXPIRY_MS } = require('../config/secrets');
+const { OTP_EXPIRY } = require('../config/constants');
 const response = require('../utils/response');
+
+const passwordRegex = /^(?=.*[a-zA-Z])(?=.*[\d!@#$%^&*]).{8,}$/;
 
 // ── Helper: Secure Cookie Config ──────────────────────
 const refreshCookieOptions = (req) => ({
@@ -55,48 +58,53 @@ const refreshToken = async (req, res) => {
 const login = async (req, res) => {
   const { email, password, fcmToken } = req.body;
   try {
-    const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) {
-      logger.security('Invalid login attempt: User not found', { identifier: email, ip: req.ip });
+    const cleanEmail = email.toLowerCase().trim();
+    const user = await prisma.user.findUnique({ where: { email: cleanEmail } });
+    const customer = !user ? await prisma.customer.findUnique({ where: { email: cleanEmail } }) : null;
+    const account = user || customer;
+
+    if (!account || !account.password) {
+      logger.security('Invalid login attempt: Account not found or no password set', { identifier: cleanEmail, ip: req.ip });
       return response.error(res, 'بيانات الدخول غير صحيحة', 'INVALID_CREDENTIALS', 401);
     }
 
-    const match = await bcrypt.compare(password, user.password);
+    const match = await bcrypt.compare(password, account.password);
     if (!match) {
-      logger.security('Invalid login attempt: Password mismatch', { identifier: email, ip: req.ip });
+      logger.security('Invalid login attempt: Password mismatch', { identifier: cleanEmail, ip: req.ip });
       return response.error(res, 'بيانات الدخول غير صحيحة', 'INVALID_CREDENTIALS', 401);
     }
 
     // --- 📡 Smart FCM Token Sync ---
-    if (fcmToken && fcmToken !== user.fcmToken) {
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { fcmToken }
-      });
-      logger.info('Admin FCM Token updated', { userId: user.id });
+    if (fcmToken && fcmToken !== account.fcmToken) {
+      if (user) {
+        await prisma.user.update({ where: { id: user.id }, data: { fcmToken } });
+      } else {
+        await prisma.customer.update({ where: { id: customer.id }, data: { fcmToken } });
+      }
+      logger.info('FCM Token updated', { accountId: account.uuid });
     }
 
     // --- Enterprise Identity Transition ---
-    const accessToken = TokenService.generateAccessToken(user);
-    const refreshToken = await TokenService.generateAndSaveRefreshToken(user);
+    const accessToken = TokenService.generateAccessToken(account);
+    const refreshToken = await TokenService.generateAndSaveRefreshToken(account);
     
     // ✅ Set Secure Cookie
     res.cookie('refreshToken', refreshToken, refreshCookieOptions(req));
 
     logger.security('Valid login', { 
-      role: user.role,
-      uuid: user.uuid, 
+      role: account.role || 'customer',
+      uuid: account.uuid, 
       ip: req.ip 
     });
 
     response.success(res, { 
       accessToken, 
       user: { 
-        id: user.uuid,
-        email: user.email, 
-        name: user.name,
-        phone: user.phone,
-        role: user.role 
+        id: account.uuid,
+        email: account.email, 
+        name: account.name,
+        phone: account.phone,
+        role: account.role || 'customer' 
       } 
     });
   } catch (error) {
@@ -158,15 +166,22 @@ const EmailService = require('../services/emailService');
 const register = async (req, res) => {
   const { name, email, password, phone } = req.body;
   try {
-    // 1. Validate if user exists
+    // 0. Validate Password Strength
+    if (!passwordRegex.test(password)) {
+      return response.error(res, 'كلمة المرور يجب أن تكون 8 خانات على الأقل وتحتوي على حرف ورقم أو رمز', 'WEAK_PASSWORD', 400);
+    }
+
+    // 1. Validate if account exists in either table
     const existingUser = await prisma.user.findUnique({ where: { email } });
-    if (existingUser) {
+    const existingCustomer = await prisma.customer.findUnique({ where: { email } });
+    
+    if (existingUser || existingCustomer) {
       return response.error(res, 'البريد الإلكتروني مسجل مسبقاً', 'EMAIL_EXISTS', 400);
     }
 
     // 2. Generate 6-digit OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
+    const expiresAt = new Date(Date.now() + OTP_EXPIRY.REGISTRATION);
 
     // 3. Hash Password for temporary storage
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -216,15 +231,14 @@ const verifyRegistration = async (req, res) => {
       return response.error(res, 'كود التحقق غير صحيح', 'INVALID_OTP', 400);
     }
 
-    // 3. Extract Metadata & Create User
+    // 3. Extract Metadata & Create Customer
     const { name, password, phone } = otpRecord.metadata;
-    const user = await prisma.user.create({
+    const account = await prisma.customer.create({
       data: {
         name,
         email,
         password,
-        phone,
-        role: 'customer'
+        phone
       }
     });
 
@@ -235,14 +249,20 @@ const verifyRegistration = async (req, res) => {
     });
 
     // 5. Generate Session
-    const accessToken = TokenService.generateAccessToken(user);
-    const refreshToken = await TokenService.generateAndSaveRefreshToken(user);
+    const accessToken = TokenService.generateAccessToken(account);
+    const refreshToken = await TokenService.generateAndSaveRefreshToken(account);
     
     res.cookie('refreshToken', refreshToken, refreshCookieOptions(req));
 
     response.success(res, { 
       accessToken, 
-      user: { id: user.uuid, email: user.email, name: user.name, phone: user.phone, role: user.role } 
+      user: { 
+        id: account.uuid, 
+        email: account.email, 
+        name: account.name, 
+        phone: account.phone, 
+        role: 'customer' 
+      } 
     });
   } catch (error) {
     logger.error('Verify registration error', { error: error.message });
@@ -258,16 +278,18 @@ const forgotPassword = async (req, res) => {
   const cleanEmail = email.toLowerCase().trim();
 
   try {
+    // 🛡️ Search both User (Admin) and Customer tables
     const user = await prisma.user.findUnique({ where: { email: cleanEmail } });
+    const customer = !user ? await prisma.customer.findUnique({ where: { email: cleanEmail } }) : null;
 
-    // 🛡️ Anti-enumeration: Always return 200 even if user doesn't exist
-    if (!user) {
-      logger.warn('Forgot password attempt for non-existent user', { email: cleanEmail });
+    // 🛡️ Anti-enumeration: Always return 200 even if neither exists
+    if (!user && !customer) {
+      logger.warn('Forgot password attempt for non-existent email', { email: cleanEmail });
       return response.success(res, { message: 'إذا كان البريد مسجلاً، ستصلك رسالة قريباً' });
     }
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
+    const expiresAt = new Date(Date.now() + OTP_EXPIRY.PASSWORD_RESET);
 
     await prisma.otpCode.create({
       data: {
@@ -278,7 +300,7 @@ const forgotPassword = async (req, res) => {
       }
     });
 
-    await EmailService.sendOtp(cleanEmail, otp);
+    await EmailService.sendPasswordResetOtp(cleanEmail, otp);
     response.success(res, { message: 'إذا كان البريد مسجلاً، ستصلك رسالة قريباً' });
   } catch (error) {
     logger.error('Forgot password error', { error: error.message });
@@ -290,10 +312,15 @@ const forgotPassword = async (req, res) => {
  * 🔑 Phase 2: Reset Password (Verify OTP + Update)
  */
 const resetPassword = async (req, res) => {
-  const { email, code, newPassword } = req.body;
+    const { email, code, newPassword } = req.body;
   const cleanEmail = email.toLowerCase().trim();
 
   try {
+    // 0. Validate Password Strength
+    if (!passwordRegex.test(newPassword)) {
+      return response.error(res, 'كلمة المرور يجب أن تكون 8 خانات على الأقل وتحتوي على حرف ورقم أو رمز', 'WEAK_PASSWORD', 400);
+    }
+
     const otpRecord = await prisma.otpCode.findFirst({
       where: { email: cleanEmail, purpose: 'password_reset', used: false },
       orderBy: { createdAt: 'desc' }
@@ -309,10 +336,53 @@ const resetPassword = async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
-    const user = await prisma.user.update({
-      where: { email: cleanEmail },
-      data: { password: hashedPassword }
+    
+    // ✅ Check user type and update accordingly
+    let account = await prisma.user.findUnique({ where: { email: cleanEmail } });
+    let isUser = true;
+
+    if (!account) {
+      account = await prisma.customer.findUnique({ where: { email: cleanEmail } });
+      isUser = false;
+    }
+
+    if (!account) {
+      return response.error(res, 'الحساب غير موجود', 'USER_NOT_FOUND', 404);
+    }
+
+    let updatedAccount;
+    await prisma.$transaction(async (tx) => {
+      if (isUser) {
+        updatedAccount = await tx.user.update({
+          where: { email: cleanEmail },
+          data: { password: hashedPassword }
+        });
+      } else {
+        updatedAccount = await tx.customer.update({
+          where: { email: cleanEmail },
+          data: { password: hashedPassword }
+        });
+      }
+
+      // 🔥 Revoke ALL old sessions (Security Best Practice)
+      await tx.refreshToken.deleteMany({
+        where: { userId: updatedAccount.uuid }
+      });
+
+      // 📝 Audit Log
+      await tx.systemAuditLog.create({
+        data: {
+          userId: updatedAccount.uuid,
+          userRole: isUser ? updatedAccount.role : 'customer',
+          action: 'PASSWORD_RESET',
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
+          metadata: { email: cleanEmail }
+        }
+      });
     });
+
+    logger.security('Password reset — all sessions revoked', { email: cleanEmail, uuid: updatedAccount.uuid });
 
     await prisma.otpCode.update({
       where: { id: otpRecord.id },
@@ -320,13 +390,19 @@ const resetPassword = async (req, res) => {
     });
 
     // 🚀 Auto-login after successful reset
-    const accessToken = TokenService.generateAccessToken(user);
-    const refreshToken = await TokenService.generateAndSaveRefreshToken(user);
+    const accessToken = TokenService.generateAccessToken(updatedAccount);
+    const refreshToken = await TokenService.generateAndSaveRefreshToken(updatedAccount);
     res.cookie('refreshToken', refreshToken, refreshCookieOptions(req));
 
     response.success(res, {
       accessToken,
-      user: { id: user.uuid, email: user.email, name: user.name, phone: user.phone, role: user.role }
+      user: { 
+        id: updatedAccount.uuid, 
+        email: updatedAccount.email, 
+        name: updatedAccount.name, 
+        phone: updatedAccount.phone, 
+        role: updatedAccount.role || 'customer' 
+      }
     });
   } catch (error) {
     logger.error('Reset password error', { error: error.message });

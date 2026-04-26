@@ -170,6 +170,7 @@ model Customer {
   name                String
   phone               String?            @unique
   email               String?            @unique
+  password            String?
   address             String?
   fcmToken            String?
   points              Int                @default(0)
@@ -420,6 +421,21 @@ model OtpCode {
   @@index([phone, purpose, used])
   @@index([email, purpose, used])
   @@index([expiresAt])
+}
+
+model SystemAuditLog {
+  id           String   @id @default(uuid())
+  userId       String?  // Can be User uuid or Customer uuid
+  userRole     String?
+  action       String
+  ip           String?
+  userAgent    String?
+  metadata     Json?
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
 }
 
 enum OrderItemStatus {

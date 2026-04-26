@@ -44,15 +44,43 @@ class EmailService {
       logger.info('OTP Email sent successfully', { email });
       return true;
     } catch (error) {
-      logger.error('❌ Failed to send OTP Email', {
-        email,
-        errorMessage: error.message,
-        code: error.code,
-        command: error.command
-      });
-
-      // Fallback for development
+      logger.error('❌ Failed to send OTP Email', { email, error: error.message });
       console.log(`\n\n[DEV ONLY] OTP for ${email}: ${code}\n\n`);
+      return false;
+    }
+  }
+
+  /**
+   * 🔐 Send Password Reset OTP
+   */
+  async sendPasswordResetOtp(email, code) {
+    const mailOptions = {
+      from: `"مطعم المركزية" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: '🔐 طلب إعادة تعيين كلمة المرور - مطعم المركزية',
+      html: `
+        <div style="direction: rtl; font-family: Tahoma, sans-serif; text-align: center; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
+          <h2 style="color: #FF6D00;">🔐 إعادة تعيين كلمة المرور</h2>
+          <p>لقد تلقينا طلباً لإعادة تعيين كلمة المرور الخاصة بك. كود التحقق هو:</p>
+          <div style="background: #f4f4f4; padding: 15px; font-size: 24px; font-weight: bold; letter-spacing: 5px; color: #333; margin: 20px 0;">
+            ${code}
+          </div>
+          <div style="background:#FFF8E1; border-right:4px solid #FFC107; padding: 15px; margin: 10px 0; text-align: right; display: inline-block;">
+            ⏱️ صالح لمدة 5 دقائق فقط<br/>
+            🔒 لا تشارك هذا الكود مع أحد<br/>
+            ❗ إذا لم تطلب إعادة التعيين، يرجى تجاهل هذا البريد
+          </div>
+        </div>
+      `
+    };
+
+    try {
+      await this.transporter.sendMail(mailOptions);
+      logger.info('Password Reset Email sent successfully', { email });
+      return true;
+    } catch (error) {
+      logger.error('❌ Failed to send Password Reset Email', { email, error: error.message });
+      console.log(`\n\n[DEV ONLY] Reset OTP for ${email}: ${code}\n\n`);
       return false;
     }
   }

@@ -31,6 +31,7 @@ class _AuthScreenState extends State<AuthScreen>
 
   bool _loginPasswordVisible = false;
   bool _regPasswordVisible = false;
+  int _biometricFailCount = 0; // 🔥 Track failures for fallback
 
   @override
   void initState() {
@@ -65,11 +66,27 @@ class _AuthScreenState extends State<AuthScreen>
     if (!mounted) return;
 
     if (result.isSuccess) {
+      _biometricFailCount = 0; // Reset on success
       _goToHome();
-    } else if (result.status == BiometricLoginStatus.sessionExpired) {
-      showCustomSnackbar(context, result.message ?? l10n.loginFailed, isSuccess: false);
-    } else if (result.status == BiometricLoginStatus.lockedOut) {
-      showCustomSnackbar(context, result.message ?? l10n.biometricAuthFailed, isSuccess: false);
+    } else {
+      _biometricFailCount++;
+
+      if (_biometricFailCount >= 3) {
+        // Force password login fallback
+        showCustomSnackbar(
+          context,
+          'فشل التحقق بالبصمة عدة مرات. يرجى الدخول بكلمة المرور',
+          isSuccess: false,
+        );
+        _biometricFailCount = 0; // Reset for next time
+        return;
+      }
+
+      if (result.status == BiometricLoginStatus.sessionExpired) {
+        showCustomSnackbar(context, result.message ?? l10n.loginFailed, isSuccess: false);
+      } else if (result.status == BiometricLoginStatus.lockedOut) {
+        showCustomSnackbar(context, result.message ?? l10n.biometricAuthFailed, isSuccess: false);
+      }
     }
   }
 
