@@ -32,8 +32,8 @@ const externalProbeController = require('./controllers/externalProbeController')
 const warmupService = require('./services/warmupService');
 const prisma = require('./lib/prisma');
 
-// Initialize Intelligence & Alerting Layer
-require('./services/alertService');
+// 🧹 DETOX: Temporarily Disabled Intelligence & Alerting Layer
+// require('./services/alertService');
 
 const app = express();
 const server = http.createServer(app);

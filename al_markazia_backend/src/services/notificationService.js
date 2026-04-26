@@ -67,8 +67,8 @@ class NotificationService {
     
     // 🎯 Determine Target Audience
     const target = {
-      isToAdmin: type === 'order_created',
-      isToCustomer: ['status_change', 'order_cancelled'].includes(type),
+      isToAdmin: ['order_created', 'order_cancelled'].includes(type),
+      isToCustomer: ['order_created', 'status_change', 'order_cancelled'].includes(type),
       isBroadcast: type === 'broadcast'
     };
 
@@ -156,13 +156,28 @@ class NotificationService {
       if (target.isBroadcast) {
         this.io.emit('new_broadcast', payload.notification);
         this.io.emit(SOCKET_EVENTS.ORDER_UPDATED, payload);
-      } else if (target.isToAdmin) {
-        this.io.to(SOCKET_ROOMS.ADMIN).emit(SOCKET_EVENTS.ORDER_UPDATED, payload);
-      } else if (target.isToCustomer && order.customerId) {
-        const room = SOCKET_ROOMS.CUSTOMER(order.customerId);
-        this.io.to(room).emit(SOCKET_EVENTS.ORDER_UPDATED, payload);
       }
-
+      
+      if (target.isToAdmin) {
+        this.io.to(SOCKET_ROOMS.ADMIN).emit(SOCKET_EVENTS.ORDER_UPDATED, payload);
+      }
+      
+      if (target.isToCustomer && (order.customer?.uuid || order.customerId)) {
+        let uuid = order.customer?.uuid;
+        if (!uuid) {
+          const customerRecord = await prisma.customer.findUnique({
+            where: { id: order.customerId },
+            select: { uuid: true }
+          });
+          uuid = customerRecord?.uuid;
+        }
+        
+        if (uuid) {
+          const room = SOCKET_ROOMS.CUSTOMER(uuid);
+          this.io.to(room).emit(SOCKET_EVENTS.ORDER_UPDATED, payload);
+          logger.info(`[NotificationService] Emitted to customer room: ${room}`);
+        }
+      }
       return true;
     } catch (err) {
       return false;

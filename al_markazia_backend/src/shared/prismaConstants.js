@@ -15,7 +15,14 @@ const ORDER_INCLUDE_FULL = {
     }
   },
   orderItems: {
-    orderBy: { id: 'asc' }
+    orderBy: { id: 'asc' },
+    include: {
+      item: {
+        select: {
+          image: true
+        }
+      }
+    }
   },
   cancellation: true,
 };

@@ -967,6 +967,48 @@ abstract class AppLocalizations {
   /// In ar, this message translates to:
   /// **'لم يتم العثور على نتائج'**
   String get noResultsFound;
+
+  /// No description provided for @biometricReason.
+  ///
+  /// In ar, this message translates to:
+  /// **'أثبت هويتك للدخول إلى حسابك'**
+  String get biometricReason;
+
+  /// No description provided for @biometricEnableReason.
+  ///
+  /// In ar, this message translates to:
+  /// **'أثبت هويتك لتفعيل الدخول بالبصمة'**
+  String get biometricEnableReason;
+
+  /// No description provided for @biometricAuthFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'فشل التحقق من البصمة'**
+  String get biometricAuthFailed;
+
+  /// No description provided for @biometricNotAvailable.
+  ///
+  /// In ar, this message translates to:
+  /// **'البصمة غير متوفرة في هذا الجهاز'**
+  String get biometricNotAvailable;
+
+  /// No description provided for @loginWithFingerprint.
+  ///
+  /// In ar, this message translates to:
+  /// **'الدخول بالبصمة'**
+  String get loginWithFingerprint;
+
+  /// No description provided for @biometricEnabled.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم تفعيل الدخول بالبصمة بنجاح ✅'**
+  String get biometricEnabled;
+
+  /// No description provided for @forgotPassword.
+  ///
+  /// In ar, this message translates to:
+  /// **'نسيت كلمة المرور؟'**
+  String get forgotPassword;
 }
 
 class _AppLocalizationsDelegate

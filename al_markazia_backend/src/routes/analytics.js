@@ -1,11 +1,10 @@
 const express = require('express');
-const router = express.Router();
-const analyticsController = require('../controllers/analyticsController');
-const { authenticateToken, isAdmin } = require('../middleware/auth');
+const { getDashboardStats } = require('../controllers/analyticsController');
+const { authenticateToken, requireRoles } = require('../middleware/auth');
 
-/**
- * Analytics Routes - Lockdown for Admins Only
- */
-router.get('/dashboard-stats', authenticateToken, isAdmin, analyticsController.getDashboardStats);
+const router = express.Router();
+
+// 🛡️ Only Admins can see analytics
+router.get('/dashboard', authenticateToken, requireRoles(['admin', 'manager']), getDashboardStats);
 
 module.exports = router;

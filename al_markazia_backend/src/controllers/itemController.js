@@ -1,5 +1,5 @@
 const prisma = require('../lib/prisma');
-const { deleteFile } = require('../utils/fileUploadHelper');
+const { deleteFile, formatImageUrl } = require('../utils/fileUploadHelper');
 const logger = require('../utils/logger');
 const itemFilters = require('../utils/itemFilters');
 const { toNumber } = require('../utils/number');
@@ -56,7 +56,10 @@ exports.getAllItems = async (req, res) => {
 
     res.json({
       success: true,
-      data: items
+      data: items.map(item => ({
+        ...item,
+        image: formatImageUrl(item.image)
+      }))
     });
   } catch (error) {
     logger.error('Failed to fetch items', { error: error.message, stack: error.stack });
@@ -141,7 +144,10 @@ exports.getItemById = async (req, res) => {
     });
 
     if (!item) return res.status(404).json({ error: 'Item not found' });
-    res.json(item);
+    res.json({
+      ...item,
+      image: formatImageUrl(item.image)
+    });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch item' });
   }

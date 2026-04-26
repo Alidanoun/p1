@@ -19,6 +19,318 @@ const { ORDER_INCLUDE_FULL } = require('../shared/prismaConstants');
 
 class OrderService {
   /**
+   * 📊 Admin: Reports Data Fetching
+   */
+  async getOrdersReport(query) {
+    const { startDate, endDate, status, page, limit } = query;
+    const where = {};
+
+    if (startDate || endDate) {
+      where.createdAt = {};
+      if (startDate) where.createdAt.gte = new Date(startDate + 'T00:00:00.000Z');
+      if (endDate)   where.createdAt.lte = new Date(endDate + 'T23:59:59.999Z');
+    }
+    if (status) where.status = status;
+
+    const pageNum = page ? Math.max(1, parseInt(page)) : null;
+    const limitNum = limit ? Math.min(1000, parseInt(limit)) : 500;
+
+    const [orders, total] = await Promise.all([
+      prisma.order.findMany({
+        where,
+        include: ORDER_INCLUDE_FULL,
+        orderBy: { createdAt: 'desc' },
+        ...(pageNum ? { skip: (pageNum - 1) * limitNum, take: limitNum } : { take: limitNum })
+      }),
+      prisma.order.count({ where })
+    ]);
+
+    return {
+      orders: orders.map(mapOrderResponse),
+      total,
+      page: pageNum,
+      limit: limitNum
+    };
+  }
+
+  /**
+   * 🔍 Advanced Order Query (Admin)
+   */
+  async getOrders(query) {
+    const { status, search, active_only } = query;
+    const { page, limit, skip } = require('../utils/pagination').parsePagination(query);
+
+    const where = {};
+    if (active_only === 'true') {
+      where.status = { notIn: ['delivered', 'cancelled'] };
+    } else if (status) {
+      where.status = status;
+    }
+
+    if (search) {
+      where.OR = [
+        { orderNumber: { contains: search, mode: 'insensitive' } },
+        { customerName: { contains: search, mode: 'insensitive' } },
+        { customerPhone: { contains: search } }
+      ];
+    }
+
+    const [orders, total, statusCounts] = await Promise.all([
+      prisma.order.findMany({
+        where,
+        include: ORDER_INCLUDE_FULL,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit
+      }),
+      prisma.order.count({ where }),
+      prisma.order.groupBy({
+        by: ['status'],
+        _count: { id: true }
+      })
+    ]);
+
+    return {
+      orders: orders.map(mapOrderResponse),
+      total,
+      page,
+      limit,
+      statusSummary: statusCounts.reduce((acc, s) => {
+        acc[s.status] = s._count.id;
+        return acc;
+      }, {})
+    };
+  }
+
+  /**
+   * 👤 Fetch Customer-Specific Orders
+   */
+  async getCustomerOrders(userUuid, query) {
+    const { status, active_only } = query;
+    const { page, limit, skip } = require('../utils/pagination').parsePagination(query);
+
+    const customer = await prisma.customer.findUnique({ 
+      where: { uuid: userUuid },
+      select: { id: true } 
+    });
+    if (!customer) throw new Error('CUSTOMER_NOT_FOUND');
+
+    const where = { customerId: customer.id };
+    
+    // 🔍 Apply Filters (Fix for "Current Orders" not appearing)
+    if (active_only === 'true') {
+      where.status = { notIn: ['delivered', 'cancelled'] };
+    } else if (status) {
+      where.status = status;
+    }
+
+    const [orders, total] = await Promise.all([
+      prisma.order.findMany({
+        where,
+        include: ORDER_INCLUDE_FULL,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit
+      }),
+      prisma.order.count({ where })
+    ]);
+
+    return {
+      orders: orders.map(mapOrderResponse),
+      total,
+      page,
+      limit
+    };
+  }
+
+  /**
+   * ⚠️ Request Partial Cancellation/Modification
+   */
+  async requestPartialCancel(orderId, items, reason) {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { customer: true }
+    });
+
+    if (!order) throw new Error('ORDER_NOT_FOUND');
+
+    await prisma.notification.create({
+      data: {
+        title: 'طلب إلغاء جزئي ⚠️',
+        message: `طلب تعديل للطلب #${order.orderNumber} من ${order.customerName}`,
+        type: 'partial_cancel_requested',
+        orderId: order.id,
+        targetRoute: `/orders?id=${order.id}`
+      }
+    });
+
+    return { success: true };
+  }
+
+  /**
+   * ⏲️ Update estimated ready time
+   */
+  async updateOrderTimer(orderId, estimatedReadyAt) {
+    const date = new Date(estimatedReadyAt);
+    if (isNaN(date.getTime())) throw new Error('INVALID_DATE');
+
+    const order = await prisma.order.update({
+      where: { id: orderId },
+      data: { estimatedReadyAt: date },
+      include: ORDER_INCLUDE_FULL
+    });
+
+    return mapOrderResponse(order);
+  }
+
+  /**
+   * ⭐ Submit Order Rating
+   */
+  async submitOrderRating(orderId, user, rating, comment) {
+    if (!rating || !Number.isInteger(rating) || rating < 1 || rating > 5) {
+      throw new Error('INVALID_RATING');
+    }
+
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { customer: true }
+    });
+    
+    if (!order) throw new Error('ORDER_NOT_FOUND');
+    
+    if (user?.role !== 'admin' && order.customer?.uuid !== user?.id) {
+      throw new Error('ORDER_FORBIDDEN');
+    }
+
+    const updatedOrder = await prisma.order.update({
+      where: { id: orderId },
+      data: { rating, ratingComment: comment, isRatingApproved: false },
+      include: ORDER_INCLUDE_FULL
+    });
+
+    return mapOrderResponse(updatedOrder);
+  }
+
+  /**
+   * 🛠️ Manage Cancellation Requests (Approve/Reject)
+   */
+  async handleCancellationRequest(orderId, user, action, rejectionReason) {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { cancellation: true, customer: true }
+    });
+
+    if (!order) throw new Error('ORDER_NOT_FOUND');
+    if (order.status !== 'waiting_cancellation') throw new Error('NOT_PENDING_CANCELLATION');
+
+    if (action === 'approve') {
+      const result = await this.updateOrderStatus(orderId, 'cancelled');
+      if (order.cancellation) {
+        await prisma.orderCancellation.update({
+          where: { orderId },
+          data: { status: 'approved', adminName: user?.email }
+        });
+      }
+      return result;
+    } else {
+      // Reject — restore previous status
+      const previousStatus = order.cancellation?.previousStatus || 'preparing';
+      const result = await this.updateOrderStatus(orderId, previousStatus);
+      if (order.cancellation) {
+        await prisma.orderCancellation.update({
+          where: { orderId },
+          data: { status: 'rejected', rejectionReason, adminName: user?.email }
+        });
+      }
+      return result;
+    }
+  }
+
+  /**
+   * 🎯 Fetch Unique Order with Details
+   */
+  async getOrderById(orderId, user = null) {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        ...ORDER_INCLUDE_FULL,
+        auditLogs: { orderBy: { createdAt: 'desc' }, take: 10 }
+      }
+    });
+
+    if (!order) return null;
+
+    // 🛡️ Security Guard
+    if (user && user.role === 'customer') {
+      const customer = await prisma.customer.findUnique({ where: { uuid: user.id }, select: { id: true } });
+      if (!customer || order.customerId !== customer.id) {
+        throw new Error('ORDER_FORBIDDEN');
+      }
+    }
+
+    return mapOrderResponse(order);
+  }
+
+  /**
+   * 🛑 Cancel Order with Multi-tier Validation
+   */
+  async cancelOrder(orderId, user, reason) {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { customer: true }
+    });
+
+    if (!order) throw new Error('ORDER_NOT_FOUND');
+
+    const isOrderManager = user?.role === 'admin';
+    const canCancelDirectly = isOrderManager || order.status === 'pending';
+    
+    const targetStatus = canCancelDirectly ? 'cancelled' : 'waiting_cancellation';
+    const cancellationStatus = canCancelDirectly ? 'approved' : 'pending';
+    const previousStatus = order.status;
+
+    const updatedOrder = await prisma.$transaction(async (tx) => {
+      const updated = await tx.order.update({
+        where: { id: orderId, version: order.version },
+        data: { status: targetStatus, version: { increment: 1 } },
+        include: ORDER_INCLUDE_FULL
+      });
+
+      await tx.orderCancellation.create({
+        data: {
+          orderId,
+          reason: reason || (targetStatus === 'waiting_cancellation' ? 'طلب إلغاء من الزبون' : 'No reason provided'),
+          cancelledBy: isOrderManager ? 'admin' : 'customer',
+          previousStatus,
+          status: cancellationStatus,
+          adminName: isOrderManager ? (user?.email || 'Admin') : null
+        }
+      });
+
+      return updated;
+    });
+
+    const mapped = mapOrderResponse(updatedOrder);
+
+    // 🚀 Side Effects
+    analyticsService.updateCacheIncrementally({
+      type: 'ORDER_STATUS_CHANGE',
+      amount: toNumber(updatedOrder.total),
+      status: targetStatus,
+      previousStatus
+    });
+
+    await publishEvent({
+      type: targetStatus === 'cancelled' ? eventTypes.ORDER_CANCELLED : eventTypes.ORDER_CANCELLATION_REQUESTED,
+      aggregateId: updatedOrder.id,
+      payload: { previousStatus, newStatus: targetStatus, order: mapped },
+      version: updatedOrder.version
+    });
+
+    return mapped;
+  }
+
+  /**
    * 🏗️ Enterprise Order Creation
    * Full transactional logic moved from Controller.
    */
@@ -339,6 +651,72 @@ class OrderService {
    */
   _onOrderCompleted(orderId) {
     // logger.debug('[Loyalty] Order completed hook triggered for', orderId);
+  }
+
+  /**
+   * ⚡ Atomic Status Update & State Machine Validation
+   */
+  async updateOrderStatus(orderId, newStatus) {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { customer: true }
+    });
+
+    if (!order || order.status === newStatus) return null;
+
+    const previousStatus = order.status;
+
+    // Validate state machine sequence (Enterprise Guard)
+    const validTransitions = {
+      'pending': ['preparing', 'cancelled'],
+      'preparing': ['ready', 'cancelled'],
+      'ready': ['in_route', 'delivered', 'cancelled'],
+      'in_route': ['delivered', 'cancelled'],
+      'waiting_cancellation': ['cancelled', 'pending', 'preparing', 'ready', 'in_route', 'delivered'],
+      'delivered': [],
+      'cancelled': []
+    };
+
+    if (!validTransitions[previousStatus]?.includes(newStatus)) {
+      throw new Error(`Invalid status transition from ${previousStatus} to ${newStatus}`);
+    }
+
+    const updatedOrder = await prisma.order.update({
+      where: { id: order.id, version: order.version },
+      data: { status: newStatus, version: { increment: 1 } },
+      include: ORDER_INCLUDE_FULL
+    });
+
+    const mappedOrder = mapOrderResponse(updatedOrder);
+
+    // 📦 Dual-Write: Publish Event to Store (Deduplicated via EventBus)
+    await publishEvent({
+      type: eventTypes.ORDER_STATUS_CHANGED,
+      aggregateId: updatedOrder.id,
+      payload: { 
+        previousStatus, 
+        newStatus, 
+        order: {
+          ...mappedOrder,
+          id: updatedOrder.id,
+          customerId: updatedOrder.customerId,
+          customerPhone: updatedOrder.customer?.phone || null,
+          customer: updatedOrder.customer
+        } 
+      },
+      version: updatedOrder.version
+    });
+    
+    // 📊 Incremental Analytics Update
+    analyticsService.updateCacheIncrementally({
+      type: 'ORDER_STATUS_CHANGE',
+      amount: toNumber(updatedOrder.total),
+      status: newStatus,
+      previousStatus,
+      orderNumber: updatedOrder.orderNumber
+    });
+
+    return mappedOrder;
   }
 
   /**

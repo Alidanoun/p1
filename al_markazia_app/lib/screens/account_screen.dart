@@ -8,6 +8,8 @@ import '../services/api_service.dart';
 import '../features/auth/auth_controller.dart';
 import 'auth_screen.dart';
 import 'package:provider/provider.dart';
+import '../services/biometric_service.dart';
+import '../widgets/custom_snackbar.dart';
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({Key? key}) : super(key: key);
@@ -17,18 +19,7 @@ class AccountScreen extends StatefulWidget {
 }
 
 class _AccountScreenState extends State<AccountScreen> {
-  // Removed local _user state as we now use AuthController (Provider)
   bool _notificationsEnabled = true;
-
-  @override
-  void initState() {
-    super.initState();
-    // No longer need to manually refresh or listen to StorageService
-    // AuthController handles its own background refresh and state notification
-  }
-
-  // Removed redundant _refreshProfile logic as it's now handled by AuthController logic
-
 
   Future<void> _changeLanguage() async {
     final l10n = AppLocalizations.of(context)!;
@@ -80,9 +71,7 @@ class _AccountScreenState extends State<AccountScreen> {
     );
 
     if (confirmed == true) {
-      // Use the centralized async logout from AuthController
       await context.read<AuthController>().logout();
-      
       if (mounted) {
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const AuthScreen()),
@@ -107,9 +96,7 @@ class _AccountScreenState extends State<AccountScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(AppLocalizations.of(context)!.whatsAppError))
-        );
+        showCustomSnackbar(context, AppLocalizations.of(context)!.whatsAppError, isSuccess: false);
       }
     }
   }
@@ -121,18 +108,66 @@ class _AccountScreenState extends State<AccountScreen> {
         await launchUrl(phoneUrl);
       } else {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(AppLocalizations.of(context)!.phoneError))
-          );
+          showCustomSnackbar(context, AppLocalizations.of(context)!.phoneError, isSuccess: false);
         }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(AppLocalizations.of(context)!.supportError))
-        );
+        showCustomSnackbar(context, AppLocalizations.of(context)!.supportError, isSuccess: false);
       }
     }
+  }
+
+  Widget _buildBiometricTile() {
+    final l10n = AppLocalizations.of(context)!;
+    return Consumer<AuthController>(
+      builder: (context, auth, _) {
+        if (!auth.isBiometricAvailable) return const SizedBox.shrink();
+
+        return FutureBuilder<String>(
+          future: BiometricService.instance.availableTypesLabel,
+          builder: (context, snap) {
+            final label = snap.data ?? l10n.loginWithFingerprint;
+            final isDark = Theme.of(context).brightness == Brightness.dark;
+            final cardColor = isDark ? const Color(0xFF1C1C1E) : Colors.white;
+
+            return Column(
+              children: [
+                const SizedBox(height: 16),
+                _buildSettingsCard(
+                  context: context,
+                  title: l10n.loginWithFingerprint,
+                  icon: Icons.fingerprint,
+                  iconColor: auth.isBiometricEnabled ? const Color(0xFFFF6D00) : Colors.grey,
+                  cardColor: cardColor,
+                  trailing: CupertinoSwitch(
+                    value: auth.isBiometricEnabled,
+                    activeColor: const Color(0xFFFF6D00),
+                    onChanged: (val) async {
+                      if (val) {
+                        final enabled = await auth.enableBiometrics(reason: l10n.biometricEnableReason);
+                        if (mounted) {
+                          showCustomSnackbar(
+                            context,
+                            enabled ? l10n.biometricEnabled : l10n.biometricAuthFailed,
+                            isSuccess: enabled,
+                          );
+                        }
+                      } else {
+                        await auth.disableBiometrics();
+                        if (mounted) {
+                          showCustomSnackbar(context, l10n.confirm, isSuccess: true);
+                        }
+                      }
+                    },
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   @override
@@ -155,7 +190,6 @@ class _AccountScreenState extends State<AccountScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
         physics: const BouncingScrollPhysics(),
         children: [
-          // Profile Header Row
           Row(
             children: [
               CircleAvatar(
@@ -178,7 +212,6 @@ class _AccountScreenState extends State<AccountScreen> {
           ),
           const SizedBox(height: 32),
 
-          // Loyalty Points (Placeholder)
           _buildSettingsCard(
             context: context,
             title: l10n.loyaltyPoints,
@@ -199,7 +232,6 @@ class _AccountScreenState extends State<AccountScreen> {
           
           const SizedBox(height: 16),
 
-          // Language Setting
           GestureDetector(
             onTap: _changeLanguage,
             child: _buildSettingsCard(
@@ -223,7 +255,6 @@ class _AccountScreenState extends State<AccountScreen> {
 
           const SizedBox(height: 16),
 
-          // Dark Mode
           _buildSettingsCard(
             context: context,
             title: l10n.darkMode,
@@ -238,9 +269,11 @@ class _AccountScreenState extends State<AccountScreen> {
             ),
           ),
 
+          // 🆕 Biometric Toggle Tile
+          _buildBiometricTile(),
+
           const SizedBox(height: 16),
 
-          // Notification Toggle
           _buildSettingsCard(
             context: context,
             title: l10n.notifications,
@@ -257,7 +290,6 @@ class _AccountScreenState extends State<AccountScreen> {
 
           const SizedBox(height: 16),
 
-          // Support Rows
           Row(
             children: [
               Expanded(
@@ -291,7 +323,6 @@ class _AccountScreenState extends State<AccountScreen> {
 
           const SizedBox(height: 16),
 
-          // Logout
           GestureDetector(
             onTap: _logout,
             child: _buildSettingsCard(
@@ -357,5 +388,3 @@ class _AccountScreenState extends State<AccountScreen> {
     );
   }
 }
-
-

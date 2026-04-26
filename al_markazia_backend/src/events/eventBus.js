@@ -42,6 +42,30 @@ class EventBus {
 
     await Promise.all(promises);
   }
+  /**
+   * 📬 Temporary Polyfill for Safe Redirect (Alias Layer)
+   */
+  emitSafe(event, data = {}, ...args) {
+    return this.publish({ type: event, payload: data });
+  }
+
+  on(event, handler) {
+    return this.subscribe(event, (evt) => handler(evt.payload));
+  }
+
+  /**
+   * 👁️ Smart Global Event Tracing
+   */
+  onAny(handler) {
+    this.subscribe('*', handler);
+  }
 }
 
-module.exports = new EventBus();
+const eventBusInstance = new EventBus();
+
+// Global Logger (Smart Tracing)
+eventBusInstance.onAny((event) => {
+  console.log('[EVENT TRACE] ⚡', event.type);
+});
+
+module.exports = eventBusInstance;

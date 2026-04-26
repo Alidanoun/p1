@@ -13,7 +13,7 @@ class ApiService {
   final _orderApi = OrderApi();
   
   static String get baseUrl {
-    const ip = String.fromEnvironment('SERVER_IP', defaultValue: '192.168.3.180');
+    const ip = String.fromEnvironment('SERVER_IP', defaultValue: '192.168.3.128');
     const port = String.fromEnvironment('SERVER_PORT', defaultValue: '5000');
     final scheme = const bool.fromEnvironment('dart.vm.product') ? 'https' : 'http';
     return '$scheme://$ip:$port';
@@ -306,8 +306,18 @@ class ApiService {
     return response;
   }
 
-  Future<Map<String, dynamic>> registerCustomer(String name, String email, String password) async {
-    final response = await _authApi.registerCustomer(name, email, password);
+  Future<Map<String, dynamic>> registerCustomer({
+    required String name,
+    required String email,
+    required String password,
+    required String phone,
+  }) async {
+    final response = await _authApi.registerCustomer(
+      name: name,
+      email: email,
+      password: password,
+      phone: phone,
+    );
     await SessionService.instance.saveUser(response);
     return response;
   }
@@ -370,6 +380,50 @@ class ApiService {
       }).toList();
     } else {
       throw Exception('Search failed');
+    }
+  }
+
+  // ════════════════════════════════════════════════════════
+  //  🆕 Token Refresh (used by biometric login)
+  // ════════════════════════════════════════════════════════
+  static ApiService? _instance;
+  static ApiService get instance {
+    _instance ??= ApiService();
+    return _instance!;
+  }
+
+  Future<String?> refreshTokens() async {
+    try {
+      final refreshToken = await SessionService.instance.refreshToken;
+      if (refreshToken == null) return null;
+
+      final response = await http.post(
+        Uri.parse('$baseUrl/auth/refresh'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $refreshToken',
+        },
+        body: json.encode({'refreshToken': refreshToken}),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final body = json.decode(utf8.decode(response.bodyBytes));
+        final data = body['data'] ?? body;
+        final newAccessToken = data['accessToken'] as String?;
+        final newRefreshToken = data['refreshToken'] as String?;
+
+        if (newAccessToken != null) {
+          await SessionService.instance.saveSession(
+            accessToken: newAccessToken,
+            refreshToken: newRefreshToken,
+          );
+          return newAccessToken;
+        }
+      }
+      return null;
+    } catch (e) {
+      debugPrint('ApiService.refreshTokens failed: $e');
+      return null;
     }
   }
 

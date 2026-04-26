@@ -28,6 +28,23 @@ const deleteFile = (relativePath) => {
   }
 };
 
+/**
+ * Construct a full URL for a relative image path.
+ * @param {string} relativePath 
+ * @returns {string|null}
+ */
+const formatImageUrl = (relativePath) => {
+  if (!relativePath) return null;
+  if (relativePath.startsWith('http')) return relativePath;
+  
+  const baseUrl = process.env.HOST_IP 
+    ? `http://${process.env.HOST_IP}:${process.env.PORT || 5000}` 
+    : '';
+  
+  return `${baseUrl}${relativePath}`;
+};
+
 module.exports = {
-  deleteFile
+  deleteFile,
+  formatImageUrl
 };

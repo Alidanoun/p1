@@ -36,14 +36,17 @@ class LanguageSelectionScreen extends StatelessWidget {
           children: [
             // Logo or Icon
             Container(
-              padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
                 color: Colors.white.withOpacity(0.05),
                 shape: BoxShape.circle,
               ),
-              child: Image.asset(
-                'assets/icon/logo.png',
-                height: 120,
+              child: ClipOval(
+                child: Image.asset(
+                  'assets/icon/logo.png',
+                  height: 150,
+                  width: 150,
+                  fit: BoxFit.cover,
+                ),
               ),
             ).animate().fadeIn(duration: 800.ms).scale(delay: 200.ms),
 
