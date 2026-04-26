@@ -144,5 +144,12 @@
   "searchPlaceholder": "Search for a dish...",
   "searchResults": "Search Results",
   "recentSearches": "Recent Searches",
-  "noResultsFound": "No results found"
+  "noResultsFound": "No results found",
+  "biometricReason": "Prove your identity to login to your account",
+  "biometricEnableReason": "Prove your identity to enable fingerprint login",
+  "biometricAuthFailed": "Biometric authentication failed",
+  "biometricNotAvailable": "Biometric hardware not available on this device",
+  "loginWithFingerprint": "Login with Fingerprint",
+  "biometricEnabled": "Fingerprint login enabled successfully ✅",
+  "forgotPassword": "Forgot Password?"
 }

@@ -23,7 +23,7 @@ class OtpService {
    * 🚀 Request OTP via Email (rate-limited, anti-enumeration)
    * @param {Object} params
    * @param {string} params.email - Target email address
-   * @param {string} [params.purpose='login'] - 'login' | 'register'
+   * @param {string} [params.purpose='login'] - 'login' | 'register' | 'password_reset'
    * @param {string} [params.ipAddress]
    * @param {string} [params.userAgent]
    */

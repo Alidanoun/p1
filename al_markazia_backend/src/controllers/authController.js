@@ -94,6 +94,8 @@ const login = async (req, res) => {
       user: { 
         id: user.uuid,
         email: user.email, 
+        name: user.name,
+        phone: user.phone,
         role: user.role 
       } 
     });
@@ -154,7 +156,7 @@ const EmailService = require('../services/emailService');
  * 📝 Phase 1: Registration Request (Send OTP)
  */
 const register = async (req, res) => {
-  const { name, email, password } = req.body;
+  const { name, email, password, phone } = req.body;
   try {
     // 1. Validate if user exists
     const existingUser = await prisma.user.findUnique({ where: { email } });
@@ -176,7 +178,7 @@ const register = async (req, res) => {
         codeHash: await bcrypt.hash(otp, 10),
         purpose: 'registration',
         expiresAt,
-        metadata: { name, email, password: hashedPassword }
+        metadata: { name, email, password: hashedPassword, phone }
       }
     });
 
@@ -215,12 +217,13 @@ const verifyRegistration = async (req, res) => {
     }
 
     // 3. Extract Metadata & Create User
-    const { name, password } = otpRecord.metadata;
+    const { name, password, phone } = otpRecord.metadata;
     const user = await prisma.user.create({
       data: {
         name,
         email,
         password,
+        phone,
         role: 'customer'
       }
     });
@@ -239,7 +242,7 @@ const verifyRegistration = async (req, res) => {
 
     response.success(res, { 
       accessToken, 
-      user: { id: user.uuid, email: user.email, role: user.role } 
+      user: { id: user.uuid, email: user.email, name: user.name, phone: user.phone, role: user.role } 
     });
   } catch (error) {
     logger.error('Verify registration error', { error: error.message });
@@ -247,4 +250,88 @@ const verifyRegistration = async (req, res) => {
   }
 };
 
-module.exports = { login, register, verifyRegistration, refreshToken, logout, getMe };
+/**
+ * 🔑 Phase 1: Forgot Password (Send OTP)
+ */
+const forgotPassword = async (req, res) => {
+  const { email } = req.body;
+  const cleanEmail = email.toLowerCase().trim();
+
+  try {
+    const user = await prisma.user.findUnique({ where: { email: cleanEmail } });
+
+    // 🛡️ Anti-enumeration: Always return 200 even if user doesn't exist
+    if (!user) {
+      logger.warn('Forgot password attempt for non-existent user', { email: cleanEmail });
+      return response.success(res, { message: 'إذا كان البريد مسجلاً، ستصلك رسالة قريباً' });
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
+
+    await prisma.otpCode.create({
+      data: {
+        email: cleanEmail,
+        codeHash: await bcrypt.hash(otp, 10),
+        purpose: 'password_reset',
+        expiresAt
+      }
+    });
+
+    await EmailService.sendOtp(cleanEmail, otp);
+    response.success(res, { message: 'إذا كان البريد مسجلاً، ستصلك رسالة قريباً' });
+  } catch (error) {
+    logger.error('Forgot password error', { error: error.message });
+    response.error(res, 'حدث خطأ غير متوقع', 'SERVER_ERROR', 500);
+  }
+};
+
+/**
+ * 🔑 Phase 2: Reset Password (Verify OTP + Update)
+ */
+const resetPassword = async (req, res) => {
+  const { email, code, newPassword } = req.body;
+  const cleanEmail = email.toLowerCase().trim();
+
+  try {
+    const otpRecord = await prisma.otpCode.findFirst({
+      where: { email: cleanEmail, purpose: 'password_reset', used: false },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    if (!otpRecord || otpRecord.expiresAt < new Date()) {
+      return response.error(res, 'كود التحقق غير صحيح أو منتهي الصلاحية', 'INVALID_OTP', 400);
+    }
+
+    const isMatch = await bcrypt.compare(code, otpRecord.codeHash);
+    if (!isMatch) {
+      return response.error(res, 'كود التحقق غير صحيح', 'INVALID_OTP', 400);
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const user = await prisma.user.update({
+      where: { email: cleanEmail },
+      data: { password: hashedPassword }
+    });
+
+    await prisma.otpCode.update({
+      where: { id: otpRecord.id },
+      data: { used: true }
+    });
+
+    // 🚀 Auto-login after successful reset
+    const accessToken = TokenService.generateAccessToken(user);
+    const refreshToken = await TokenService.generateAndSaveRefreshToken(user);
+    res.cookie('refreshToken', refreshToken, refreshCookieOptions(req));
+
+    response.success(res, {
+      accessToken,
+      user: { id: user.uuid, email: user.email, name: user.name, phone: user.phone, role: user.role }
+    });
+  } catch (error) {
+    logger.error('Reset password error', { error: error.message });
+    response.error(res, 'حدث خطأ أثناء تغيير كلمة المرور', 'SERVER_ERROR', 500);
+  }
+};
+
+module.exports = { login, register, verifyRegistration, forgotPassword, resetPassword, refreshToken, logout, getMe };

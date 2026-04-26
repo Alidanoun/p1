@@ -144,5 +144,12 @@
   "searchPlaceholder": "ابحث عن طبق أو صنف...",
   "searchResults": "نتائج البحث",
   "recentSearches": "عمليات البحث الأخيرة",
-  "noResultsFound": "لم يتم العثور على نتائج"
+  "noResultsFound": "لم يتم العثور على نتائج",
+  "biometricReason": "أثبت هويتك للدخول إلى حسابك",
+  "biometricEnableReason": "أثبت هويتك لتفعيل الدخول بالبصمة",
+  "biometricAuthFailed": "فشل التحقق من البصمة",
+  "biometricNotAvailable": "البصمة غير متوفرة في هذا الجهاز",
+  "loginWithFingerprint": "الدخول بالبصمة",
+  "biometricEnabled": "تم تفعيل الدخول بالبصمة بنجاح ✅",
+  "forgotPassword": "نسيت كلمة المرور؟"
 }

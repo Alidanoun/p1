@@ -8,6 +8,7 @@ import Login from './pages/Login';
 import LiveDashboard from './pages/LiveDashboard';
 import LiveOrders from './pages/LiveOrders';
 import MenuManager from './pages/MenuManager';
+import Analytics from './pages/Analytics';
 import Reports from './pages/Reports';
 import Settings from './pages/Settings';
 import BroadcastNotifications from './pages/BroadcastNotifications';
@@ -77,6 +78,7 @@ function App() {
           <Route path="/cancelled-orders" element={<ProtectedLayout><CancelledOrders /></ProtectedLayout>} />
           <Route path="/loyalty" element={<ProtectedLayout><LoyaltyManager /></ProtectedLayout>} />
           <Route path="/delivery-zones" element={<ProtectedLayout><DeliveryZonesManager /></ProtectedLayout>} />
+          <Route path="/analytics" element={<ProtectedLayout><Analytics /></ProtectedLayout>} />
           <Route path="/reports" element={<ProtectedLayout><Reports /></ProtectedLayout>} />
           <Route path="/settings" element={<ProtectedLayout><Settings /></ProtectedLayout>} />
         </Routes>

@@ -78,6 +78,8 @@ const mapOrderResponse = (order) => {
  * Maps raw Prisma OrderItems to safe API response items.
  * Converts all Decimal fields to Numbers.
  */
+const { formatImageUrl } = require('../utils/fileUploadHelper');
+
 const mapOrderItems = (items) => {
   if (!items || !Array.isArray(items)) return [];
 
@@ -86,6 +88,7 @@ const mapOrderItems = (items) => {
     itemId:          item.itemId,
     itemName:        item.itemName,
     itemNameEn:      item.itemNameEn,
+    image:           formatImageUrl(item.item?.image),
     quantity:        item.quantity,
     unitPrice:       toMoney(item.unitPrice),
     lineTotal:       toMoney(item.lineTotal),

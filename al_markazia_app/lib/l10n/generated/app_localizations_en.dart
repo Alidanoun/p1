@@ -453,4 +453,27 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get noResultsFound => 'No results found';
+
+  @override
+  String get biometricReason => 'Prove your identity to login to your account';
+
+  @override
+  String get biometricEnableReason =>
+      'Prove your identity to enable fingerprint login';
+
+  @override
+  String get biometricAuthFailed => 'Biometric authentication failed';
+
+  @override
+  String get biometricNotAvailable =>
+      'Biometric hardware not available on this device';
+
+  @override
+  String get loginWithFingerprint => 'Login with Fingerprint';
+
+  @override
+  String get biometricEnabled => 'Fingerprint login enabled successfully ✅';
+
+  @override
+  String get forgotPassword => 'Forgot Password?';
 }

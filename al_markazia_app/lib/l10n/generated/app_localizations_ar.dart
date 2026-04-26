@@ -450,4 +450,25 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get noResultsFound => 'لم يتم العثور على نتائج';
+
+  @override
+  String get biometricReason => 'أثبت هويتك للدخول إلى حسابك';
+
+  @override
+  String get biometricEnableReason => 'أثبت هويتك لتفعيل الدخول بالبصمة';
+
+  @override
+  String get biometricAuthFailed => 'فشل التحقق من البصمة';
+
+  @override
+  String get biometricNotAvailable => 'البصمة غير متوفرة في هذا الجهاز';
+
+  @override
+  String get loginWithFingerprint => 'الدخول بالبصمة';
+
+  @override
+  String get biometricEnabled => 'تم تفعيل الدخول بالبصمة بنجاح ✅';
+
+  @override
+  String get forgotPassword => 'نسيت كلمة المرور؟';
 }
