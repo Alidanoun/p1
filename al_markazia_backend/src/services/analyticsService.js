@@ -155,7 +155,7 @@ class AnalyticsService {
     const todayStart = new Date();
     todayStart.setUTCHours(0, 0, 0, 0);
 
-    const [todayOrders, topItemsData, recentLogs, topZonesData] = await Promise.all([
+    const [todayOrders, recentLogs] = await Promise.all([
       // 1. Fetch Today's Orders for Revenue & Status
       prisma.order.findMany({
         where: { createdAt: { gte: todayStart } },
@@ -173,23 +173,6 @@ class AnalyticsService {
         }
       }),
 
-      // 2. Aggregate Top Items (Quantity & Revenue)
-      prisma.orderItem.groupBy({
-        by: ['itemId', 'itemName'],
-        where: { order: { createdAt: { gte: todayStart }, status: { in: ['confirmed', 'preparing', 'ready', 'in_route', 'delivered'] } } },
-        _sum: {
-          quantity: true,
-          lineTotal: true
-        },
-        orderBy: {
-          _sum: {
-            quantity: 'desc'
-          }
-        },
-        take: 10
-      }),
-
-      // 3. Activity Feed (Last 15 relevant events)
       prisma.orderAuditLog.findMany({
         take: 15,
         orderBy: { createdAt: 'desc' },
@@ -203,20 +186,6 @@ class AnalyticsService {
           createdAt: true,
           changedBy: true
         }
-      }),
-
-      // 4. TOP ZONES (Revenue distribution by Zone)
-      prisma.order.groupBy({
-        by: ['deliveryZoneName'],
-        where: { createdAt: { gte: todayStart }, status: { not: 'cancelled' }, orderType: 'delivery' },
-        _sum: { 
-          subtotal: true,
-          discount: true,
-          deliveryFee: true
-        },
-        _count: { id: true },
-        orderBy: { _sum: { subtotal: 'desc' } },
-        take: 5
       })
     ]);
 
@@ -268,18 +237,7 @@ class AnalyticsService {
       },
       statusDistribution: statusStats,
       typeDistribution: typeStats,
-      topItems: topItemsData.map(item => ({
-        itemId: item.itemId,
-        name: item.itemName,
-        quantity: item._sum.quantity,
-        revenue: toNumber(item._sum.lineTotal)
-      })),
-      topZones: topZonesData.map(zone => ({
-        name: zone.deliveryZoneName || 'غير محدد',
-        count: zone._count.id,
-        revenue: toMoney(toNumber(zone._sum.subtotal) - toNumber(zone._sum.discount)),
-        deliveryFees: toNumber(zone._sum.deliveryFee)
-      })),
+
       activityFeed: recentLogs.map(log => {
         const newData = this._safeParse(log.newData);
         

@@ -56,6 +56,7 @@ class NotificationService {
     if (!notification) return;
 
     // 2. 🚀 DISPATCH
+    logger.debug(`[GNE] 🏁 Starting dispatch for #${notification.id} (Type: ${type})`);
     await this.dispatch(notification, order);
   }
 
@@ -137,28 +138,21 @@ class NotificationService {
       const { mapOrderResponse } = require('../mappers/order.mapper');
       const fullMappedOrder = (order && order.id !== 0) ? mapOrderResponse(order) : {};
 
+      // 🛡️ SECURITY: Socket payload is now UI-ONLY. 
+      // It must NOT contain instructions to show popups to prevent duplication with FCM.
       const payload = {
         ...fullMappedOrder,
-        notification: {
-          id: notif.id,
-          title: notif.title,
-          message: notif.message,
-          type: notif.type
-        },
-        fingerprint: {
-          notificationId: String(notif.id),
-          priority: 'HIGH',
-          timestamp: Date.now(),
-          deduplicationKey: `notif_${notif.id}`
-        }
+        id: String(notif.id), // Ensure consistent ID for UI matching
+        timestamp: Date.now()
       };
 
       if (target.isBroadcast) {
-        this.io.emit('new_broadcast', payload.notification);
+        logger.debug(`[GNE] 📡 Emitting Global Sync Update`);
         this.io.emit(SOCKET_EVENTS.ORDER_UPDATED, payload);
       }
       
       if (target.isToAdmin) {
+        logger.debug(`[GNE] 📡 Emitting Admin Sync Update`);
         this.io.to(SOCKET_ROOMS.ADMIN).emit(SOCKET_EVENTS.ORDER_UPDATED, payload);
       }
       
@@ -174,12 +168,13 @@ class NotificationService {
         
         if (uuid) {
           const room = SOCKET_ROOMS.CUSTOMER(uuid);
+          logger.debug(`[GNE] 📡 Emitting Customer Sync Update to: ${room}`);
           this.io.to(room).emit(SOCKET_EVENTS.ORDER_UPDATED, payload);
-          logger.info(`[NotificationService] Emitted to customer room: ${room}`);
         }
       }
       return true;
     } catch (err) {
+      logger.error(`[GNE] ❌ Socket Emit Failed: ${err.message}`);
       return false;
     }
   }
@@ -189,7 +184,13 @@ class NotificationService {
       if (target.isBroadcast) {
         await firebaseService.sendBroadcast(notif.title, notif.message, { 
           notificationId: String(notif.id),
-          type: 'broadcast'
+          type: 'broadcast',
+          fingerprint: JSON.stringify({
+            notificationId: String(notif.id),
+            priority: 'MEDIUM',
+            timestamp: Date.now(),
+            deduplicationKey: `notif_${notif.id}`
+          })
         });
         return true;
       }
@@ -199,18 +200,31 @@ class NotificationService {
         await firebaseService.sendToTopic('staff_orders', notif.title, notif.message, {
           notificationId: String(notif.id),
           orderId: String(notif.orderId),
-          type: 'order_created'
+          type: 'order_created',
+          fingerprint: JSON.stringify({
+            notificationId: String(notif.id),
+            priority: 'HIGH',
+            timestamp: Date.now(),
+            deduplicationKey: `notif_${notif.id}`
+          })
         });
         return true;
       }
 
       const token = order.customer?.fcmToken;
       if (target.isToCustomer && token) {
+        logger.debug(`[GNE] 📲 Attempting FCM Push to token: ${token.substring(0, 15)}...`);
         await firebaseService.sendToToken(token, notif.title, notif.message, {
           notificationId: String(notif.id),
           orderId: String(notif.orderId),
           type: notif.type,
-          click_action: 'FLUTTER_NOTIFICATION_CLICK'
+          click_action: 'FLUTTER_NOTIFICATION_CLICK',
+          fingerprint: JSON.stringify({
+            notificationId: String(notif.id),
+            priority: 'HIGH',
+            timestamp: Date.now(),
+            deduplicationKey: `notif_${notif.id}`
+          })
         });
         return true;
       }

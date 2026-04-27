@@ -159,9 +159,9 @@ exports.broadcast = async (req, res) => {
       payload: { title, message, metadata: { type: 'broadcast', id: notification.id.toString() } }
     });
 
-    const io = socketIo.getIO();
-    if (io) io.emit('new_broadcast', notification);
-
+    // 🛡️ SECURITY: Manual emit removed to prevent double notifications. 
+    // Dispatch is now handled centrally via publishEvent -> notificationService.
+    
     res.status(201).json(notification);
   } catch (error) {
     logger.error('Broadcast error', { error: error.message });
@@ -192,6 +192,49 @@ exports.deleteNotification = async (req, res) => {
   } catch (error) {
     logger.error('Delete notification error', { error: error.message });
     res.status(500).json({ error: 'Failed to delete notification' });
+  }
+};
+
+/**
+ * 🧪 Diagnostic: Direct FCM Test Trigger
+ * Purpose: Verify Firebase connectivity without involving DB/Socket logic.
+ */
+exports.testPush = async (req, res) => {
+  try {
+    const firebaseService = require('../services/firebaseService');
+    const customer = await prisma.customer.findUnique({
+      where: { uuid: req.user.id },
+      select: { fcmToken: true }
+    });
+
+    if (!customer?.fcmToken) {
+      return res.status(400).json({ error: 'FCM Token not found in DB for your profile.' });
+    }
+
+    logger.info(`[TestPush] 🚀 Manual trigger for user: ${req.user.id}`);
+    const success = await firebaseService.sendToToken(
+      customer.fcmToken,
+      'إختبار الإشعارات 🧪',
+      'إذا وصلك هذا التنبيه، فهذا يعني أن قناة FCM تعمل بنجاح!',
+      { 
+        type: 'test', 
+        timestamp: String(Date.now()),
+        fingerprint: JSON.stringify({
+          notificationId: 'test_id',
+          priority: 'HIGH',
+          timestamp: Date.now(),
+          deduplicationKey: 'test_manual_push'
+        })
+      }
+    );
+
+    res.json({ 
+      success, 
+      message: success ? 'FCM request accepted by Google' : 'FCM request rejected (Check backend logs)' 
+    });
+  } catch (error) {
+    logger.error('Test push endpoint error', { error: error.message });
+    res.status(500).json({ error: 'Server diagnostic error' });
   }
 };
 

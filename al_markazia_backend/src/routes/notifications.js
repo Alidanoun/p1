@@ -9,6 +9,9 @@ router.get('/my-notifications', authenticateToken, notificationController.getMyN
 // ✅ Admin: all admin notifications
 router.get('/', authenticateToken, isAdmin, notificationController.getAdminNotifications);
 
+// ✅ Test Push endpoint
+router.post('/test-push', authenticateToken, isAdmin, notificationController.testPush);
+
 // ✅ Mark single as read (ownership-checked)
 router.put('/:id/read', authenticateToken, notificationController.markAsRead);
 

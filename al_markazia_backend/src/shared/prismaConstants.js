@@ -11,6 +11,7 @@ const ORDER_INCLUDE_FULL = {
       uuid: true,
       name: true,
       phone: true,
+      fcmToken: true,
       isBlacklisted: true
     }
   },

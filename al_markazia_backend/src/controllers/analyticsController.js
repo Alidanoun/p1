@@ -28,13 +28,23 @@ const getDateRange = (period) => {
 };
 
 const getDashboardStats = async (req, res) => {
-  const { period = 'week' } = req.query;
+  const { period = 'week', source = 'all' } = req.query;
   const dateRange = getDateRange(period);
 
   try {
+    // Build base filter
+    const baseWhere = {
+      createdAt: dateRange,
+      status: { not: 'cancelled' }
+    };
+
+    if (source !== 'all') {
+      baseWhere.source = source;
+    }
+
     // 1. Overview Stats
     const stats = await prisma.order.aggregate({
-      where: { createdAt: dateRange, status: { not: 'cancelled' } },
+      where: baseWhere,
       _sum: { total: true },
       _count: { id: true },
       _avg: { total: true }
@@ -43,7 +53,7 @@ const getDashboardStats = async (req, res) => {
     // 2. Top Selling Items
     const topItems = await prisma.orderItem.groupBy({
       by: ['itemName'],
-      where: { order: { createdAt: dateRange, status: { not: 'cancelled' } } },
+      where: { order: baseWhere },
       _sum: { quantity: true },
       orderBy: { _sum: { quantity: 'desc' } },
       take: 10
@@ -52,7 +62,7 @@ const getDashboardStats = async (req, res) => {
     // 3. Peak Hours Analysis
     // We fetch orders and group them by hour in JS for better compatibility
     const orders = await prisma.order.findMany({
-      where: { createdAt: dateRange },
+      where: baseWhere,
       select: { createdAt: true }
     });
 
@@ -70,23 +80,6 @@ const getDashboardStats = async (req, res) => {
       count: hourMap[hour]
     }));
 
-    // 4. Revenue Trend (Last 7 Days)
-    let revenueTrend = await prisma.$queryRaw`
-      SELECT 
-        DATE_TRUNC('day', "createdAt") as date,
-        CAST(SUM(total) AS FLOAT) as revenue
-      FROM "Order"
-      WHERE "createdAt" >= NOW() - INTERVAL '7 days' AND status != 'cancelled'
-      GROUP BY date
-      ORDER BY date ASC
-    `;
-
-    // Ensure BigInt serialization safety and handle empty trend
-    revenueTrend = (revenueTrend || []).map(row => ({
-      date: row.date,
-      revenue: Number(row.revenue) || 0
-    }));
-
     response.success(res, {
       overview: {
         totalRevenue: Number(stats._sum.total) || 0,
@@ -97,8 +90,7 @@ const getDashboardStats = async (req, res) => {
         name: item.itemName,
         quantity: Number(item._sum.quantity) || 0
       })),
-      peakHours,
-      revenueTrend
+      peakHours
     });
 
   } catch (error) {

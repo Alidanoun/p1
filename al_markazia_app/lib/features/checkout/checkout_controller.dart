@@ -6,6 +6,7 @@ import '../checkout/models/delivery_zone.dart';
 import '../../services/api_service.dart';
 import '../../services/session_service.dart';
 import '../../services/storage_service.dart';
+import '../../l10n/generated/app_localizations.dart';
 
 class CheckoutController extends ChangeNotifier {
   final ApiService _api;
@@ -111,17 +112,17 @@ class CheckoutController extends ChangeNotifier {
     return _subtotal >= minOrder;
   }
 
-  String? get minOrderWarning {
+  String? getMinOrderWarning(AppLocalizations l10n) {
     if (orderType != 'delivery' || selectedZone == null) return null;
     final minOrder = selectedZone?.minOrder ?? 0.0;
     if (_subtotal < minOrder) {
-      return 'الحد الأدنى للطلب لهذه المنطقة هو ${minOrder.toStringAsFixed(2)} د.أ (ينقصك ${(minOrder - _subtotal).toStringAsFixed(2)} د.أ)';
+      return "${l10n.minOrderWarningPrefix}${minOrder.toStringAsFixed(2)} ${l10n.currency}${l10n.minOrderWarningMissing}${(minOrder - _subtotal).toStringAsFixed(2)} ${l10n.currency}";
     }
     return null;
   }
 
   // 🚀 SUBMIT FLOW
-  Future<OrderModel?> confirmOrder(CartController liveCart) async {
+  Future<OrderModel?> confirmOrder(CartController liveCart, AppLocalizations l10n) async {
     errorMessage = null;
     isLoading = true;
     notifyListeners();
@@ -129,17 +130,17 @@ class CheckoutController extends ChangeNotifier {
     try {
       // 1️⃣ Final Validation against LIVE Cart
       if (liveCart.itemCount != _snapshotItems.length) {
-         throw Exception('تغيرت محتويات السلة! يرجى مراجعة الطلب مرة أخرى.');
+         throw Exception(l10n.cartChangedError);
       }
       
       // Check for price changes (Simplified for now, could be per item)
       if ((liveCart.subtotal - _subtotal).abs() > 0.01) {
-         throw Exception('تغيرت الأسعار في السلة! يرجى مراجعة الطلب مرة أخرى.');
+         throw Exception(l10n.priceChangedError);
       }
 
       // 3️⃣ Minimum Order Validation
       if (!isMinOrderSatisfied) {
-        throw Exception(minOrderWarning ?? 'لم يتم الوصول للحد الأدنى للطلب');
+        throw Exception(getMinOrderWarning(l10n) ?? l10n.minOrderError);
       }
 
       // 2️⃣ Build Order Model
@@ -150,7 +151,7 @@ class CheckoutController extends ChangeNotifier {
         customerPhone: customerPhone,
         orderType: orderType == 'delivery' ? 'delivery' : 'pickup',
         address: orderType == 'delivery' 
-            ? 'المنطقة: ${selectedZone?.name}\nالشارع: $street - البناية: $building' 
+            ? '${l10n.addressAreaLabel}: ${selectedZone?.name}\n${l10n.addressStreetLabel}: $street - ${l10n.addressBuildingLabel}: $building' 
             : null,
         notes: notes,
         cartItems: _snapshotItems,
@@ -184,3 +185,4 @@ class CheckoutController extends ChangeNotifier {
     }
   }
 }
+

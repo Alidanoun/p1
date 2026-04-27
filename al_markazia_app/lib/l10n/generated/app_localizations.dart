@@ -797,8 +797,8 @@ abstract class AppLocalizations {
   /// No description provided for @notificationExpiry.
   ///
   /// In ar, this message translates to:
-  /// **'سوف يختفي هذا الإشعار خلال {days} يوماً'**
-  String notificationExpiry(Object days);
+  /// **'ستنتهي صلاحية هذا التنبيه خلال {days} أيام'**
+  String notificationExpiry(int days);
 
   /// No description provided for @messageContent.
   ///
@@ -1009,6 +1009,222 @@ abstract class AppLocalizations {
   /// In ar, this message translates to:
   /// **'نسيت كلمة المرور؟'**
   String get forgotPassword;
+
+  /// No description provided for @loginRequired.
+  ///
+  /// In ar, this message translates to:
+  /// **'تسجيل الدخول مطلوب'**
+  String get loginRequired;
+
+  /// No description provided for @loginToOrderMessage.
+  ///
+  /// In ar, this message translates to:
+  /// **'يرجى تسجيل الدخول لتتمكن من إتمام الطلب ومتابعة حالته.'**
+  String get loginToOrderMessage;
+
+  /// No description provided for @minOrderWarningPrefix.
+  ///
+  /// In ar, this message translates to:
+  /// **'الحد الأدنى للطلب لهذه المنطقة هو '**
+  String get minOrderWarningPrefix;
+
+  /// No description provided for @minOrderWarningMissing.
+  ///
+  /// In ar, this message translates to:
+  /// **' (ينقصك '**
+  String get minOrderWarningMissing;
+
+  /// No description provided for @cartChangedError.
+  ///
+  /// In ar, this message translates to:
+  /// **'تغيرت محتويات السلة! يرجى مراجعة الطلب مرة أخرى.'**
+  String get cartChangedError;
+
+  /// No description provided for @priceChangedError.
+  ///
+  /// In ar, this message translates to:
+  /// **'تغيرت الأسعار في السلة! يرجى مراجعة الطلب مرة أخرى.'**
+  String get priceChangedError;
+
+  /// No description provided for @minOrderError.
+  ///
+  /// In ar, this message translates to:
+  /// **'لم يتم الوصول للحد الأدنى للطلب'**
+  String get minOrderError;
+
+  /// No description provided for @addressAreaLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'المنطقة'**
+  String get addressAreaLabel;
+
+  /// No description provided for @addressStreetLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'الشارع'**
+  String get addressStreetLabel;
+
+  /// No description provided for @addressBuildingLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'البناية'**
+  String get addressBuildingLabel;
+
+  /// No description provided for @otpEmailPrompt.
+  ///
+  /// In ar, this message translates to:
+  /// **'يرجى إدخال الكود المرسل لبريدك الإلكتروني'**
+  String get otpEmailPrompt;
+
+  /// No description provided for @laterBtn.
+  ///
+  /// In ar, this message translates to:
+  /// **'لاحقاً'**
+  String get laterBtn;
+
+  /// No description provided for @activateBtn.
+  ///
+  /// In ar, this message translates to:
+  /// **'تفعيل'**
+  String get activateBtn;
+
+  /// No description provided for @cancelOrderSuccess.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم إرسال طلب الإلغاء بنجاح'**
+  String get cancelOrderSuccess;
+
+  /// No description provided for @cancelOrderFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'فشل الإلغاء: '**
+  String get cancelOrderFailed;
+
+  /// No description provided for @loginToSeeOrdersMsg.
+  ///
+  /// In ar, this message translates to:
+  /// **'يرجى تسجيل الدخول لعرض الطلبات.'**
+  String get loginToSeeOrdersMsg;
+
+  /// No description provided for @fetchOrdersFailedMsg.
+  ///
+  /// In ar, this message translates to:
+  /// **'فشل في جلب الطلبات: '**
+  String get fetchOrdersFailedMsg;
+
+  /// No description provided for @cancellationRejected.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم رفض طلب الإلغاء'**
+  String get cancellationRejected;
+
+  /// No description provided for @updatedBadge.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم التحديث!'**
+  String get updatedBadge;
+
+  /// No description provided for @phoneNumberLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'رقم الجوال'**
+  String get phoneNumberLabel;
+
+  /// No description provided for @invalidPhoneError.
+  ///
+  /// In ar, this message translates to:
+  /// **'يرجى إدخال رقم جوال صحيح'**
+  String get invalidPhoneError;
+
+  /// No description provided for @passwordLengthError.
+  ///
+  /// In ar, this message translates to:
+  /// **'كلمة المرور يجب أن تكون 8 أحرف على الأقل'**
+  String get passwordLengthError;
+
+  /// No description provided for @resetPasswordPrompt.
+  ///
+  /// In ar, this message translates to:
+  /// **'أدخل بريدك الإلكتروني وسنرسل لك كود لإعادة تعيين كلمة المرور'**
+  String get resetPasswordPrompt;
+
+  /// No description provided for @emailSentMsg.
+  ///
+  /// In ar, this message translates to:
+  /// **'إذا كان البريد مسجلاً، ستصلك رسالة قريباً'**
+  String get emailSentMsg;
+
+  /// No description provided for @sendCodeBtn.
+  ///
+  /// In ar, this message translates to:
+  /// **'إرسال الكود'**
+  String get sendCodeBtn;
+
+  /// No description provided for @resetPasswordTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'إعادة تعيين كلمة المرور'**
+  String get resetPasswordTitle;
+
+  /// No description provided for @resetPasswordDesc.
+  ///
+  /// In ar, this message translates to:
+  /// **'أدخل الكود المرسل إلى {email} وكلمة المرور الجديدة'**
+  String resetPasswordDesc(String email);
+
+  /// No description provided for @otpCodeLengthError.
+  ///
+  /// In ar, this message translates to:
+  /// **'أدخل الكود المكوّن من 6 أرقام'**
+  String get otpCodeLengthError;
+
+  /// No description provided for @newPasswordLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'كلمة المرور الجديدة'**
+  String get newPasswordLabel;
+
+  /// No description provided for @confirmPasswordLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'تأكيد كلمة المرور'**
+  String get confirmPasswordLabel;
+
+  /// No description provided for @passwordsNotMatchError.
+  ///
+  /// In ar, this message translates to:
+  /// **'كلمتا المرور غير متطابقتين'**
+  String get passwordsNotMatchError;
+
+  /// No description provided for @passwordResetSuccess.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم تعيين كلمة المرور بنجاح ✅'**
+  String get passwordResetSuccess;
+
+  /// No description provided for @resetPasswordAction.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعيين كلمة المرور'**
+  String get resetPasswordAction;
+
+  /// No description provided for @verificationCodeTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'كود التحقق'**
+  String get verificationCodeTitle;
+
+  /// No description provided for @biometricDialogTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'تفعيل الدخول بالبصمة'**
+  String get biometricDialogTitle;
+
+  /// No description provided for @biometricDialogDesc.
+  ///
+  /// In ar, this message translates to:
+  /// **'هل تريد تفعيل الدخول بالبصمة لتسريع الوصول إلى حسابك في المستقبل؟'**
+  String get biometricDialogDesc;
 }
 
 class _AppLocalizationsDelegate
