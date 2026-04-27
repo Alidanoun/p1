@@ -5,6 +5,7 @@ import '../../services/api_service.dart';
 import '../../services/session_service.dart';
 import '../../services/notification_service.dart';
 import '../../models/order_model.dart';
+import '../../l10n/generated/app_localizations.dart';
 
 class OrderController extends ChangeNotifier {
   final ApiService _api = ApiService();
@@ -51,6 +52,8 @@ class OrderController extends ChangeNotifier {
     });
   }
 
+
+
   @override
   void dispose() {
     _statusSubscription?.cancel();
@@ -61,10 +64,10 @@ class OrderController extends ChangeNotifier {
   List<OrderModel> get historyOrders => orders.where((o) => o.status == 'delivered' || o.status == 'cancelled').toList();
 
   // 📡 FETCH ORDERS (READ)
-  Future<void> fetchOrders() async {
+  Future<void> fetchOrders([AppLocalizations? l10n]) async {
     final phone = SessionService.instance.phone;
     if (phone == null || phone.isEmpty) {
-      errorMessage = "يرجى تسجيل الدخول لعرض الطلبات.";
+      errorMessage = l10n?.loginToSeeOrdersMsg ?? "يرجى تسجيل الدخول لعرض الطلبات.";
       notifyListeners();
       return;
     }
@@ -81,7 +84,9 @@ class OrderController extends ChangeNotifier {
       
       errorMessage = null;
     } catch (e) {
-      errorMessage = "فشل في جلب الطلبات: ${e.toString().replaceAll('Exception: ', '')}";
+      errorMessage = l10n != null 
+          ? "${l10n.fetchOrdersFailedMsg}${e.toString().replaceAll('Exception: ', '')}"
+          : "فشل في جلب الطلبات: ${e.toString().replaceAll('Exception: ', '')}";
     } finally {
       isLoading = false;
       notifyListeners();
@@ -111,9 +116,7 @@ class OrderController extends ChangeNotifier {
       _triggerStatusHaptic(status);
       
       orders[index].status = status;
-      // We don't necessarily update 'version' locally unless we want to persist it, 
-      // but let's update it to maintain consistency for the next guard check.
-      // (Wait, OrderModel version is immutable in constructor, let's just update the list item)
+      
       final updatedOrder = OrderModel(
         orderId: localOrder.orderId,
         orderNumber: localOrder.orderNumber,

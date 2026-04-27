@@ -116,7 +116,14 @@
   "notificationsTitle": "الإشعارات",
   "noNotifications": "لا توجد إشعارات حالياً",
   "notificationDetails": "تفاصيل الإشعار",
-  "notificationExpiry": "سوف يختفي هذا الإشعار خلال {days} يوماً",
+  "notificationExpiry": "ستنتهي صلاحية هذا التنبيه خلال {days} أيام",
+  "@notificationExpiry": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
   "messageContent": "محتوى الرسالة:",
   "whatsapp": "واتساب",
   "support": "الدعم",
@@ -151,5 +158,48 @@
   "biometricNotAvailable": "البصمة غير متوفرة في هذا الجهاز",
   "loginWithFingerprint": "الدخول بالبصمة",
   "biometricEnabled": "تم تفعيل الدخول بالبصمة بنجاح ✅",
-  "forgotPassword": "نسيت كلمة المرور؟"
+  "forgotPassword": "نسيت كلمة المرور؟",
+  "loginRequired": "تسجيل الدخول مطلوب",
+  "loginToOrderMessage": "يرجى تسجيل الدخول لتتمكن من إتمام الطلب ومتابعة حالته.",
+  "minOrderWarningPrefix": "الحد الأدنى للطلب لهذه المنطقة هو ",
+  "minOrderWarningMissing": " (ينقصك ",
+  "cartChangedError": "تغيرت محتويات السلة! يرجى مراجعة الطلب مرة أخرى.",
+  "priceChangedError": "تغيرت الأسعار في السلة! يرجى مراجعة الطلب مرة أخرى.",
+  "minOrderError": "لم يتم الوصول للحد الأدنى للطلب",
+  "addressAreaLabel": "المنطقة",
+  "addressStreetLabel": "الشارع",
+  "addressBuildingLabel": "البناية",
+  "otpEmailPrompt": "يرجى إدخال الكود المرسل لبريدك الإلكتروني",
+  "laterBtn": "لاحقاً",
+  "activateBtn": "تفعيل",
+  "cancelOrderSuccess": "تم إرسال طلب الإلغاء بنجاح",
+  "cancelOrderFailed": "فشل الإلغاء: ",
+  "loginToSeeOrdersMsg": "يرجى تسجيل الدخول لعرض الطلبات.",
+  "fetchOrdersFailedMsg": "فشل في جلب الطلبات: ",
+  "cancellationRejected": "تم رفض طلب الإلغاء",
+  "updatedBadge": "تم التحديث!",
+  "phoneNumberLabel": "رقم الجوال",
+  "invalidPhoneError": "يرجى إدخال رقم جوال صحيح",
+  "passwordLengthError": "كلمة المرور يجب أن تكون 8 أحرف على الأقل",
+  "resetPasswordPrompt": "أدخل بريدك الإلكتروني وسنرسل لك كود لإعادة تعيين كلمة المرور",
+  "emailSentMsg": "إذا كان البريد مسجلاً، ستصلك رسالة قريباً",
+  "sendCodeBtn": "إرسال الكود",
+  "resetPasswordTitle": "إعادة تعيين كلمة المرور",
+  "resetPasswordDesc": "أدخل الكود المرسل إلى {email} وكلمة المرور الجديدة",
+  "@resetPasswordDesc": {
+    "placeholders": {
+      "email": {
+        "type": "String"
+      }
+    }
+  },
+  "otpCodeLengthError": "أدخل الكود المكوّن من 6 أرقام",
+  "newPasswordLabel": "كلمة المرور الجديدة",
+  "confirmPasswordLabel": "تأكيد كلمة المرور",
+  "passwordsNotMatchError": "كلمتا المرور غير متطابقتين",
+  "passwordResetSuccess": "تم تعيين كلمة المرور بنجاح ✅",
+  "resetPasswordAction": "تعيين كلمة المرور",
+  "verificationCodeTitle": "كود التحقق",
+  "biometricDialogTitle": "تفعيل الدخول بالبصمة",
+  "biometricDialogDesc": "هل تريد تفعيل الدخول بالبصمة لتسريع الوصول إلى حسابك في المستقبل؟"
 }

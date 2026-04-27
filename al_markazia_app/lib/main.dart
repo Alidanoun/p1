@@ -22,12 +22,17 @@ import 'l10n/generated/app_localizations.dart';
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
-  print("Handling a background message: ${message.messageId}");
+  print("🛰️ Handling background message: ${message.messageId}");
+  
+  // Note: For hybrid payload, Android OS shows 'notification' automatically.
+  // This handler is ready for data-only extensions if needed.
 }
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
+  
+  // 🛡️ Register Background Handler before any other async work
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
   // Essential fast inits

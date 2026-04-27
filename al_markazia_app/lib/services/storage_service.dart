@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/cart_item.dart';
 import '../models/order_model.dart';
 import '../models/menu_item.dart';
+import 'session_service.dart';
 
 class StorageService extends ChangeNotifier {
   static final StorageService instance = StorageService._internal();
@@ -13,6 +14,12 @@ class StorageService extends ChangeNotifier {
 
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
+  }
+
+  // 🛡️ Data Isolation Layer (Rooms per user)
+  String _userKey(String key) {
+    final uuid = SessionService.instance.uuid ?? 'guest';
+    return 'u_${uuid}_$key';
   }
 
   // --- Theme ---
@@ -49,7 +56,7 @@ class StorageService extends ChangeNotifier {
 
   // --- Cart ---
   List<CartItem> getCart() {
-    final str = _prefs.getString('cart');
+    final str = _prefs.getString(_userKey('cart'));
     if (str != null) {
       final List list = json.decode(str);
       return list.map((e) => CartItem.fromJson(e)).toList();
@@ -58,18 +65,18 @@ class StorageService extends ChangeNotifier {
   }
   
   Future<void> saveCart(List<CartItem> cart) async {
-    await _prefs.setString('cart', json.encode(cart.map((e) => e.toJson()).toList()));
+    await _prefs.setString(_userKey('cart'), json.encode(cart.map((e) => e.toJson()).toList()));
     notifyListeners();
   }
   
   Future<void> clearCart() async {
-    await _prefs.remove('cart');
+    await _prefs.remove(_userKey('cart'));
     notifyListeners();
   }
 
   // --- Favorites ---
   List<int> getFavorites() {
-    final str = _prefs.getString('favorites');
+    final str = _prefs.getString(_userKey('favorites'));
     if (str != null) {
       return List<int>.from(json.decode(str));
     }
@@ -83,13 +90,13 @@ class StorageService extends ChangeNotifier {
     } else {
       favs.add(id);
     }
-    await _prefs.setString('favorites', json.encode(favs));
+    await _prefs.setString(_userKey('favorites'), json.encode(favs));
     notifyListeners();
   }
 
   // --- Orders ---
   List<OrderModel> getOrders() {
-    final str = _prefs.getString('orders');
+    final str = _prefs.getString(_userKey('orders'));
     if (str != null) {
       final List list = json.decode(str);
       return list.map((e) => OrderModel.fromJson(e)).toList();
@@ -100,7 +107,7 @@ class StorageService extends ChangeNotifier {
   Future<void> saveOrder(OrderModel order) async {
     final orders = getOrders();
     orders.add(order);
-    await _prefs.setString('orders', json.encode(orders.map((e) => e.toJson()).toList()));
+    await _prefs.setString(_userKey('orders'), json.encode(orders.map((e) => e.toJson()).toList()));
     notifyListeners();
   }
   
@@ -110,24 +117,24 @@ class StorageService extends ChangeNotifier {
     if (idx != -1) {
       orders[idx].rating = rating;
       orders[idx].ratingText = ratingText;
-      await _prefs.setString('orders', json.encode(orders.map((e) => e.toJson()).toList()));
+      await _prefs.setString(_userKey('orders'), json.encode(orders.map((e) => e.toJson()).toList()));
       notifyListeners();
     }
   }
 
   Future<void> replaceOrders(List<OrderModel> orders) async {
-    await _prefs.setString('orders', json.encode(orders.map((e) => e.toJson()).toList()));
+    await _prefs.setString(_userKey('orders'), json.encode(orders.map((e) => e.toJson()).toList()));
     notifyListeners();
   }
 
   Future<void> clearOrders() async {
-    await _prefs.remove('orders');
+    await _prefs.remove(_userKey('orders'));
     notifyListeners();
   }
 
   // --- Search History ---
   List<String> getRecentSearches() {
-    return _prefs.getStringList('recentSearches') ?? [];
+    return _prefs.getStringList(_userKey('recentSearches')) ?? [];
   }
 
   Future<void> addRecentSearch(String query) async {
@@ -136,7 +143,12 @@ class StorageService extends ChangeNotifier {
     searches.removeWhere((s) => s.toLowerCase() == query.trim().toLowerCase());
     searches.insert(0, query.trim());
     if (searches.length > 5) searches.removeLast();
-    await _prefs.setStringList('recentSearches', searches);
+    await _prefs.setStringList(_userKey('recentSearches'), searches);
     notifyListeners();
   }
+
+  // --- Generic Generic Access (for NotificationService & others) ---
+  String? getString(String key) => _prefs.getString(key);
+  Future<void> setString(String key, String value) async => await _prefs.setString(key, value);
+  Future<void> remove(String key) async => await _prefs.remove(key);
 }

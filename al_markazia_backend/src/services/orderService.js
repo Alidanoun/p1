@@ -388,6 +388,7 @@ class OrderService {
           deliveryFee: deliveryDetails.fee,
           total,
           status: 'pending',
+          source: (authUser && authUser.role === 'admin') ? 'manual' : 'app',
           address: address ? xss(address) : address,
           notes: notes ? xss(notes) : notes,
           branch,

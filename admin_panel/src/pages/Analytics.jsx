@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { 
   TrendingUp, 
   Users, 
@@ -25,11 +25,12 @@ const Analytics = () => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState('week'); // today, week, month
+  const [source, setSource] = useState('all'); // all, app, manual
 
   const fetchStats = async () => {
     setLoading(true);
     try {
-      const stats = unwrap(await api.get(`/analytics/dashboard?period=${period}`));
+      const stats = unwrap(await api.get(`/analytics/dashboard?period=${period}&source=${source}`));
       setData(stats);
     } catch (error) {
       console.error('Fetch stats error:', error);
@@ -41,12 +42,36 @@ const Analytics = () => {
 
   useEffect(() => {
     fetchStats();
-  }, [period]);
+  }, [period, source]);
+
+  const peakHourInfo = useMemo(() => {
+    if (!data?.peakHours || data.peakHours.length === 0) return 0;
+    // Create a copy before sorting to avoid mutating the state
+    const sorted = [...data.peakHours].sort((a, b) => b.count - a.count);
+    return sorted[0]?.hour || 0;
+  }, [data?.peakHours]);
 
   if (loading && !data) {
     return (
       <div className="p-8 flex items-center justify-center min-h-[60vh]">
         <RefreshCw className="w-8 h-8 text-primary animate-spin" />
+      </div>
+    );
+  }
+
+  // 🛡️ Error State: If data failed to load and we're no longer loading
+  if (!data) {
+    return (
+      <div className="p-8 flex flex-col items-center justify-center min-h-[60vh] text-center">
+        <PieChartIcon className="w-12 h-12 text-white/10 mb-4" />
+        <h2 className="text-xl font-bold text-white mb-2">فشل تحميل البيانات</h2>
+        <p className="text-text-muted mb-6">يرجى التحقق من اتصالك بالإنترنت والمحاولة مرة أخرى</p>
+        <button 
+          onClick={fetchStats}
+          className="bg-primary text-white px-8 py-3 rounded-xl font-bold hover:bg-primary-hover transition-all"
+        >
+          إعادة المحاولة
+        </button>
       </div>
     );
   }
@@ -82,28 +107,28 @@ const Analytics = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <StatCard 
           title="إجمالي المبيعات" 
-          value={formatCurrencyArabic(data?.overview?.totalRevenue)} 
+          value={formatCurrencyArabic(data.overview.totalRevenue)} 
           icon={<DollarSign className="text-emerald-500" />} 
-          trend="+12%" 
+          trend={null} 
           isPositive={true}
         />
         <StatCard 
           title="عدد الطلبات" 
-          value={data?.overview?.totalOrders} 
+          value={data.overview.totalOrders} 
           icon={<ShoppingBag className="text-primary" />} 
-          trend="+5%" 
+          trend={null} 
           isPositive={true}
         />
         <StatCard 
           title="متوسط قيمة الطلب" 
-          value={formatCurrencyArabic(data?.overview?.avgOrderValue)} 
+          value={formatCurrencyArabic(data.overview.avgOrderValue)} 
           icon={<TrendingUp className="text-blue-500" />} 
-          trend="-2%" 
+          trend={null} 
           isPositive={false}
         />
         <StatCard 
           title="ساعة الذروة المتوقعة" 
-          value={`${data?.peakHours?.sort((a,b) => b.count - a.count)[0]?.hour || 0}:00`} 
+          value={data.overview.totalOrders > 0 ? `${peakHourInfo}:00` : "---"} 
           icon={<Clock className="text-amber-500" />} 
         />
       </div>
@@ -113,99 +138,101 @@ const Analytics = () => {
         <div className="xl:col-span-2 space-y-8">
           <ChartCard title="ساعات الذروة (ضغط الطلبات)" icon={<Clock className="w-4 h-4" />}>
             <div className="h-[350px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={data?.peakHours}>
-                  <defs>
-                    <linearGradient id="colorPeak" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#FF7F3E" stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor="#FF7F3E" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-                  <XAxis 
-                    dataKey="hour" 
-                    stroke="#94a3b8" 
-                    fontSize={10} 
-                    tickFormatter={(val) => `${val}:00`}
-                  />
-                  <YAxis stroke="#94a3b8" fontSize={10} />
-                  <Tooltip 
-                    contentStyle={{ backgroundColor: '#1e293b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px' }}
-                    itemStyle={{ color: '#FF7F3E', fontWeight: 'bold' }}
-                    labelFormatter={(val) => `الساعة: ${val}:00`}
-                  />
-                  <Area 
-                    type="monotone" 
-                    dataKey="count" 
-                    stroke="#FF7F3E" 
-                    strokeWidth={3}
-                    fillOpacity={1} 
-                    fill="url(#colorPeak)" 
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+              {data.overview.totalOrders > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={data?.peakHours}>
+                    <defs>
+                      <linearGradient id="colorPeak" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#FF7F3E" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#FF7F3E" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                    <XAxis 
+                      dataKey="hour" 
+                      stroke="#94a3b8" 
+                      fontSize={10} 
+                      tickFormatter={(val) => `${val}:00`}
+                    />
+                    <YAxis stroke="#94a3b8" fontSize={10} />
+                    <Tooltip 
+                      contentStyle={{ backgroundColor: '#1e293b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px' }}
+                      itemStyle={{ color: '#FF7F3E', fontWeight: 'bold' }}
+                      labelFormatter={(val) => `الساعة: ${val}:00`}
+                    />
+                    <Area 
+                      type="monotone" 
+                      dataKey="count" 
+                      stroke="#FF7F3E" 
+                      strokeWidth={3}
+                      fillOpacity={1} 
+                      fill="url(#colorPeak)" 
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center text-text-muted opacity-40">
+                  <Clock className="w-12 h-12 mb-2" />
+                  <p className="text-sm">لا توجد بيانات لهذا الوقت</p>
+                </div>
+              )}
             </div>
           </ChartCard>
 
-          <ChartCard title="تريند المبيعات (آخر 7 أيام)" icon={<TrendingUp className="w-4 h-4" />}>
-            <div className="h-[350px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={data?.revenueTrend}>
-                  <defs>
-                    <linearGradient id="colorRev" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-                  <XAxis 
-                    dataKey="date" 
-                    stroke="#94a3b8" 
-                    fontSize={10} 
-                    tickFormatter={(val) => new Date(val).toLocaleDateString('ar-JO', { weekday: 'short' })}
-                  />
-                  <YAxis stroke="#94a3b8" fontSize={10} />
-                  <Tooltip 
-                    contentStyle={{ backgroundColor: '#1e293b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px' }}
-                    formatter={(val) => [formatCurrencyArabic(val), 'الأرباح']}
-                    labelFormatter={(val) => new Date(val).toLocaleDateString('ar-JO')}
-                  />
-                  <Area 
-                    type="monotone" 
-                    dataKey="revenue" 
-                    stroke="#10b981" 
-                    strokeWidth={3}
-                    fillOpacity={1} 
-                    fill="url(#colorRev)" 
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </ChartCard>
+
         </div>
 
         {/* 🍔 Top Selling Items List */}
         <div className="space-y-8">
-           <ChartCard title="الوجبات الأكثر طلباً" icon={<BarChart3 className="w-4 h-4" />}>
+           <ChartCard 
+             title="الوجبات الأكثر طلباً" 
+             icon={<BarChart3 className="w-4 h-4" />}
+             extra={
+               <div className="flex bg-white/5 p-0.5 rounded-lg border border-white/5">
+                 {[
+                   { id: 'all', label: 'الكل' },
+                   { id: 'app', label: 'تلقائي' },
+                   { id: 'manual', label: 'يدوي' }
+                 ].map(t => (
+                   <button
+                     key={t.id}
+                     onClick={() => setSource(t.id)}
+                     className={`px-2 py-1 rounded-md text-[10px] font-bold transition-all ${
+                       source === t.id ? 'bg-primary text-white' : 'text-text-muted'
+                     }`}
+                   >
+                     {t.label}
+                   </button>
+                 ))}
+               </div>
+             }
+           >
               <div className="h-[300px] w-full mb-8">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={data?.topItems} layout="vertical">
-                    <XAxis type="number" hide />
-                    <YAxis dataKey="name" type="category" stroke="#94a3b8" fontSize={10} width={80} />
-                    <Tooltip 
-                      contentStyle={{ backgroundColor: '#1e293b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px' }}
-                    />
-                    <Bar dataKey="quantity" radius={[0, 4, 4, 0]}>
-                      {data?.topItems?.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+                {data.topItems.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={data?.topItems} layout="vertical">
+                      <XAxis type="number" hide />
+                      <YAxis dataKey="name" type="category" stroke="#94a3b8" fontSize={10} width={80} />
+                      <Tooltip 
+                        contentStyle={{ backgroundColor: '#1e293b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px' }}
+                      />
+                      <Bar dataKey="quantity" radius={[0, 4, 4, 0]}>
+                        {data?.topItems?.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex flex-col items-center justify-center text-text-muted opacity-40">
+                    <ShoppingBag className="w-12 h-12 mb-2" />
+                    <p className="text-sm">لا توجد طلبات بعد</p>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-3">
-                {data?.topItems?.map((item, idx) => (
+                {data.topItems.map((item, idx) => (
                   <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5">
                     <div className="flex items-center gap-3">
                       <div className="w-6 h-6 rounded bg-black/20 flex items-center justify-center text-[10px] font-bold text-primary">
@@ -219,16 +246,7 @@ const Analytics = () => {
               </div>
            </ChartCard>
 
-           <div className="bg-gradient-to-br from-primary/20 to-primary/5 p-6 rounded-3xl border border-primary/20 shadow-xl relative overflow-hidden group">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-primary/20 blur-3xl -mr-16 -mt-16 group-hover:bg-primary/30 transition-all"></div>
-              <h4 className="text-white font-bold text-lg mb-2 flex items-center gap-2">
-                <TrendingUp className="w-5 h-5 text-primary" />
-                توصية الذكاء الاصطناعي
-              </h4>
-              <p className="text-text-muted text-sm leading-relaxed">
-                بناءً على ساعات الذروة (الساعة {data?.peakHours?.sort((a,b) => b.count - a.count)[0]?.hour}:00)، نقترح زيادة عدد الموظفين في هذا التوقيت لضمان سرعة التحضير.
-              </p>
-           </div>
+
         </div>
       </div>
     </div>
@@ -255,13 +273,16 @@ const StatCard = ({ title, value, icon, trend, isPositive }) => (
   </div>
 );
 
-const ChartCard = ({ title, icon, children }) => (
+const ChartCard = ({ title, icon, extra, children }) => (
   <div className="bg-card/40 backdrop-blur-md p-6 rounded-3xl border border-white/5 shadow-2xl">
-    <div className="flex items-center gap-2 mb-6 border-b border-white/5 pb-4">
-      <div className="p-2 rounded-lg bg-primary/10 text-primary">
-        {icon}
+    <div className="flex items-center justify-between mb-6 border-b border-white/5 pb-4">
+      <div className="flex items-center gap-2">
+        <div className="p-2 rounded-lg bg-primary/10 text-primary">
+          {icon}
+        </div>
+        <h3 className="text-sm font-bold text-white">{title}</h3>
       </div>
-      <h3 className="text-sm font-bold text-white">{title}</h3>
+      {extra}
     </div>
     {children}
   </div>

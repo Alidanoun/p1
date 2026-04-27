@@ -362,8 +362,8 @@ class AppLocalizationsAr extends AppLocalizations {
   String get notificationDetails => 'تفاصيل الإشعار';
 
   @override
-  String notificationExpiry(Object days) {
-    return 'سوف يختفي هذا الإشعار خلال $days يوماً';
+  String notificationExpiry(int days) {
+    return 'ستنتهي صلاحية هذا التنبيه خلال $days أيام';
   }
 
   @override
@@ -471,4 +471,119 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get forgotPassword => 'نسيت كلمة المرور؟';
+
+  @override
+  String get loginRequired => 'تسجيل الدخول مطلوب';
+
+  @override
+  String get loginToOrderMessage =>
+      'يرجى تسجيل الدخول لتتمكن من إتمام الطلب ومتابعة حالته.';
+
+  @override
+  String get minOrderWarningPrefix => 'الحد الأدنى للطلب لهذه المنطقة هو ';
+
+  @override
+  String get minOrderWarningMissing => ' (ينقصك ';
+
+  @override
+  String get cartChangedError =>
+      'تغيرت محتويات السلة! يرجى مراجعة الطلب مرة أخرى.';
+
+  @override
+  String get priceChangedError =>
+      'تغيرت الأسعار في السلة! يرجى مراجعة الطلب مرة أخرى.';
+
+  @override
+  String get minOrderError => 'لم يتم الوصول للحد الأدنى للطلب';
+
+  @override
+  String get addressAreaLabel => 'المنطقة';
+
+  @override
+  String get addressStreetLabel => 'الشارع';
+
+  @override
+  String get addressBuildingLabel => 'البناية';
+
+  @override
+  String get otpEmailPrompt => 'يرجى إدخال الكود المرسل لبريدك الإلكتروني';
+
+  @override
+  String get laterBtn => 'لاحقاً';
+
+  @override
+  String get activateBtn => 'تفعيل';
+
+  @override
+  String get cancelOrderSuccess => 'تم إرسال طلب الإلغاء بنجاح';
+
+  @override
+  String get cancelOrderFailed => 'فشل الإلغاء: ';
+
+  @override
+  String get loginToSeeOrdersMsg => 'يرجى تسجيل الدخول لعرض الطلبات.';
+
+  @override
+  String get fetchOrdersFailedMsg => 'فشل في جلب الطلبات: ';
+
+  @override
+  String get cancellationRejected => 'تم رفض طلب الإلغاء';
+
+  @override
+  String get updatedBadge => 'تم التحديث!';
+
+  @override
+  String get phoneNumberLabel => 'رقم الجوال';
+
+  @override
+  String get invalidPhoneError => 'يرجى إدخال رقم جوال صحيح';
+
+  @override
+  String get passwordLengthError => 'كلمة المرور يجب أن تكون 8 أحرف على الأقل';
+
+  @override
+  String get resetPasswordPrompt =>
+      'أدخل بريدك الإلكتروني وسنرسل لك كود لإعادة تعيين كلمة المرور';
+
+  @override
+  String get emailSentMsg => 'إذا كان البريد مسجلاً، ستصلك رسالة قريباً';
+
+  @override
+  String get sendCodeBtn => 'إرسال الكود';
+
+  @override
+  String get resetPasswordTitle => 'إعادة تعيين كلمة المرور';
+
+  @override
+  String resetPasswordDesc(String email) {
+    return 'أدخل الكود المرسل إلى $email وكلمة المرور الجديدة';
+  }
+
+  @override
+  String get otpCodeLengthError => 'أدخل الكود المكوّن من 6 أرقام';
+
+  @override
+  String get newPasswordLabel => 'كلمة المرور الجديدة';
+
+  @override
+  String get confirmPasswordLabel => 'تأكيد كلمة المرور';
+
+  @override
+  String get passwordsNotMatchError => 'كلمتا المرور غير متطابقتين';
+
+  @override
+  String get passwordResetSuccess => 'تم تعيين كلمة المرور بنجاح ✅';
+
+  @override
+  String get resetPasswordAction => 'تعيين كلمة المرور';
+
+  @override
+  String get verificationCodeTitle => 'كود التحقق';
+
+  @override
+  String get biometricDialogTitle => 'تفعيل الدخول بالبصمة';
+
+  @override
+  String get biometricDialogDesc =>
+      'هل تريد تفعيل الدخول بالبصمة لتسريع الوصول إلى حسابك في المستقبل؟';
 }

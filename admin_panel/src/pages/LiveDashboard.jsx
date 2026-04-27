@@ -95,7 +95,6 @@ const EmptyState = ({ icon: Icon, title, subtitle, compact = false }) => (
 
 const LiveDashboard = () => {
   const { liveMetrics, metricsHistory, socket } = useSocket();
-  const [topItemsTab, setTopItemsTab] = useState('quantity'); // 'quantity' | 'revenue'
   const [selectedOrder, setSelectedOrder] = useState(null);
 
   // 🛡️ RECOVERY STATUS INDICATOR
@@ -163,12 +162,7 @@ const LiveDashboard = () => {
     }));
   }, [liveMetrics]);
 
-  const topItemsData = useMemo(() => {
-    if (!liveMetrics?.topItems) return [];
-    return [...liveMetrics.topItems]
-      .sort((a, b) => b[topItemsTab] - a[topItemsTab])
-      .slice(0, 5);
-  }, [liveMetrics, topItemsTab]);
+
 
   if (!liveMetrics) {
     return (
@@ -186,7 +180,6 @@ const LiveDashboard = () => {
   }
 
   const hasChartData = statusChartData.length > 0;
-  const hasTopItems = topItemsData.length > 0;
   const hasActivity = liveMetrics.activityFeed && liveMetrics.activityFeed.length > 0;
 
   return (
@@ -324,77 +317,7 @@ const LiveDashboard = () => {
             )}
           </motion.div>
 
-          {/* 🍔 Top Items */}
-          <motion.div variants={itemVariants} initial="hidden" animate="visible" className="glass-panel p-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
-              <h3 className="text-base font-bold text-white flex items-center gap-2.5">
-                <div className="p-2 rounded-lg bg-primary/10 border border-primary/20">
-                  <Target className="w-4 h-4 text-primary" />
-                </div>
-                الأصناف الأكثر أداءً
-              </h3>
-              <div className="flex bg-background/60 p-1 rounded-lg border border-white/5">
-                <button 
-                  onClick={() => setTopItemsTab('quantity')}
-                  className={cn(
-                    "px-3.5 py-1.5 rounded-md text-[11px] font-bold transition-all",
-                    topItemsTab === 'quantity' ? "bg-primary text-white shadow-md shadow-primary/20" : "text-text-muted hover:text-white"
-                  )}
-                >
-                  حسب الكمية
-                </button>
-                <button 
-                  onClick={() => setTopItemsTab('revenue')}
-                  className={cn(
-                    "px-3.5 py-1.5 rounded-md text-[11px] font-bold transition-all",
-                    topItemsTab === 'revenue' ? "bg-primary text-white shadow-md shadow-primary/20" : "text-text-muted hover:text-white"
-                  )}
-                >
-                  حسب الربح
-                </button>
-              </div>
-            </div>
 
-            {hasTopItems ? (
-              <div className="space-y-3">
-                <AnimatePresence mode='popLayout'>
-                  {topItemsData.map((item, idx) => (
-                    <motion.div 
-                      layout
-                      key={item.itemId}
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, scale: 0.95 }}
-                      className="group flex items-center gap-3 p-3.5 rounded-xl bg-white/[0.02] border border-white/5 hover:border-primary/20 transition-all"
-                    >
-                      <div className="w-10 h-10 rounded-lg bg-background border border-white/5 flex items-center justify-center font-bold text-primary text-sm shrink-0">
-                        {idx + 1}
-                      </div>
-                      <div className="flex-1 text-right min-w-0">
-                        <h4 className="text-sm font-bold text-white group-hover:text-primary transition-colors truncate">{item.name}</h4>
-                        <p className="text-[10px] text-text-muted font-medium">
-                          {formatNumberArabic(item.quantity)} قطعة • {formatCurrencyArabic(item.revenue)}
-                        </p>
-                      </div>
-                      <div className="w-24 lg:w-32 h-2 bg-white/5 rounded-full overflow-hidden shrink-0">
-                        <motion.div 
-                          initial={{ width: 0 }}
-                          animate={{ width: `${(item[topItemsTab] / topItemsData[0][topItemsTab]) * 100}%` }}
-                          className={cn("h-full rounded-full", topItemsTab === 'quantity' ? "bg-primary" : "bg-emerald-500")}
-                        />
-                      </div>
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
-              </div>
-            ) : (
-              <EmptyState 
-                icon={Package} 
-                title="لا توجد بيانات أصناف" 
-                subtitle="ستظهر هنا أكثر الأصناف مبيعاً بعد ورود الطلبات"
-              />
-            )}
-          </motion.div>
         </div>
 
         {/* ===== RIGHT: Activity Feed & System Health (4 cols) ===== */}

@@ -293,6 +293,15 @@ class _AuthScreenState extends State<AuthScreen>
                         style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               ),
             ),
+
+            const SizedBox(height: 16),
+            TextButton(
+              onPressed: _goToHome,
+              child: const Text(
+                'الدخول كضيف',
+                style: TextStyle(color: Colors.grey, fontSize: 14, fontWeight: FontWeight.w500),
+              ),
+            ),
           ],
         ),
       ),

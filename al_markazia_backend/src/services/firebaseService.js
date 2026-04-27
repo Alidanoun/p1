@@ -28,7 +28,7 @@ try {
  */
 const sendToToken = async (token, title, body, data = {}) => {
   if (!fcmEnabled || !token) {
-    if (!fcmEnabled) logger.debug('[FCM] Skip sending: FCM is disabled.');
+    if (!fcmEnabled) logger.error('[FCM] Push skipped: Firebase Admin NOT initialized.');
     return false;
   }
   
@@ -38,24 +38,31 @@ const sendToToken = async (token, title, body, data = {}) => {
   });
 
   const message = {
-    notification: { title, body },
-    data: stringData,
+    notification: { title, body }, // 🔥 Hybrid: OS-level alerts
+    data: stringData,              // 🔥 Structured: App-level logic
     token: token,
     android: {
       priority: 'high',
       notification: {
         channelId: 'almarkazia_channel',
         priority: 'high',
+        sound: 'default',
+        visibility: 'public'
+      }
+    },
+    apns: {
+      payload: {
+        aps: { sound: 'default', badge: 1 }
       }
     }
   };
 
   try {
     const response = await admin.messaging().send(message);
-    logger.info('[FCM] Sent successfully 🚀', { responseId: response });
+    logger.info('[FCM] Sent successfully 🚀', { responseId: response, notificationId: data.notificationId });
     return true;
   } catch (error) {
-    logger.error('[FCM] Send Error ❌', { error: error.message });
+    logger.error('[FCM] Send Error ❌', { error: error.message, token: token.substring(0, 10) });
     return false;
   }
 };

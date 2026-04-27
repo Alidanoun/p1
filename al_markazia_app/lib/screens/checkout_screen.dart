@@ -58,7 +58,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         return;
       }
 
-      final sentOrder = await checkout.confirmOrder(cart);
+      final sentOrder = await checkout.confirmOrder(cart, l10n);
 
       if (sentOrder != null) {
         if (mounted) {
@@ -99,6 +99,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) {
+        final l10n = AppLocalizations.of(context)!;
         return StatefulBuilder(
           builder: (context, setModalState) {
             final filteredZones = sortedZones.where((zone) {
@@ -252,7 +253,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                             Padding(
                                               padding: const EdgeInsets.only(top: 4.0),
                                               child: Text(
-                                                'الحد الأدنى: ${zone.minOrder!.toStringAsFixed(2)}',
+                                                '${l10n.minOrderWarningPrefix} ${zone.minOrder!.toStringAsFixed(2)}',
                                                 style: TextStyle(
                                                   fontSize: 10, 
                                                   color: isBelowMin ? Colors.red : Colors.grey[600],
@@ -581,7 +582,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 ),
               ),
 
-              if (checkout.minOrderWarning != null)
+              if (checkout.getMinOrderWarning(l10n) != null)
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 16.0),
                   child: Container(
@@ -597,7 +598,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            checkout.minOrderWarning!,
+                            checkout.getMinOrderWarning(l10n)!,
                             style: const TextStyle(color: Colors.red, fontSize: 13, fontWeight: FontWeight.bold),
                           ),
                         ),

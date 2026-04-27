@@ -114,6 +114,7 @@ model Order {
   deliveryZoneName String?
   tenantId         String?            @default("default-restaurant")
   customer         Customer?          @relation(fields: [customerId], references: [id])
+  source           String             @default("app") // app, manual
   auditLogs        OrderAuditLog[]
   cancellation     OrderCancellation?
   orderItems       OrderItem[]

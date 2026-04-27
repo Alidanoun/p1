@@ -3,8 +3,10 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 import '../models/cart_item.dart';
 import '../features/cart/cart_controller.dart';
+import '../features/auth/auth_controller.dart';
 import '../widgets/custom_dialogs.dart';
 import 'checkout_screen.dart';
+import 'auth_screen.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../l10n/generated/app_localizations.dart';
 
@@ -140,6 +142,21 @@ class _CartScreenState extends State<CartScreen> {
                     height: 56,
                     child: ElevatedButton(
                       onPressed: () {
+                        final auth = context.read<AuthController>();
+                        if (!auth.isAuthenticated) {
+                          final l10n = AppLocalizations.of(context)!;
+                          showCustomConfirmDialog(
+                            context: context,
+                            title: l10n.loginRequired,
+                            content: l10n.loginToOrderMessage,
+                            confirmText: l10n.loginTab,
+                          ).then((confirmed) {
+                            if (confirmed == true && mounted) {
+                              Navigator.push(context, MaterialPageRoute(builder: (_) => const AuthScreen()));
+                            }
+                          });
+                          return;
+                        }
                         Navigator.push(context, MaterialPageRoute(builder: (_) => const CheckoutScreen()));
                       },
                       style: ElevatedButton.styleFrom(
