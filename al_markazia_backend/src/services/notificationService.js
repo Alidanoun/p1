@@ -152,8 +152,12 @@ class NotificationService {
       }
       
       if (target.isToAdmin) {
-        logger.debug(`[GNE] 📡 Emitting Admin Sync Update`);
-        this.io.to(SOCKET_ROOMS.ADMIN).emit(SOCKET_EVENTS.ORDER_UPDATED, payload);
+        // 🎯 Use correct event type: ORDER_CREATED for new orders, ORDER_UPDATED for status changes
+        const eventName = notif.type === 'order_created' 
+          ? SOCKET_EVENTS.ORDER_CREATED 
+          : SOCKET_EVENTS.ORDER_UPDATED;
+        logger.debug(`[GNE] 📡 Emitting Admin Event: ${eventName}`);
+        this.io.to(SOCKET_ROOMS.ADMIN).emit(eventName, payload);
       }
       
       if (target.isToCustomer && (order.customer?.uuid || order.customerId)) {

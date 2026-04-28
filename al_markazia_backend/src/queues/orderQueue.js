@@ -25,27 +25,41 @@ const initOrderWorker = (io) => {
       try {
         logger.info(`OrderWorker: Processing auto-accept for order ${orderId}`);
         
-        // --- High-Throughput Hardening ---
-        // 1. Ensure order exists (Avoid ghost jobs)
-        const orderExists = await prisma.order.findUnique({ where: { id: orderId } });
-        if (!orderExists) {
-           logger.warn(`OrderWorker: Order ${orderId} not found. Cleanly exiting.`, { orderId });
-           return { success: false, reason: 'NOT_FOUND' };
+        // 🔐 Distributed Lock: Prevent race condition with Cron cleanup
+        const lockKey = `lock:order:autoaccept:${orderId}`;
+        const lockAcquired = await redis.set(lockKey, 'worker', 'NX', 'EX', 30);
+        if (!lockAcquired) {
+          logger.info(`OrderWorker: Order ${orderId} locked by another processor. Skipping.`);
+          return { success: false, reason: 'LOCKED' };
         }
 
-        // Require the controller helper to update with side effects (Socket/Notifications)
-        const { performStatusUpdate } = require('../controllers/orderController');
-        
-        // 🛡️ User Request: Use the atomic status update helper
-        const result = await performStatusUpdate(orderId, 'preparing', io);
-        
-        if (!result) {
-          logger.info(`OrderWorker: Auto-accept SKIPPED for order ${orderId} (Already processed or not pending)`);
-          return { success: false, reason: 'ALREADY_PROCESSED' };
-        }
+        try {
+          // 1. Ensure order exists and is still pending (Avoid ghost jobs)
+          const orderExists = await prisma.order.findUnique({ where: { id: orderId } });
+          if (!orderExists) {
+             logger.warn(`OrderWorker: Order ${orderId} not found. Cleanly exiting.`, { orderId });
+             return { success: false, reason: 'NOT_FOUND' };
+          }
+          if (orderExists.status !== 'pending') {
+             logger.info(`OrderWorker: Order ${orderId} already ${orderExists.status}. Skipping.`);
+             return { success: false, reason: 'ALREADY_PROCESSED' };
+          }
 
-        logger.info(`OrderWorker: Auto-accept SUCCESS for order ${orderId}`);
-        return { success: true };
+          // 🛡️ Architecture Fix: Use Service directly (never import Controllers in Workers)
+          const orderService = require('../services/orderService');
+          const result = await orderService.updateOrderStatus(orderId, 'preparing');
+          
+          if (!result) {
+            logger.info(`OrderWorker: Auto-accept SKIPPED for order ${orderId} (Already processed or not pending)`);
+            return { success: false, reason: 'ALREADY_PROCESSED' };
+          }
+
+          logger.info(`OrderWorker: Auto-accept SUCCESS for order ${orderId}`);
+          return { success: true };
+        } finally {
+          // Always release the lock
+          await redis.del(lockKey).catch(() => {});
+        }
 
       } catch (error) {
         logger.error('OrderWorker: Job failed', { orderId, error: error.message });

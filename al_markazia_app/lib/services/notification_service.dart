@@ -48,8 +48,16 @@ class NotificationService extends ChangeNotifier {
   final int _ttlMs = 30000; 
   final int _uiThrottleMs = 1000; // 1s backpressure window
 
+  // 🧪 V5 Feature Flags
+  static const bool useV5Architecture = true;
+
   Future<void> init() async {
-    if (_isInitialized || _isInitializing) return;
+    if (_isInitialized || _isInitializing) {
+      if (useV5Architecture && _isInitialized) {
+        print('📡 [NotificationService V5] Already active, skipping init. Use reinitialize() for auth changes.');
+      }
+      return;
+    }
     _isInitializing = true;
 
     try {
@@ -57,17 +65,9 @@ class NotificationService extends ChangeNotifier {
 
       // 1. 🏗️ True Persistent Dedup Load (Time-Aware)
       _loadPersistentCache();
-
-      // 2. Local Notifications Setup
-      const AndroidNotificationChannel channel = AndroidNotificationChannel(
-        'almarkazia_channel',
-        'Al Markazia Notifications',
-        importance: Importance.max,
-        playSound: true,
-      );
-
-      await _localNotifications.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
-          ?.createNotificationChannel(channel);
+      
+      // 2. [V5 Priority 2] Early Channel Registry
+      await createNotificationChannel();
 
       await _localNotifications.initialize(
         const InitializationSettings(
@@ -100,14 +100,40 @@ class NotificationService extends ChangeNotifier {
     }
   }
 
+  /// 🔄 [V5] Reactive Re-initialization (Phase 1)
+  /// Safely re-runs initialization with new auth credentials.
+  Future<void> reinitialize() async {
+    if (!useV5Architecture) return;
+    
+    print('🔄 [NotificationService V5] Re-initializing for session update...');
+    
+    // 1. Teardown existing connections safely (Phase 2 logic inside _setupSocket)
+    _isInitialized = false; 
+    
+    // 2. Re-run core initialization
+    await init();
+    
+    notifyListeners();
+  }
+
   void _setupSocket(String? token) {
+    // Phase 2: Correct Socket Identity Binding
     if (socket != null) {
-      socket?.off('event:order:updated');
+      print('🔌 [Socket V5] Tearing down existing connection...');
+      socket?.off('order:created');
+      socket?.off('order:updated');
       socket?.clearListeners();
       socket?.disconnect();
       socket?.dispose();
+      socket = null;
     }
 
+    if (token == null) {
+      print('⚠️ [Socket V5] Skipping connection: No valid JWT token.');
+      return;
+    }
+
+    print('🔌 [Socket V5] Connecting to ${ApiService.baseUrl} with JWT...');
     socket = IO.io(ApiService.baseUrl, <String, dynamic>{
       'transports': ['websocket'],
       'autoConnect': true,
@@ -119,7 +145,8 @@ class NotificationService extends ChangeNotifier {
       _debouncedSync();
     });
 
-    socket?.on('event:order:updated', (data) => _processIncomingEvent(data, fromSocket: true));
+    socket?.on('order:created', (data) => _processIncomingEvent(data, fromSocket: true));
+    socket?.on('order:updated', (data) => _processIncomingEvent(data, fromSocket: true));
   }
 
   /// 🧠 Central Event Router (Authority-Based + Backpressure)
@@ -146,17 +173,47 @@ class NotificationService extends ChangeNotifier {
        if (uiElapsed > _uiThrottleMs) {
          _uiBackpressureMap[id] = now;
          _orderUpdateController.add(data);
-       } else {
-         print('⏳ [Backpressure] UI sync throttled for: $id');
        }
     }
 
-    // 3. Authority Alert Logic
-    if (fromFCM && data['notification'] != null) {
+    // 3. 🔔 Local Notification Display
+    // FCM messages: always show local notification for foreground visibility
+    // Socket messages: show local notification too (for real-time order alerts)
+    if (data is Map && data['notification'] != null) {
+      print('🔔 [NotificationService] Triggering Local Alert for: $id (FCM: $fromFCM, Socket: $fromSocket)');
       _showLocalNotification(data, normalizedId: id);
+    } else if (fromSocket && data is Map<String, dynamic>) {
+      // Socket data-only events: generate notification content from order data
+      final status = data['status']?.toString() ?? '';
+      final orderNumber = data['orderNumber']?.toString() ?? '';
+      if (status.isNotEmpty && orderNumber.isNotEmpty) {
+        final content = _generateStatusContent(status, orderNumber);
+        final enriched = {
+          ...data,
+          'notification': content,
+        };
+        print('🔔 [Socket] Generating local alert for order $orderNumber status: $status');
+        _showLocalNotification(enriched, normalizedId: id);
+      }
     }
     
+    // 4. Refresh notification list from server
+    fetchNotifications();
+    
     notifyListeners();
+  }
+
+  /// 🏷️ Generate human-readable notification content from order status
+  Map<String, String> _generateStatusContent(String status, String orderNumber) {
+    final map = {
+      'pending': {'title': 'طلب جديد 🔔', 'message': 'تم استلام طلبك رقم $orderNumber'},
+      'preparing': {'title': 'جاري التحضير 👨‍🍳', 'message': 'طلبك رقم $orderNumber قيد التحضير الآن'},
+      'ready': {'title': 'طلبك جاهز! ✅', 'message': 'طلبك رقم $orderNumber جاهز للاستلام أو التوصيل'},
+      'in_route': {'title': 'في الطريق 🚗', 'message': 'طلبك رقم $orderNumber في الطريق إليك'},
+      'delivered': {'title': 'تم التسليم 🥡', 'message': 'بالهناء والشفاء! نتمنى رؤيتك قريباً'},
+      'cancelled': {'title': 'تم الإلغاء ❌', 'message': 'تم إلغاء طلبك رقم $orderNumber'},
+    };
+    return map[status] ?? {'title': 'تحديث الطلب', 'message': 'الطلب رقم $orderNumber أصبح $status'};
   }
 
   Future<void> _setupFCM() async {
@@ -169,6 +226,13 @@ class NotificationService extends ChangeNotifier {
       String? token = await _fcm.getToken();
       if (token != null) await _updateTokenOnBackend(token);
 
+      // Phase 3: Token Lifecycle Stabilization
+      _fcm.onTokenRefresh.listen((newToken) async {
+        print('📲 [FCM V5] Token refreshed, syncing with backend...');
+        await _updateTokenOnBackend(newToken);
+      });
+
+      // [V5 Priority 1] Foreground Listener
       _fcmSubscription = FirebaseMessaging.onMessage.listen((RemoteMessage message) {
         _processIncomingEvent(
           {
@@ -181,6 +245,31 @@ class NotificationService extends ChangeNotifier {
           fromFCM: true
         );
       });
+
+      // [V5 Priority 4] Background Click Handler
+      FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+        print('🖱️ [FCM V5] App opened via notification in background');
+        _safeNavigate({
+          ...message.data,
+          'notification': {
+            'title': message.notification?.title,
+            'message': message.notification?.body,
+          }
+        });
+      });
+
+      // [V5 Priority 1] Killed State Handler
+      final initialMessage = await _fcm.getInitialMessage();
+      if (initialMessage != null) {
+        print('🚀 [FCM V5] App launched from killed state via notification');
+        _safeNavigate({
+          ...initialMessage.data,
+          'notification': {
+            'title': initialMessage.notification?.title,
+            'message': initialMessage.notification?.body,
+          }
+        });
+      }
 
       // Topics Management
       if (SessionService.instance.isAdmin) {
@@ -202,13 +291,20 @@ class NotificationService extends ChangeNotifier {
       importance: Importance.max,
       priority: Priority.high,
       showWhen: true,
-      sound: RawResourceAndroidNotificationSound('default'),
+      playSound: true,
+      enableVibration: true,
+      visibility: NotificationVisibility.public,
+      category: AndroidNotificationCategory.message,
     );
+
+    final title = data['notification']?['title']?.toString() ?? 'Al Markazia';
+    final message = data['notification']?['message']?.toString() ?? 
+                    data['notification']?['body']?.toString() ?? '';
 
     await _localNotifications.show(
       notificationId,
-      data['notification']?['title'] ?? 'Al Markazia',
-      data['notification']?['message'] ?? '',
+      title,
+      message,
       const NotificationDetails(android: androidDetails),
       payload: json.encode(data),
     );
@@ -224,7 +320,8 @@ class NotificationService extends ChangeNotifier {
     _persistenceTimer?.cancel();
     
     if (socket != null) {
-      socket?.off('event:order:updated');
+      socket?.off('order:created');
+      socket?.off('order:updated');
       socket?.clearListeners();
       socket?.disconnect();
       socket?.dispose();
@@ -392,5 +489,23 @@ class NotificationService extends ChangeNotifier {
     _orderUpdateController.close();
     socket?.dispose();
     super.dispose();
+  }
+
+  /// 🏛️ [V5 Priority 2] Static Helper for Early Initialization
+  static Future<void> createNotificationChannel() async {
+    const channel = AndroidNotificationChannel(
+      'almarkazia_channel',
+      'Al Markazia Notifications',
+      importance: Importance.max,
+      playSound: true,
+      enableVibration: true,
+      showBadge: true,
+    );
+
+    final FlutterLocalNotificationsPlugin localNotifications = FlutterLocalNotificationsPlugin();
+    await localNotifications.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(channel);
+    
+    print('📡 [NotificationService V5] System Channel Registered.');
   }
 }
