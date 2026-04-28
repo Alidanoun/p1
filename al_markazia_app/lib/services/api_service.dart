@@ -13,7 +13,7 @@ class ApiService {
   final _orderApi = OrderApi();
   
   static String get baseUrl {
-    const ip = String.fromEnvironment('SERVER_IP', defaultValue: '192.168.3.128');
+    const ip = String.fromEnvironment('SERVER_IP', defaultValue: '192.168.3.122');
     const port = String.fromEnvironment('SERVER_PORT', defaultValue: '5000');
     final scheme = const bool.fromEnvironment('dart.vm.product') ? 'https' : 'http';
     return '$scheme://$ip:$port';

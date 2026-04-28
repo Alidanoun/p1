@@ -141,39 +141,63 @@ class MaintenanceService {
    */
   static async cleanupStuckOrders() {
     try {
-      const thresholdMinutes = 30;
-      const cutoff = new Date(Date.now() - thresholdMinutes * 60 * 1000);
-
-      const stuckOrders = await prisma.order.findMany({
-        where: {
-          status: 'pending',
-          createdAt: { lt: cutoff }
-        }
-      });
-
-      if (stuckOrders.length === 0) return 0;
-
-      // استيراد دالة التحديث لتجنب التعارض الدائري (Circular Dependency)
-      // يتم الاستيراد محلياً داخل الدالة لضمان توفرها وقت التنفيذ فقط.
-      const { performStatusUpdate } = require('../controllers/orderController');
-
-      let processedCount = 0;
-      for (const order of stuckOrders) {
-        try {
-          await performStatusUpdate(order.id, 'preparing');
-          logger.info('🟢 Stuck Order Auto-Accepted by Cleanup Job', { 
-            orderId: order.id, 
-            orderNumber: order.orderNumber 
-          });
-          processedCount++;
-        } catch (err) {
-          logger.error('🔴 Failed to auto-accept stuck order during cleanup', { 
-            orderId: order.id, 
-            error: err.message 
-          });
-        }
+      const redis = require('../lib/redis');
+      
+      // 🔐 Global Distributed Lock: Prevent overlapping cleanup runs
+      const globalLock = await redis.set('lock:cron:stuckOrders', 'running', 'NX', 'EX', 120);
+      if (!globalLock) {
+        logger.info('Maintenance: Stuck orders cleanup already running (locked). Skipping.');
+        return 0;
       }
-      return processedCount;
+
+      try {
+        const thresholdMinutes = 30;
+        const cutoff = new Date(Date.now() - thresholdMinutes * 60 * 1000);
+
+        const stuckOrders = await prisma.order.findMany({
+          where: {
+            status: 'pending',
+            createdAt: { lt: cutoff }
+          }
+        });
+
+        if (stuckOrders.length === 0) return 0;
+
+        const orderService = require('../services/orderService');
+
+        let processedCount = 0;
+        for (const order of stuckOrders) {
+          try {
+            // 🔐 Per-Order Lock: Prevent race with BullMQ autoAccept worker
+            const lockKey = `lock:order:autoaccept:${order.id}`;
+            const lockAcquired = await redis.set(lockKey, 'cleanup', 'NX', 'EX', 30);
+            if (!lockAcquired) {
+              logger.info(`Maintenance: Order ${order.id} locked by worker. Skipping.`);
+              continue;
+            }
+
+            try {
+              await orderService.updateOrderStatus(order.id, 'preparing');
+              logger.info('🟢 Stuck Order Auto-Accepted by Cleanup Job', { 
+                orderId: order.id, 
+                orderNumber: order.orderNumber 
+              });
+              processedCount++;
+            } finally {
+              await redis.del(lockKey).catch(() => {});
+            }
+          } catch (err) {
+            logger.error('🔴 Failed to auto-accept stuck order during cleanup', { 
+              orderId: order.id, 
+              error: err.message 
+            });
+          }
+        }
+        return processedCount;
+      } finally {
+        // Release global lock
+        await redis.del('lock:cron:stuckOrders').catch(() => {});
+      }
     } catch (error) {
       logger.error('Maintenance: Cleanup Stuck Orders Failed', { error: error.message });
       return 0;

@@ -119,7 +119,7 @@ class AuthController extends ChangeNotifier {
         'phone': SessionService.instance.phone,
       };
 
-      NotificationService().init();
+      NotificationService().reinitialize();
       _setLoading(false);
       return BiometricLoginResult(status: BiometricLoginStatus.success);
     } catch (e) {
@@ -238,6 +238,7 @@ class AuthController extends ChangeNotifier {
     await SessionService.instance.clearSession();
     await StorageService.instance.setCurrentUser(null);
     user = null;
+    await NotificationService().reset(); // 🧹 Bulletproof Teardown
     notifyListeners();
   }
 
@@ -247,7 +248,7 @@ class AuthController extends ChangeNotifier {
     await SessionService.instance.saveUser(authResponse);
     await StorageService.instance.setCurrentUser(authResponse['user']);
     user = authResponse['user'];
-    NotificationService().init();
+    NotificationService().reinitialize();
     _setLoading(false);
     notifyListeners();
   }

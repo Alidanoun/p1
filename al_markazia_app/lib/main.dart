@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'theme/app_theme.dart';
 import 'services/storage_service.dart';
 import 'services/notification_service.dart';
@@ -22,10 +23,38 @@ import 'l10n/generated/app_localizations.dart';
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
-  print("🛰️ Handling background message: ${message.messageId}");
+  debugPrint("🛰️ Handling background message: ${message.messageId}");
   
-  // Note: For hybrid payload, Android OS shows 'notification' automatically.
-  // This handler is ready for data-only extensions if needed.
+  // 🛡️ Show local notification for data-only messages in background
+  // For hybrid payloads (notification + data), Android OS handles the display automatically.
+  // This ensures data-only messages also create visible notifications.
+  if (message.notification == null && message.data.isNotEmpty) {
+    final plugin = FlutterLocalNotificationsPlugin();
+    await plugin.initialize(
+      const InitializationSettings(
+        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+      ),
+    );
+    
+    final title = message.data['title'] ?? 'Al Markazia';
+    final body = message.data['message'] ?? message.data['body'] ?? '';
+    
+    await plugin.show(
+      message.hashCode,
+      title,
+      body,
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'almarkazia_channel',
+          'Al Markazia Notifications',
+          importance: Importance.max,
+          priority: Priority.high,
+          playSound: true,
+          enableVibration: true,
+        ),
+      ),
+    );
+  }
 }
 
 void main() async {
@@ -39,6 +68,25 @@ void main() async {
   await StorageService.instance.init();
   await SessionService.instance.init();
   await initSecurePinning();
+  
+  // [V5 Priority 2] Early Notification Channel Creation
+  await NotificationService.createNotificationChannel();
+
+  // 🛡️ Android 13+ (API 33): Request notification permission early
+  final messaging = FirebaseMessaging.instance;
+  await messaging.requestPermission(
+    alert: true,
+    badge: true,
+    sound: true,
+    criticalAlert: true,
+  );
+
+  // 🛡️ Ensure foreground notifications display on iOS
+  await messaging.setForegroundNotificationPresentationOptions(
+    alert: true,
+    badge: true,
+    sound: true,
+  );
 
   runApp(
     MultiProvider(

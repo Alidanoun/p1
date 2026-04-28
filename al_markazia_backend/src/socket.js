@@ -21,7 +21,10 @@ module.exports = {
     io.use((socket, next) => {
       try {
         const token = socket.handshake.auth?.token || socket.handshake.headers['x-auth-token'];
-        if (!token) return next(new Error('Unauthorized'));
+        if (!token) {
+          logger.warn('🔌 [Socket V5] Connection rejected: No token provided.', { ip: socket.handshake.address });
+          return next(new Error('Unauthorized'));
+        }
         
         const decoded = jwt.verify(token, JWT_SECRET);
         const { ROLES } = require('./shared/socketEvents');
@@ -30,6 +33,7 @@ module.exports = {
         socket.user = { id: decoded.id, phone: decoded.phone, role };
         next();
       } catch (err) {
+        logger.warn('🔌 [Socket V5] Connection rejected: Invalid JWT.', { error: err.message, ip: socket.handshake.address });
         next(new Error('Unauthorized'));
       }
     });

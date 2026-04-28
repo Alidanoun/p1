@@ -312,12 +312,12 @@ const LiveOrders = () => {
       }
     };
 
-    socket.on('event:order:created', handleNewOrder);
-    socket.on('event:order:updated', handleStatusUpdate);
+    socket.on('order:created', handleNewOrder);
+    socket.on('order:updated', handleStatusUpdate);
 
     return () => {
-      socket.off('event:order:created', handleNewOrder);
-      socket.off('event:order:updated', handleStatusUpdate);
+      socket.off('order:created', handleNewOrder);
+      socket.off('order:updated', handleStatusUpdate);
     };
   }, [socket]);
 

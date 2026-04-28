@@ -166,14 +166,17 @@ const EmailService = require('../services/emailService');
 const register = async (req, res) => {
   const { name, email, password, phone } = req.body;
   try {
+    // 🛡️ Normalize email early to prevent case-mismatch bugs
+    const cleanEmail = email.toLowerCase().trim();
+
     // 0. Validate Password Strength
     if (!passwordRegex.test(password)) {
       return response.error(res, 'كلمة المرور يجب أن تكون 8 خانات على الأقل وتحتوي على حرف ورقم أو رمز', 'WEAK_PASSWORD', 400);
     }
 
     // 1. Validate if account exists in either table
-    const existingUser = await prisma.user.findUnique({ where: { email } });
-    const existingCustomer = await prisma.customer.findUnique({ where: { email } });
+    const existingUser = await prisma.user.findUnique({ where: { email: cleanEmail } });
+    const existingCustomer = await prisma.customer.findUnique({ where: { email: cleanEmail } });
     
     if (existingUser || existingCustomer) {
       return response.error(res, 'البريد الإلكتروني مسجل مسبقاً', 'EMAIL_EXISTS', 400);
@@ -186,19 +189,19 @@ const register = async (req, res) => {
     // 3. Hash Password for temporary storage
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // 4. Save to OtpCode with metadata
+    // 4. Save to OtpCode with metadata (always use cleanEmail)
     await prisma.otpCode.create({
       data: {
-        email,
+        email: cleanEmail,
         codeHash: await bcrypt.hash(otp, 10),
         purpose: 'registration',
         expiresAt,
-        metadata: { name, email, password: hashedPassword, phone }
+        metadata: { name, email: cleanEmail, password: hashedPassword, phone }
       }
     });
 
     // 5. Dispatch Email
-    await EmailService.sendOtp(email, otp);
+    await EmailService.sendOtp(cleanEmail, otp);
 
     response.success(res, { 
       message: 'تم إرسال كود التحقق إلى بريدك الإلكتروني'
@@ -215,9 +218,12 @@ const register = async (req, res) => {
 const verifyRegistration = async (req, res) => {
   const { email, code } = req.body;
   try {
+    // 🛡️ Normalize email to match what register() stored
+    const cleanEmail = email.toLowerCase().trim();
+
     // 1. Find the latest valid OTP
     const otpRecord = await prisma.otpCode.findFirst({
-      where: { email, purpose: 'registration', used: false },
+      where: { email: cleanEmail, purpose: 'registration', used: false },
       orderBy: { createdAt: 'desc' }
     });
 
@@ -236,7 +242,7 @@ const verifyRegistration = async (req, res) => {
     const account = await prisma.customer.create({
       data: {
         name,
-        email,
+        email: cleanEmail,
         password,
         phone
       }
@@ -265,7 +271,20 @@ const verifyRegistration = async (req, res) => {
       } 
     });
   } catch (error) {
-    logger.error('Verify registration error', { error: error.message });
+    logger.error('Verify registration error', { error: error.message, code: error.code });
+    
+    // 🛡️ Handle Prisma unique constraint violations with user-friendly messages
+    if (error.code === 'P2002') {
+      const target = error.meta?.target;
+      if (target?.includes('email')) {
+        return response.error(res, 'البريد الإلكتروني مسجل مسبقاً', 'EMAIL_EXISTS', 400);
+      }
+      if (target?.includes('phone')) {
+        return response.error(res, 'رقم الجوال مسجل مسبقاً', 'PHONE_EXISTS', 400);
+      }
+      return response.error(res, 'الحساب موجود مسبقاً', 'DUPLICATE', 400);
+    }
+    
     response.error(res, 'حدث خطأ أثناء تفعيل الحساب', 'SERVER_ERROR', 500);
   }
 };
