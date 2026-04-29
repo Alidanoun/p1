@@ -21,15 +21,19 @@ const initOrderWorker = (io) => {
     'orderQueue',
     async (job) => {
       const { orderId } = job.data;
+      const startTime = Date.now();
       
       try {
-        logger.info(`OrderWorker: Processing auto-accept for order ${orderId}`);
+        logger.info(`[OrderWorker] JOB_START: Order ${orderId}`, { 
+          jobId: job.id, 
+          attempt: job.attemptsMade + 1 
+        });
         
         // 🔐 Distributed Lock: Prevent race condition with Cron cleanup
         const lockKey = `lock:order:autoaccept:${orderId}`;
         const lockAcquired = await redis.set(lockKey, 'worker', 'NX', 'EX', 30);
         if (!lockAcquired) {
-          logger.info(`OrderWorker: Order ${orderId} locked by another processor. Skipping.`);
+          logger.info(`[OrderWorker] Order ${orderId} locked by another processor. Skipping.`);
           return { success: false, reason: 'LOCKED' };
         }
 
@@ -37,11 +41,11 @@ const initOrderWorker = (io) => {
           // 1. Ensure order exists and is still pending (Avoid ghost jobs)
           const orderExists = await prisma.order.findUnique({ where: { id: orderId } });
           if (!orderExists) {
-             logger.warn(`OrderWorker: Order ${orderId} not found. Cleanly exiting.`, { orderId });
+             logger.warn(`[OrderWorker] Order ${orderId} not found. Cleanly exiting.`, { orderId });
              return { success: false, reason: 'NOT_FOUND' };
           }
           if (orderExists.status !== 'pending') {
-             logger.info(`OrderWorker: Order ${orderId} already ${orderExists.status}. Skipping.`);
+             logger.info(`[OrderWorker] Order ${orderId} already ${orderExists.status}. Skipping.`);
              return { success: false, reason: 'ALREADY_PROCESSED' };
           }
 
@@ -50,34 +54,49 @@ const initOrderWorker = (io) => {
           const result = await orderService.updateOrderStatus(orderId, 'preparing');
           
           if (!result) {
-            logger.info(`OrderWorker: Auto-accept SKIPPED for order ${orderId} (Already processed or not pending)`);
+            logger.info(`[OrderWorker] Auto-accept SKIPPED for order ${orderId} (Already processed or not pending)`);
             return { success: false, reason: 'ALREADY_PROCESSED' };
           }
 
-          logger.info(`OrderWorker: Auto-accept SUCCESS for order ${orderId}`);
+          const duration = Date.now() - startTime;
+          logger.info(`[OrderWorker] JOB_SUCCESS: Order ${orderId}`, { 
+            jobId: job.id, 
+            duration: `${duration}ms` 
+          });
           return { success: true };
         } finally {
-          // Always release the lock
-          await redis.del(lockKey).catch(() => {});
+          // Always release the lock with confirmation
+          try {
+            const deleted = await redis.del(lockKey);
+            logger.debug(`[OrderWorker] Lock released for ${orderId}`, { wasLocked: deleted === 1 });
+          } catch (lockErr) {
+            logger.error(`[OrderWorker] Lock release failed for ${orderId}`, { error: lockErr.message });
+          }
         }
 
       } catch (error) {
-        logger.error('OrderWorker: Job failed', { orderId, error: error.message });
+        const duration = Date.now() - startTime;
+        logger.error(`[OrderWorker] JOB_FAILED: Order ${orderId}`, { 
+          jobId: job.id,
+          attempt: job.attemptsMade + 1,
+          error: error.message,
+          duration: `${duration}ms`
+        });
         throw error; // Rethrow to trigger BullMQ retry strategy
       }
     },
     {
       connection: redis,
-      concurrency: 25, // Optimized for 10-20 concurrent user bursts
+      concurrency: 5,
     }
   );
 
   worker.on('completed', (job) => {
-    logger.info(`Job completed: ${job.id}`);
+    logger.info(`[OrderWorker] Job completed: ${job.id}`);
   });
 
   worker.on('failed', (job, err) => {
-    logger.error(`Job failed: ${job?.id}`, { error: err.message });
+    logger.error(`[OrderWorker] Job failed: ${job?.id}`, { error: err.message, attempts: job?.attemptsMade });
   });
 
   return worker;

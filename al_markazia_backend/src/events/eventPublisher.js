@@ -29,11 +29,14 @@ async function publishEvent({
       },
     });
 
-    // 2. Publish to memory bus (for real-time handlers)
-    // We don't await this to keep the main flow fast, but we log errors inside handlers
-    eventBus.publish(event).catch(err => {
-      logger.error(`[EventPublisher] Bus publication failed for ${type}`, { error: err.message });
-    });
+    // 2. Publish to memory bus (for real-time handlers: Socket, FCM, etc.)
+    // 🛡️ MUST await to ensure Socket emissions complete before API response returns
+    try {
+      await eventBus.publish(event);
+    } catch (busErr) {
+      // Bus failure should NOT block the main flow — log and continue
+      logger.error(`[EventPublisher] Bus publication failed for ${type}`, { error: busErr.message });
+    }
 
     return event;
   } catch (err) {

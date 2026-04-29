@@ -110,16 +110,17 @@ class OrderApi {
     }
   }
 
-  Future<void> rateOrder(String orderId, int rating, String comment) async {
-    // Public endpoint for now, or can be protected if needed
+  Future<void> rateOrder(String orderId, int rating, String comment, Map<String, String> headers) async {
     final response = await http.patch(
       Uri.parse('$baseUrl/orders/$orderId/rate'),
-      headers: {'Content-Type': 'application/json'},
+      headers: headers,
       body: json.encode({
         'rating': rating,
         'ratingComment': comment,
       }),
     ).timeout(const Duration(seconds: 10));
+
+    _checkAuth(response);
 
     if (response.statusCode != 200) {
       final Map<String, dynamic> errorData = json.decode(utf8.decode(response.bodyBytes));

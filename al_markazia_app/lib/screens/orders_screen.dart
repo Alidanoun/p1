@@ -197,28 +197,63 @@ class _OrdersScreenState extends State<OrdersScreen> {
                 ),
                 const SizedBox(height: 20),
                 
+                if (order.estimatedArrivalAt != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 20),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.timer_outlined, size: 16, color: Colors.orange),
+                        const SizedBox(width: 8),
+                        Text(
+                          StorageService.instance.getLanguageCode() == 'ar' 
+                            ? 'الوصول المتوقع: ${order.estimatedArrivalAt!.hour}:${order.estimatedArrivalAt!.minute.toString().padLeft(2, '0')}'
+                            : 'ETA: ${order.estimatedArrivalAt!.hour}:${order.estimatedArrivalAt!.minute.toString().padLeft(2, '0')}',
+                          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.orange, fontSize: 14),
+                        ),
+                      ],
+                    ),
+                  ),
+                
                 OrderStatusTracker(status: order.status ?? 'pending'),
                 
                 const SizedBox(height: 24),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(l10n.totalAmount, style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                        Text('${order.totalPrice.toStringAsFixed(2)} ${l10n.currency}', 
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: primaryColor)),
-                      ],
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(l10n.totalAmount, 
+                            style: const TextStyle(color: Colors.grey, fontSize: 12),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                          Text('${order.totalPrice.toStringAsFixed(2)} ${l10n.currency}', 
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: primaryColor),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                        ],
+                      ),
                     ),
-                    ElevatedButton.icon(
-                      onPressed: () => _showInvoice(order),
-                      icon: const Icon(Icons.receipt_long_rounded, size: 18, color: Colors.black),
-                      label: Text(l10n.invoiceDetails, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: primaryColor,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                        elevation: 0,
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: ElevatedButton.icon(
+                          onPressed: () => _showInvoice(order),
+                          icon: const Icon(Icons.receipt_long_rounded, size: 18, color: Colors.black),
+                          label: Text(l10n.invoiceDetails, 
+                            style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: primaryColor,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          ),
+                        ),
                       ),
                     ),
                   ],
@@ -460,6 +495,14 @@ class _OrdersScreenState extends State<OrdersScreen> {
                           ],
                         ),
                       )).toList(),
+                      
+                      const SizedBox(height: 8),
+                      Text(
+                        StorageService.instance.getLanguageCode() == 'ar' 
+                          ? 'الأسعار شاملة ضريبة المبيعات' 
+                          : 'Prices are inclusive of sales tax',
+                        style: const TextStyle(color: Colors.grey, fontSize: 9, fontWeight: FontWeight.bold),
+                      ),
 
                       const Padding(
                         padding: EdgeInsets.symmetric(vertical: 16),
@@ -558,56 +601,67 @@ class OrderStatusTracker extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final primaryColor = Theme.of(context).primaryColor;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     
-    int currentStep = 0;
-    if (status == 'confirmed' || status == 'preparing') currentStep = 1;
-    else if (status == 'ready') currentStep = 2;
-    else if (status == 'delivered') currentStep = 3;
+    int step = 0;
+    if (status == 'pending') step = 0;
+    if (status == 'confirmed' || status == 'preparing') step = 1;
+    if (status == 'ready') step = 2;
+    if (status == 'in_route' || status == 'delivered') step = 3;
 
-    return Row(
+    return Column(
       children: [
-        _buildStep(0, l10n.pending, Icons.access_time_rounded, currentStep >= 0, primaryColor),
-        _buildConnector(currentStep >= 1, primaryColor),
-        _buildStep(1, l10n.preparing, Icons.outdoor_grill_rounded, currentStep >= 1, primaryColor, isPulsing: currentStep == 1),
-        _buildConnector(currentStep >= 2, primaryColor),
-        _buildStep(2, l10n.ready, Icons.moped_rounded, currentStep >= 2, primaryColor, isPulsing: currentStep == 2),
-        _buildConnector(currentStep >= 3, primaryColor),
-        _buildStep(3, l10n.delivered, Icons.check_circle_rounded, currentStep >= 3, primaryColor),
+        Row(
+          children: List.generate(4, (index) {
+            bool isCompleted = index <= step;
+            bool isCurrent = index == step;
+            
+            return Expanded(
+              child: Row(
+                children: [
+                  // Dot
+                  Container(
+                    width: 14, height: 14,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isCompleted ? Colors.orange : (isDark ? Colors.white10 : Colors.grey.shade200),
+                    ),
+                  ),
+                  // Line
+                  if (index < 3)
+                    Expanded(
+                      child: Container(
+                        height: 2,
+                        color: index < step ? Colors.orange : (isDark ? Colors.white10 : Colors.grey.shade200),
+                      ),
+                    ),
+                ],
+              ),
+            );
+          }),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            _buildLabel(l10n.pending, step >= 0),
+            _buildLabel(l10n.preparing, step >= 1),
+            _buildLabel(l10n.ready, step >= 2),
+            _buildLabel(l10n.delivered, step >= 3),
+          ],
+        ),
       ],
     );
   }
 
-  Widget _buildStep(int index, String label, IconData icon, bool isActive, Color primaryColor, {bool isPulsing = false}) {
-    Widget iconWidget = Icon(icon, size: 24, color: isActive ? primaryColor : Colors.grey.withOpacity(0.5));
-    
-    if (isPulsing) {
-      iconWidget = iconWidget.animate(onPlay: (controller) => controller.repeat())
-          .scale(begin: const Offset(1, 1), end: const Offset(1.2, 1.2), duration: 800.ms, curve: Curves.easeInOut)
-          .then().scale(begin: const Offset(1.2, 1.2), end: const Offset(1, 1), duration: 800.ms);
-    }
-
-    return Expanded(
-      child: Column(
-        children: [
-          iconWidget,
-          const SizedBox(height: 8),
-          Text(label, style: TextStyle(
-            fontSize: 10, 
-            fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
-            color: isActive ? primaryColor : Colors.grey
-          )),
-        ],
+  Widget _buildLabel(String text, bool active) {
+    return Text(
+      text,
+      style: TextStyle(
+        fontSize: 9,
+        fontWeight: active ? FontWeight.bold : FontWeight.normal,
+        color: active ? Colors.orange : Colors.grey,
       ),
-    );
-  }
-
-  Widget _buildConnector(bool isActive, Color primaryColor) {
-    return Container(
-      width: 20,
-      height: 2,
-      margin: const EdgeInsets.only(bottom: 18),
-      color: isActive ? primaryColor : Colors.grey.withOpacity(0.2),
     );
   }
 }

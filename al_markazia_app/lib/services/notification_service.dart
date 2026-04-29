@@ -48,6 +48,36 @@ class NotificationService extends ChangeNotifier {
   final int _ttlMs = 30000; 
   final int _uiThrottleMs = 1000; // 1s backpressure window
 
+  // 🛡️ Fallback System (Watchdog for stuck orders)
+  final Map<String, Timer> _statusWatchdogs = {};
+
+  void startStatusWatchdog(String orderId) {
+    _statusWatchdogs[orderId]?.cancel();
+    _statusWatchdogs[orderId] = Timer(const Duration(seconds: 30), () async {
+      print('🛰️ [Watchdog] Fallback triggered for order $orderId. Fetching fresh state...');
+      try {
+        final token = await SessionService.instance.accessToken;
+        if (token == null) return;
+        
+        final response = await http.get(
+          Uri.parse('${ApiService.baseUrl}/orders/$orderId'),
+          headers: {'Authorization': 'Bearer $token'}
+        ).timeout(const Duration(seconds: 10));
+
+        if (response.statusCode == 200) {
+          final data = json.decode(utf8.decode(response.bodyBytes));
+          final orderData = data is Map && data.containsKey('data') ? data['data'] : data;
+          _processIncomingEvent(orderData, fromSocket: false);
+          print('✅ [Watchdog] Order $orderId state recovered via API.');
+        }
+      } catch (e) {
+        print('❌ [Watchdog] Recovery failed: $e');
+      } finally {
+        _statusWatchdogs.remove(orderId);
+      }
+    });
+  }
+
   // 🧪 V5 Feature Flags
   static const bool useV5Architecture = true;
 
@@ -80,13 +110,13 @@ class NotificationService extends ChangeNotifier {
       // 3. 🛡️ Socket Registry Guard
       _setupSocket(token);
 
-      // 4. Cleanup Workers
+      // 4. Cleanup Workers (Optimized for performance)
       _cacheCleanupTimer?.cancel();
-      _cacheCleanupTimer = Timer.periodic(const Duration(minutes: 5), (_) => _cleanCache());
+      _cacheCleanupTimer = Timer.periodic(const Duration(minutes: 30), (_) => _cleanCache());
       
-      // Batch writer for storage safety
+      // Batch writer for storage safety (Reduced frequency to prevent UI stutter)
       _persistenceTimer?.cancel();
-      _persistenceTimer = Timer.periodic(const Duration(seconds: 10), (_) => _persistCacheToStorage());
+      _persistenceTimer = Timer.periodic(const Duration(minutes: 2), (_) => _persistCacheToStorage());
 
       await fetchNotifications();
       await _setupFCM();
@@ -153,6 +183,10 @@ class NotificationService extends ChangeNotifier {
   void _processIncomingEvent(dynamic data, {bool fromSocket = false, bool fromFCM = false}) {
     final id = _normalizeId(data);
     if (id == null) return;
+
+    // 🛡️ Clear any active watchdog for this ID
+    _statusWatchdogs[id]?.cancel();
+    _statusWatchdogs.remove(id);
 
     final now = DateTime.now().millisecondsSinceEpoch;
     

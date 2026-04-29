@@ -151,5 +151,6 @@
   "biometricNotAvailable": "Biometric hardware not available on this device",
   "loginWithFingerprint": "Login with Fingerprint",
   "biometricEnabled": "Fingerprint login enabled successfully ✅",
-  "forgotPassword": "Forgot Password?"
+  "forgotPassword": "Forgot Password?",
+  "restaurantClosed": "Restaurant is Closed"
 }

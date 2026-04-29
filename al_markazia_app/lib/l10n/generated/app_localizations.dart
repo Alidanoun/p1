@@ -1225,6 +1225,12 @@ abstract class AppLocalizations {
   /// In ar, this message translates to:
   /// **'هل تريد تفعيل الدخول بالبصمة لتسريع الوصول إلى حسابك في المستقبل؟'**
   String get biometricDialogDesc;
+
+  /// No description provided for @restaurantClosed.
+  ///
+  /// In ar, this message translates to:
+  /// **'المطعم مغلق حالياً'**
+  String get restaurantClosed;
 }
 
 class _AppLocalizationsDelegate

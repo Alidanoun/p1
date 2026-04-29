@@ -254,3 +254,15 @@ exports.performStatusUpdate = async (orderId, newStatus) => {
 };
 
 exports.getCustomerOrders = exports.getOrders;
+
+exports.updatePreparationTime = async (req, res) => {
+  try {
+    const orderId = parseInt(req.params.id);
+    const { minutes } = req.body;
+    const order = await orderService.updatePreparationTime(orderId, minutes);
+    res.json({ success: true, data: order });
+  } catch (error) {
+    logger.error('updatePreparationTime error', { error: error.message });
+    res.status(500).json({ success: false, error: 'Failed to update preparation time' });
+  }
+};

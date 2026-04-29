@@ -7,7 +7,7 @@
 
 const BANNED_WORDS_AR = [
   // List of banned words (placeholder for demonstration)
-  "سيء جدا", "زبالة", "مقرف"
+  "زبالة", "مقرف"
 ];
 
 const BANNED_PATTERNS = [

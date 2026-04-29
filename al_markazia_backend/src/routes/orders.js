@@ -6,6 +6,7 @@ const {
   optionalAuth
 } = require('../middleware/auth');
 const { healthGuard } = require('../middleware/healthGuard');
+const workingHoursGuard = require('../middleware/workingHoursGuard');
 const { 
   createOrder, 
   getOrders,
@@ -20,7 +21,8 @@ const {
   handleCancellationRequest,
   requestPartialCancel,
   handlePartialCancelRequest,
-  getPendingPartialCancels
+  getPendingPartialCancels,
+  updatePreparationTime
 } = require('../controllers/orderController');
 
 const {
@@ -34,7 +36,7 @@ const logger = require('../utils/logger');
 const router = express.Router();
 
 // Allow guests (app) to create orders while identifying registered customers
-router.post('/', optionalAuth, healthGuard('db'), orderLimiter, createOrder);
+router.post('/', optionalAuth, healthGuard('db'), workingHoursGuard, orderLimiter, createOrder);
 
 // New Secure Identity Route: Get orders for the authenticated customer
 router.get('/my-orders', authMiddleware, getMyOrders);
@@ -47,6 +49,7 @@ router.get('/', authMiddleware, adminMiddleware, getOrders);
 router.post('/accept-all', authMiddleware, adminMiddleware, acceptAllNewOrders);
 router.patch('/:id/status', authMiddleware, adminMiddleware, healthGuard('db'), updateOrderStatus);
 router.patch('/:id/timer', authMiddleware, adminMiddleware, updateOrderTimer);
+router.patch('/:id/prep-time', authMiddleware, adminMiddleware, updatePreparationTime);
 router.patch('/:id/rate', authMiddleware, submitOrderRating);
 
 // Full Cancellation

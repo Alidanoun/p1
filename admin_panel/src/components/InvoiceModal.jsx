@@ -60,6 +60,9 @@ const InvoiceModal = ({ order, isOpen, onClose }) => {
                     <span>{formatCurrencyArabic(order.deliveryFee)}</span>
                   </div>
                 )}
+                <div className="flex justify-center py-2 text-[10px] text-slate-400 font-bold">
+                  الأسعار شاملة ضريبة المبيعات
+                </div>
                 <div className="flex justify-between font-black text-lg pt-2 text-slate-900 border-t border-slate-50">
                   <span>الإجمالي الكلي</span>
                   <span className="text-primary">{formatCurrencyArabic(order.totalPrice || order.total)}</span>

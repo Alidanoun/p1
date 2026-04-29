@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { ar } from 'date-fns/locale';
 
-const Header = ({ title, subtitle }) => {
+const Header = ({ title, subtitle, action }) => {
   const { user } = useAuth();
   const { notifications, unreadCount, markAsRead, markAllAsRead, fetchNotifications } = useSocket();
   const [showNotifications, setShowNotifications] = useState(false);
@@ -50,6 +50,7 @@ const Header = ({ title, subtitle }) => {
       </div>
       
       <div className="flex items-center gap-4">
+        {action && <div className="ml-2">{action}</div>}
         {/* Search */}
         <div className="hidden lg:flex items-center gap-2 bg-background border border-slate-700/50 rounded-full px-4 py-2 focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary transition-all text-sm">
           <Search className="w-4 h-4 text-text-muted" />

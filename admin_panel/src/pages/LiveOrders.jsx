@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import { Clock, CheckCircle, Package, Play, XCircle, Phone, DollarSign, Timer, AlertCircle, Printer, MapPin, Star, Truck, ShoppingBag } from 'lucide-react';
+import { Clock, CheckCircle, Package, Play, XCircle, Phone, DollarSign, Timer, AlertCircle, Printer, MapPin, Star, Truck, ShoppingBag, Power, Minus, Plus, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { QRCodeSVG } from 'qrcode.react';
 import Header from '../components/Header';
@@ -46,7 +46,7 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onC
     const updateTimer = () => {
       const created = new Date(order.createdAt || order.id);
       setElapsed(formatDistanceToNow(created, { addSuffix: false, locale: ar }));
-      
+
       const diffMinutes = (new Date() - created) / 60000;
       setIsDelayed(diffMinutes > 20 && order.status !== 'delivered');
     };
@@ -58,101 +58,101 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onC
 
   return (
     <>
-    <Draggable draggableId={order.id} index={index}>
-      {(provided, snapshot) => (
-        <div
-          ref={provided.innerRef}
-          {...provided.draggableProps}
-          {...provided.dragHandleProps}
-          id={`order-${order.id}`}
-          className={cn(
-            "bg-background/80 backdrop-blur-md p-4 rounded-xl border border-white/5 mb-3 shadow-md transition-all group",
-            snapshot.isDragging ? "shadow-2xl ring-2 ring-primary border-primary/50" : "hover:border-white/10",
-            isDelayed && order.status !== 'delivered' && "border-red-500/30 bg-red-500/5"
-          )}
-        >
-          <div className="flex justify-between items-start mb-3">
-            <span className="text-[10px] font-mono text-text-muted">#{order.orderId?.substring(0, 8) || order.id.substring(0, 8)}</span>
-            <div className="flex items-center gap-1 text-[10px] text-text-muted bg-white/5 px-2 py-0.5 rounded-full">
-              <Timer className={cn("w-3 h-3", isDelayed && "text-red-500 animate-pulse")} />
-              <span>{elapsed}</span>
-            </div>
-          </div>
-
-          <h4 className="font-bold text-white mb-1">{order.customerName || order.customer?.name || '—'}</h4>
-          <div className="flex items-center gap-2 text-xs text-text-muted mb-3">
-            <Phone className="w-3 h-3" />
-            <span>{order.customerPhone || order.customer?.phone || '—'}</span>
-          </div>
-
-          <div className="space-y-1 mb-4">
-            {(order.cartItems || order.orderItems || []).slice(0, 2).map((item, i) => (
-              <div key={i} className="text-xs flex justify-between text-text-muted transition-colors group-hover:text-white">
-                <span>{item.qty || item.quantity}x {item.title || item.itemName || 'صنف'}</span>
-              </div>
-            ))}
-            {(order.cartItems || order.orderItems || []).length > 2 && (
-              <p className="text-[10px] text-primary font-bold">+{(order.cartItems || order.orderItems).length - 2} أصناف أخرى</p>
+      <Draggable draggableId={order.id} index={index}>
+        {(provided, snapshot) => (
+          <div
+            ref={provided.innerRef}
+            {...provided.draggableProps}
+            {...provided.dragHandleProps}
+            id={`order-${order.id}`}
+            className={cn(
+              "bg-background/80 backdrop-blur-md p-4 rounded-xl border border-white/5 mb-3 shadow-md transition-all group",
+              snapshot.isDragging ? "shadow-2xl ring-2 ring-primary border-primary/50" : "hover:border-white/10",
+              isDelayed && order.status !== 'delivered' && "border-red-500/30 bg-red-500/5"
             )}
-          </div>
+          >
+            <div className="flex justify-between items-start mb-3">
+              <span className="text-[10px] font-mono text-text-muted">#{order.orderId?.substring(0, 8) || order.id.substring(0, 8)}</span>
+              <div className="flex items-center gap-1 text-[10px] text-text-muted bg-white/5 px-2 py-0.5 rounded-full">
+                <Timer className={cn("w-3 h-3", isDelayed && "text-red-500 animate-pulse")} />
+                <span>{elapsed}</span>
+              </div>
+            </div>
 
-          <div className="flex flex-wrap gap-2 mb-4">
-             <div className={cn(
-               "px-2 py-0.5 rounded-md text-[9px] font-black uppercase flex items-center gap-1 border",
-               order.orderType === 'delivery' ? "bg-blue-500/10 text-blue-500 border-blue-500/20" : "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
-             )}>
+            <h4 className="font-bold text-white mb-1">{order.customerName || order.customer?.name || '—'}</h4>
+            <div className="flex items-center gap-2 text-xs text-text-muted mb-3">
+              <Phone className="w-3 h-3" />
+              <span>{order.customerPhone || order.customer?.phone || '—'}</span>
+            </div>
+
+            <div className="space-y-1 mb-4">
+              {(order.cartItems || order.orderItems || []).slice(0, 2).map((item, i) => (
+                <div key={i} className="text-xs flex justify-between text-text-muted transition-colors group-hover:text-white">
+                  <span>{item.qty || item.quantity}x {item.title || item.itemName || 'صنف'}</span>
+                </div>
+              ))}
+              {(order.cartItems || order.orderItems || []).length > 2 && (
+                <p className="text-[10px] text-primary font-bold">+{(order.cartItems || order.orderItems).length - 2} أصناف أخرى</p>
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-2 mb-4">
+              <div className={cn(
+                "px-2 py-0.5 rounded-md text-[9px] font-black uppercase flex items-center gap-1 border",
+                order.orderType === 'delivery' ? "bg-blue-500/10 text-blue-500 border-blue-500/20" : "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+              )}>
                 {order.orderType === 'delivery' ? <Truck className="w-3 h-3" /> : <ShoppingBag className="w-3 h-3" />}
                 <span>{order.orderType === 'delivery' ? 'توصيل' : 'استلام'}</span>
-             </div>
-             
-             {order.orderType === 'delivery' && (
-               <div className="px-2 py-0.5 rounded-md bg-white/5 text-text-muted border border-white/5 text-[9px] font-bold flex items-center gap-1">
+              </div>
+
+              {order.orderType === 'delivery' && (
+                <div className="px-2 py-0.5 rounded-md bg-white/5 text-text-muted border border-white/5 text-[9px] font-bold flex items-center gap-1">
                   <MapPin className="w-3 h-3" />
                   <span>{order.deliveryZoneName || 'منطقة غير محددة'}</span>
-               </div>
-             )}
+                </div>
+              )}
 
-             {/* 🏷️ Status Badges for Grouped Columns */}
-             {order.status === 'confirmed' && (
-               <div className="px-2 py-0.5 rounded-md bg-blue-500/20 text-blue-400 border border-blue-500/30 text-[9px] font-black flex items-center gap-1 animate-pulse">
+              {/* 🏷️ Status Badges for Grouped Columns */}
+              {order.status === 'confirmed' && (
+                <div className="px-2 py-0.5 rounded-md bg-blue-500/20 text-blue-400 border border-blue-500/30 text-[9px] font-black flex items-center gap-1 animate-pulse">
                   <CheckCircle className="w-3 h-3" />
                   <span>مؤكد</span>
-               </div>
-             )}
-             {order.status === 'in_route' && (
-               <div className="px-2 py-0.5 rounded-md bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 text-[9px] font-black flex items-center gap-1">
+                </div>
+              )}
+              {order.status === 'in_route' && (
+                <div className="px-2 py-0.5 rounded-md bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 text-[9px] font-black flex items-center gap-1">
                   <Truck className="w-3 h-3" />
                   <span>في الطريق</span>
-               </div>
-             )}
-             {order.status === 'waiting_cancellation' && (
-               <div className="px-2 py-0.5 rounded-md bg-red-500/20 text-red-500 border border-red-500/30 text-[9px] font-black flex items-center gap-1">
+                </div>
+              )}
+              {order.status === 'waiting_cancellation' && (
+                <div className="px-2 py-0.5 rounded-md bg-red-500/20 text-red-500 border border-red-500/30 text-[9px] font-black flex items-center gap-1">
                   <AlertCircle className="w-3 h-3" />
                   <span>طلب إلغاء</span>
-               </div>
-             )}
-          </div>
+                </div>
+              )}
+            </div>
 
-          <div className="flex items-center justify-between border-t border-white/5 pt-3">
-             <div className="flex flex-col">
+            <div className="flex items-center justify-between border-t border-white/5 pt-3">
+              <div className="flex flex-col">
                 <div className="flex items-center gap-1 text-primary font-bold">
-                    <DollarSign className="w-3 h-3" />
-                    <span className="text-sm">{formatCurrencyArabic(order.total || order.totalPrice)}</span>
+                  <DollarSign className="w-3 h-3" />
+                  <span className="text-sm">{formatCurrencyArabic(order.total || order.totalPrice)}</span>
                 </div>
                 {order.estimatedReadyAt && order.status === 'preparing' && (
                   <div className="mt-2 text-[10px] text-blue-400 flex flex-col gap-1">
                     <div className="flex items-center gap-1">
                       <Timer className="w-3 h-3" />
-                      <span>جاهز خلال: {new Date(order.estimatedReadyAt).toLocaleTimeString('ar-EG', {hour: '2-digit', minute:'2-digit'})}</span>
+                      <span>جاهز خلال: {new Date(order.estimatedReadyAt).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</span>
                     </div>
                     <div className="flex gap-1 mt-1">
-                      <button 
+                      <button
                         onClick={() => onAdjustTimer(order.id, 5)}
                         className="px-1.5 py-0.5 bg-blue-500/20 hover:bg-blue-500/40 rounded text-blue-400 transition-colors"
                       >
                         +5د
                       </button>
-                      <button 
+                      <button
                         onClick={() => onAdjustTimer(order.id, -5)}
                         className="px-1.5 py-0.5 bg-red-500/20 hover:bg-red-500/40 rounded text-red-400 transition-colors"
                       >
@@ -161,77 +161,87 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onC
                     </div>
                   </div>
                 )}
-             </div>
-             
-             <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+              </div>
+
+              <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                {order.status === 'pending' && (
+                  <button
+                    onClick={() => onUpdateStatus(order.id, 'preparing')}
+                    className="p-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 rounded-md text-emerald-500 transition-all flex items-center gap-1"
+                    title="قبول الطلب"
+                  >
+                    <CheckCircle className="w-3.5 h-3.5" />
+                    <span className="text-[10px] font-bold">قبول</span>
+                  </button>
+                )}
                 {order.status === 'preparing' && (
-                  <button 
+                  <button
                     onClick={() => onUpdateStatus(order.id, 'ready')}
                     className="p-1.5 bg-green-500/20 hover:bg-green-500/40 rounded-md text-green-500 transition-all flex items-center gap-1"
                     title="الطلب جاهز"
                   >
-                     <CheckCircle className="w-3.5 h-3.5" />
-                     <span className="text-[10px] font-bold">جاهز</span>
+                    <CheckCircle className="w-3.5 h-3.5" />
+                    <span className="text-[10px] font-bold">جاهز</span>
                   </button>
                 )}
                 {order.status === 'ready' && (
-                  <button 
+                  <button
                     onClick={() => onUpdateStatus(order.id, 'delivered')}
                     className="p-1.5 bg-emerald-500/20 hover:bg-emerald-500/40 rounded-md text-emerald-500 transition-all flex items-center gap-1"
                     title="تم التسليم"
                   >
-                     <Package className="w-3.5 h-3.5" />
-                     <span className="text-[10px] font-bold">تسليم</span>
+                    <Package className="w-3.5 h-3.5" />
+                    <span className="text-[10px] font-bold">تسليم</span>
                   </button>
                 )}
                 {(order.status === 'ready' || order.status === 'preparing' || order.status === 'pending') && (
-                  <button 
+                  <button
                     onClick={() => onCancelOrder(order)}
                     className="p-1.5 bg-red-500/10 hover:bg-red-500/20 rounded-md text-red-500 transition-all flex items-center gap-1"
                     title="إلغاء الطلب"
                   >
-                     <XCircle className="w-3.5 h-3.5" />
-                     <span className="text-[10px] font-bold">إلغاء</span>
+                    <XCircle className="w-3.5 h-3.5" />
+                    <span className="text-[10px] font-bold">إلغاء</span>
                   </button>
                 )}
                 {order.status === 'waiting_cancellation' && (
                   <div className="flex gap-1">
-                    <button 
+                    <button
                       onClick={() => onHandleRequest(order, 'approve')}
                       className="p-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 rounded-md text-emerald-500 transition-all"
                       title="قبول الإلغاء"
                     >
-                       <CheckCircle className="w-3.5 h-3.5" />
-                       <span className="text-[10px] font-bold">قبول</span>
+                      <CheckCircle className="w-3.5 h-3.5" />
+                      <span className="text-[10px] font-bold">قبول</span>
                     </button>
-                    <button 
+                    <button
                       onClick={() => onHandleRequest(order, 'reject')}
                       className="p-1.5 bg-red-500/10 hover:bg-red-500/20 rounded-md text-red-500 transition-all"
                       title="رفض الإلغاء"
                     >
-                       <XCircle className="w-3.5 h-3.5" />
-                       <span className="text-[10px] font-bold">رفض</span>
+                      <XCircle className="w-3.5 h-3.5" />
+                      <span className="text-[10px] font-bold">رفض</span>
                     </button>
                   </div>
                 )}
-                <button 
+                <button
                   onClick={() => setShowInvoice(true)}
                   className="p-1.5 bg-white/5 hover:bg-white/10 rounded-md text-text-muted hover:text-white transition-all"
                   title="طباعة الفاتورة"
                 >
-                   <Printer className="w-3.5 h-3.5" />
+                  <Printer className="w-3.5 h-3.5" />
                 </button>
-             </div>
+              </div>
+            </div>
           </div>
-        </div>
-      )}
-    </Draggable>
+        )}
+      </Draggable>
 
-    <InvoiceModal 
-      order={order} 
-      isOpen={showInvoice} 
-      onClose={() => setShowInvoice(false)} 
-    />
+      <InvoiceModal
+        order={order}
+        isOpen={showInvoice}
+        onClose={() => setShowInvoice(false)}
+      />
     </>
   );
 };
@@ -245,7 +255,7 @@ const LiveOrders = () => {
   const [cancelReason, setCancelReason] = useState('');
   const [managerPassword, setManagerPassword] = useState('');
   const [isSubmittingCancel, setIsSubmittingCancel] = useState(false);
-  
+
   const [showHandleModal, setShowHandleModal] = useState(false);
   const [handleAction, setHandleAction] = useState('approve'); // 'approve' or 'reject'
   const [rejectionReason, setRejectionReason] = useState('');
@@ -254,6 +264,55 @@ const LiveOrders = () => {
   const audioRef = useRef(null);
   const prevOrdersCount = useRef(0);
   const { socket } = useSocket();
+  const [restaurantStatus, setRestaurantStatus] = useState(null);
+  const [showEmergencyModal, setShowEmergencyModal] = useState(false);
+  const [emergencyDuration, setEmergencyDuration] = useState(30);
+  const [emergencyType, setEmergencyType] = useState('timed'); // 'timed' or 'day'
+  const [emergencyPassword, setEmergencyPassword] = useState('');
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+
+  const [timeLeft, setTimeLeft] = useState('');
+
+  const fetchStatus = async () => {
+    try {
+      const response = await api.get('/restaurant/status');
+      setRestaurantStatus(unwrap(response));
+    } catch (err) {
+      console.error('Failed to fetch status', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 30000); // Sync every 30s
+    return () => clearInterval(interval);
+  }, []);
+
+  // Countdown logic
+  useEffect(() => {
+    if (!restaurantStatus || restaurantStatus.isOpen || !restaurantStatus.nextOpenAt) {
+      setTimeLeft('');
+      return;
+    }
+
+    const timer = setInterval(() => {
+      const now = new Date().getTime();
+      const openAt = new Date(restaurantStatus.nextOpenAt).getTime();
+      const distance = openAt - now;
+
+      if (distance < 0) {
+        setTimeLeft('');
+        fetchStatus(); // Re-fetch to confirm opening
+        return;
+      }
+
+      const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((distance % (1000 * 60)) / 1000);
+      setTimeLeft(`${minutes}:${seconds < 10 ? '0' : ''}${seconds}`);
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [restaurantStatus]);
 
   useEffect(() => {
     if (!socket) return;
@@ -265,7 +324,7 @@ const LiveOrders = () => {
         if (prev.some(o => o.id === newOrder.id)) return prev;
         return [newOrder, ...prev];
       });
-      
+
       if (audioRef.current) audioRef.current.play();
       toast.success('طلب جديد وصل! 🔔', {
         description: `طلب جديد من ${newOrder.customerName}`,
@@ -284,9 +343,9 @@ const LiveOrders = () => {
       setOrders(prev => {
         const index = prev.findIndex(o => o.id === updatedOrder.id || o.id === updatedOrder.orderId);
         if (index === -1) {
-            // If it's not in our list (maybe it was archived but just updated?), fetch again
-            fetchOrders();
-            return prev;
+          // If it's not in our list (maybe it was archived but just updated?), fetch again
+          fetchOrders();
+          return prev;
         }
 
         // 🛡️ RACE SAFETY: Only update if the incoming data is NEWER than what we have
@@ -298,12 +357,12 @@ const LiveOrders = () => {
           console.warn('🕒 Stale socket update ignored for order', updatedOrder.id);
           return prev;
         }
-        
+
         const newOrders = [...prev];
         newOrders[index] = { ...newOrders[index], ...updatedOrder };
         return newOrders;
       });
-      
+
       // Visual feedback
       const element = document.getElementById(`order-${updatedOrder.id || updatedOrder.orderId}`);
       if (element) {
@@ -337,14 +396,14 @@ const LiveOrders = () => {
   const fetchOrders = async () => {
     try {
       const ordersData = unwrap(await api.get('/orders?active_only=true')) || [];
-      
+
       if (!Array.isArray(ordersData)) {
         console.error('Unexpected orders response shape', ordersData);
         setOrders([]);
         setLoading(false);
         return;
       }
-      
+
       setOrders(ordersData);
       prevOrdersCount.current = ordersData.length;
       setLoading(false);
@@ -355,12 +414,26 @@ const LiveOrders = () => {
     }
   };
 
-  const onAdjustTimer = async (id, minutes) => {
+  const onAdjustTimer = async (id, delta) => {
     try {
-      const { data } = await api.patch(`/orders/${id}/timer`, { minutes });
-      setOrders(prev => prev.map(o => o.id === id ? { ...o, estimatedReadyAt: data.estimatedReadyAt } : o));
-      toast.success('تم تحديث الوقت');
-    } catch {
+      const order = orders.find(o => o.id === id);
+      if (!order) return;
+      
+      const currentPrep = order.preparationTimeMinutes || 20;
+      const newPrep = Math.max(5, currentPrep + delta); // Minimum 5 mins
+
+      const { data } = await api.patch(`/orders/${id}/prep-time`, { minutes: newPrep });
+      
+      setOrders(prev => prev.map(o => o.id === id ? { 
+        ...o, 
+        preparationTimeMinutes: data.preparationTimeMinutes,
+        estimatedReadyAt: data.estimatedReadyAt,
+        estimatedArrivalAt: data.estimatedArrivalAt
+      } : o));
+      
+      toast.success(`تم تحديث وقت التجهيز إلى ${newPrep} دقيقة`);
+    } catch (err) {
+      console.error('Timer Update Error:', err);
       toast.error('فشل تحديث الوقت');
     }
   };
@@ -395,7 +468,7 @@ const LiveOrders = () => {
         managerPassword: managerPassword,
         isAdmin: true
       });
-      
+
       setOrders(prev => prev.filter(o => o.id !== orderToCancel.id));
       setShowCancelModal(false);
       toast.success('تم إلغاء الطلب بنجاح');
@@ -409,7 +482,7 @@ const LiveOrders = () => {
   useEffect(() => {
     fetchOrders();
     // 🛑 Polling Removed! replaced by Socket.io
-  }, []);  
+  }, []);
 
   const onDragEnd = async (result) => {
     const { destination, source, draggableId } = result;
@@ -444,25 +517,45 @@ const LiveOrders = () => {
   return (
     <div className="p-4 md:p-8 h-full flex flex-col max-w-[1600px] mx-auto min-h-screen">
       <audio ref={audioRef} src={NEW_ORDER_SOUND} />
-      
-      <Header 
-        title="الطلبات الحية" 
-        subtitle="نظام السحب والإفلات لإدارة حالة الطلبات المباشرة" 
+
+      <Header
+        title="الطلبات الحية"
+        subtitle="نظام السحب والإفلات لإدارة حالة الطلبات المباشرة"
+        action={
+          <button
+            onClick={() => setShowEmergencyModal(true)}
+            className={cn(
+              "flex items-center gap-2 px-3 py-1.5 rounded-full font-bold transition-all border shadow-sm",
+              restaurantStatus?.isOpen
+                ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20 hover:bg-emerald-500/20"
+                : "bg-red-500/10 text-red-500 border-red-500/20 hover:bg-red-500/20"
+            )}
+          >
+            <div className={cn(
+              "w-2.5 h-2.5 rounded-full shadow-[0_0_8px]",
+              restaurantStatus?.isOpen ? "bg-emerald-500 shadow-emerald-500/50" : "bg-red-500 shadow-red-500/50"
+            )} />
+            <span className="text-xs">
+              {restaurantStatus?.isOpen ? 'مفتوح' : 'مغلق'}
+              {timeLeft && <span className="mr-1.5 font-mono opacity-80 text-[10px]">({timeLeft})</span>}
+            </span>
+          </button>
+        }
       />
 
       {loading ? (
         <div className="flex-1 flex items-center justify-center">
-            <div className="flex flex-col items-center gap-4">
-               <div className="w-12 h-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
-               <p className="text-text-muted font-medium animate-pulse">جاري تحميل الطلبات...</p>
-            </div>
+          <div className="flex flex-col items-center gap-4">
+            <div className="w-12 h-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+            <p className="text-text-muted font-medium animate-pulse">جاري تحميل الطلبات...</p>
+          </div>
         </div>
       ) : (
         <DragDropContext onDragEnd={onDragEnd}>
           <div className="flex flex-row gap-4 h-full pb-8 overflow-x-auto min-h-[calc(100vh-200px)]">
             {COLUMNS.map((column) => {
               const ordersInColumn = getOrdersByColumn(column);
-              
+
               // 👁️ Hide Empty Columns to focus on active tasks
               if (ordersInColumn.length === 0) return null;
 
@@ -492,23 +585,23 @@ const LiveOrders = () => {
                       >
                         <AnimatePresence>
                           {ordersInColumn.map((order, index) => (
-                            <OrderCard 
-                              key={order.id} 
-                              order={order} 
-                              index={index} 
+                            <OrderCard
+                              key={order.id}
+                              order={order}
+                              index={index}
                               forceOpen={selectedOrderId === order.id || selectedOrderId === String(order.id) || selectedOrderId === parseInt(order.id)}
                               onAdjustTimer={onAdjustTimer}
                               onUpdateStatus={onUpdateStatus}
                               onCancelOrder={handleCancelClick}
                               onHandleRequest={(order, action) => {
-                                 setOrderToCancel(order);
-                                 setHandleAction(action);
-                                 setRejectionReason('');
-                                 if (action === 'approve') {
-                                   setRejectionReason('CANCELLATION_APPROVED'); 
-                                 }
-                                 setShowHandleModal(true);
-                               }}
+                                setOrderToCancel(order);
+                                setHandleAction(action);
+                                setRejectionReason('');
+                                if (action === 'approve') {
+                                  setRejectionReason('CANCELLATION_APPROVED');
+                                }
+                                setShowHandleModal(true);
+                              }}
                             />
                           ))}
                         </AnimatePresence>
@@ -526,7 +619,7 @@ const LiveOrders = () => {
       {/* Rejection/Approval Modal for Requests */}
       {showHandleModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             className="bg-card w-full max-w-md rounded-2xl border border-white/10 shadow-2xl p-6"
@@ -540,7 +633,7 @@ const LiveOrders = () => {
               {handleAction === 'reject' && (
                 <div>
                   <label className="block text-xs font-bold text-text-muted mb-2 uppercase tracking-wider">سبب الرفض (سيظهر للعميل)</label>
-                  <textarea 
+                  <textarea
                     value={rejectionReason}
                     onChange={(e) => setRejectionReason(e.target.value)}
                     className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm text-white focus:border-primary outline-none transition-all h-24 resize-none"
@@ -598,54 +691,184 @@ const LiveOrders = () => {
         </div>
       )}
 
-      {/* Cancellation Modal */}
-      {showCancelModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-card w-full max-w-md rounded-2xl border border-white/10 shadow-2xl p-6"
+      {/* Emergency Close Modal */}
+      {showEmergencyModal && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="bg-card w-full max-w-lg rounded-3xl border border-white/10 shadow-[0_0_50px_-12px_rgba(0,0,0,0.5)] overflow-hidden"
           >
-            <div className="flex items-center gap-3 mb-6 text-red-500">
-              <XCircle className="w-8 h-8" />
-              <h3 className="text-xl font-bold">تأكيد إلغاء الطلب</h3>
+            <div className={cn(
+              "p-6 flex items-center gap-4 border-b border-white/5",
+              restaurantStatus?.isOpen ? "bg-red-500/10 text-red-500" : "bg-emerald-500/10 text-emerald-500"
+            )}>
+              <div className={cn(
+                "p-3 rounded-2xl",
+                restaurantStatus?.isOpen ? "bg-red-500/20" : "bg-emerald-500/20"
+              )}>
+                <ShieldCheck className="w-8 h-8" />
+              </div>
+              <div>
+                <h3 className="text-2xl font-black">{restaurantStatus?.isOpen ? 'تأكيد الإغلاق الطارئ' : 'فتح المطعم للطلبات'}</h3>
+                <p className="text-sm opacity-70 font-medium">يتطلب هذا الإجراء صلاحيات المدير العام</p>
+              </div>
             </div>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-text-muted mb-2 uppercase tracking-wider">سبب الإلغاء</label>
-                <textarea 
-                  value={cancelReason}
-                  onChange={(e) => setCancelReason(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm text-white focus:border-primary outline-none transition-all h-24 resize-none"
-                  placeholder="اكتب سبب الإلغاء هنا..."
-                />
+            <div className="p-8 space-y-8">
+              <div className="space-y-4">
+                {/* 1. Open Option */}
+                <button
+                  onClick={() => {
+                    setEmergencyType('open');
+                  }}
+                  className={cn(
+                    "w-full p-5 rounded-2xl border-2 transition-all flex items-center justify-between group",
+                    (restaurantStatus?.isOpen && emergencyType !== 'timed' && emergencyType !== 'day') || emergencyType === 'open'
+                      ? "border-emerald-500 bg-emerald-500/10 text-emerald-500"
+                      : "border-white/5 bg-white/5 hover:border-white/10 text-text-muted"
+                  )}
+                >
+                  <div className="flex items-center gap-4">
+                    <div className={cn("w-3 h-3 rounded-full", (restaurantStatus?.isOpen && emergencyType !== 'timed' && emergencyType !== 'day') || emergencyType === 'open' ? "bg-emerald-500" : "bg-slate-600")} />
+                    <div className="flex flex-col items-start">
+                      <span className="font-black text-lg">مفتوح الان</span>
+                      {(!restaurantStatus?.isOpen && timeLeft) && (
+                        <span className="text-[10px] font-bold opacity-70">سيفتح تلقائياً خلال: {timeLeft}</span>
+                      )}
+                    </div>
+                  </div>
+                  <CheckCircle className={cn("w-6 h-6 transition-opacity", (restaurantStatus?.isOpen && emergencyType !== 'timed' && emergencyType !== 'day') || emergencyType === 'open' ? "opacity-100" : "opacity-0")} />
+                </button>
+
+                {/* 2. Timed Close Option */}
+                <button
+                  onClick={() => setEmergencyType('timed')}
+                  className={cn(
+                    "w-full p-5 rounded-2xl border-2 transition-all flex items-center justify-between group",
+                    emergencyType === 'timed' ? "border-amber-500 bg-amber-500/10 text-amber-500" : "border-white/5 bg-white/5 hover:border-white/10 text-text-muted"
+                  )}
+                >
+                  <div className="flex items-center gap-4">
+                    <Timer className={cn("w-6 h-6", emergencyType === 'timed' ? "text-amber-500" : "text-slate-600")} />
+                    <span className="font-black text-lg">إغلاق لوقت محدد</span>
+                  </div>
+                  <CheckCircle className={cn("w-6 h-6 transition-opacity", emergencyType === 'timed' ? "opacity-100" : "opacity-0")} />
+                </button>
+
+                {/* 3. End of Day Close Option */}
+                <button
+                  onClick={() => setEmergencyType('day')}
+                  className={cn(
+                    "w-full p-5 rounded-2xl border-2 transition-all flex items-center justify-between group",
+                    emergencyType === 'day' ? "border-red-500 bg-red-500/10 text-red-500" : "border-white/5 bg-white/5 hover:border-white/10 text-text-muted"
+                  )}
+                >
+                  <div className="flex items-center gap-4">
+                    <Power className={cn("w-6 h-6", emergencyType === 'day' ? "text-red-500" : "text-slate-600")} />
+                    <span className="font-black text-lg">إغلاق لنهاية اليوم</span>
+                  </div>
+                  <CheckCircle className={cn("w-6 h-6 transition-opacity", emergencyType === 'day' ? "opacity-100" : "opacity-0")} />
+                </button>
               </div>
 
-              {(orderToCancel?.status === 'ready' || orderToCancel?.status === 'in_route') && (
-                <div>
-                  <label className="block text-xs font-bold text-text-muted mb-2 uppercase tracking-wider">كلمة مرور المدير العام</label>
-                  <input 
-                    type="password"
-                    value={managerPassword}
-                    onChange={(e) => setManagerPassword(e.target.value)}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm text-white focus:border-primary outline-none transition-all"
-                    placeholder="مطلوب لإلغاء طلبات جاهزة/في الطريق"
-                  />
+              {/* Conditional Controls */}
+              {emergencyType === 'timed' && (
+                <div className="bg-white/5 p-6 rounded-3xl border border-white/10 animate-in fade-in zoom-in-95">
+                  <label className="block text-center text-[10px] font-black text-text-muted mb-4 uppercase tracking-[0.2em]">مدة الإغلاق (بالدقائق)</label>
+                  <div className="flex items-center justify-center gap-10">
+                    <button
+                      onClick={() => setEmergencyDuration(prev => Math.max(5, prev - 5))}
+                      className="w-14 h-14 rounded-2xl bg-white/5 hover:bg-white/10 flex items-center justify-center text-white transition-all active:scale-90"
+                    >
+                      <Minus className="w-8 h-8" />
+                    </button>
+                    <div className="flex flex-col items-center min-w-[80px]">
+                      <span className="text-6xl font-black text-white">{emergencyDuration}</span>
+                      <span className="text-[10px] font-black text-amber-500 mt-2 uppercase tracking-widest">دقيقة</span>
+                    </div>
+                    <button
+                      onClick={() => setEmergencyDuration(prev => prev + 5)}
+                      className="w-14 h-14 rounded-2xl bg-white/5 hover:bg-white/10 flex items-center justify-center text-white transition-all active:scale-90"
+                    >
+                      <Plus className="w-8 h-8" />
+                    </button>
+                  </div>
                 </div>
               )}
 
-              <div className="flex gap-3 pt-4">
+              {emergencyType === 'day' && (
+                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
+                  <div className="bg-red-500/10 p-5 rounded-2xl border border-red-500/20 flex items-start gap-4">
+                    <AlertCircle className="text-red-500 w-6 h-6 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <p className="text-sm text-red-500 font-black">تحذير: إغلاق كلي</p>
+                      <p className="text-xs text-red-500/70 font-medium leading-relaxed">
+                        سيتم تعطيل الطلبات فوراً حتى منتصف الليل. يتطلب هذا الإجراء تأكيداً بكلمة مرور المدير العام.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black text-text-muted mb-2 uppercase tracking-widest ml-1">كلمة مرور المدير</label>
+                    <input
+                      type="password"
+                      value={emergencyPassword}
+                      onChange={(e) => setEmergencyPassword(e.target.value)}
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl p-5 text-white focus:border-red-500 focus:ring-4 focus:ring-red-500/10 outline-none transition-all placeholder:text-white/5"
+                      placeholder="••••••••"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-4 pt-4">
                 <button
-                  onClick={executeCancellation}
-                  disabled={isSubmittingCancel}
-                  className="flex-1 bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white font-bold py-3 rounded-xl shadow-lg shadow-red-500/20 transition-all flex items-center justify-center gap-2"
+                  onClick={async () => {
+                    const isClosingDay = emergencyType === 'day';
+                    if (isClosingDay && !emergencyPassword) {
+                      return toast.error('يرجى إدخال كلمة مرور المدير');
+                    }
+                    
+                    const isOpening = emergencyType === 'open';
+                    
+                    setIsUpdatingStatus(true);
+                    try {
+                      await api.post('/restaurant/emergency-close', {
+                        isOpen: isOpening,
+                        type: emergencyType,
+                        durationMinutes: emergencyDuration,
+                        password: isClosingDay ? emergencyPassword : null,
+                        reason: isOpening ? null : (emergencyType === 'day' ? 'مغلق لنهاية اليوم' : `مغلق مؤقتاً لمدة ${emergencyDuration} دقيقة`)
+                      });
+                      
+                      toast.success(isOpening ? 'تم فتح استقبال الطلبات' : 'تم إغلاق المطعم بنجاح');
+                      fetchStatus();
+                      setShowEmergencyModal(false);
+                      setEmergencyPassword('');
+                      setEmergencyType(null); // Reset
+                    } catch (err) {
+                      const msg = err.response?.data?.error?.message || err.response?.data?.error || 'حدث خطأ أثناء التحديث';
+                      toast.error(msg);
+                    } finally {
+                      setIsUpdatingStatus(false);
+                    }
+                  }}
+                  disabled={isUpdatingStatus}
+                  className={cn(
+                    "flex-[2] font-black py-4 rounded-2xl shadow-xl transition-all disabled:opacity-50 active:scale-95",
+                    (emergencyType === 'open' || (restaurantStatus?.isOpen && !emergencyType)) ? "bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/20" : "bg-red-500 hover:bg-red-600 shadow-red-500/20"
+                  )}
                 >
-                  {isSubmittingCancel ? 'جاري الإلغاء...' : 'تأكيد الإلغاء'}
+                  {isUpdatingStatus ? 'جاري المعالجة...' : 'تأكيد الإجراء'}
                 </button>
                 <button
-                  onClick={() => setShowCancelModal(false)}
-                  className="px-6 bg-white/5 hover:bg-white/10 text-white font-bold py-3 rounded-xl transition-all"
+                  onClick={() => {
+                    setShowEmergencyModal(false);
+                    setEmergencyPassword('');
+                    setEmergencyType(null);
+                  }}
+                  className="flex-1 bg-white/5 hover:bg-white/10 text-white font-bold py-4 rounded-2xl transition-all"
                 >
                   تراجع
                 </button>
@@ -654,7 +877,65 @@ const LiveOrders = () => {
           </motion.div>
         </div>
       )}
+{/* Cancellation Modal */ }
+{
+  showCancelModal && (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="bg-card w-full max-w-md rounded-2xl border border-white/10 shadow-2xl p-6"
+      >
+        <div className="flex items-center gap-3 mb-6 text-red-500">
+          <XCircle className="w-8 h-8" />
+          <h3 className="text-xl font-bold">تأكيد إلغاء الطلب</h3>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-bold text-text-muted mb-2 uppercase tracking-wider">سبب الإلغاء</label>
+            <textarea
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm text-white focus:border-primary outline-none transition-all h-24 resize-none"
+              placeholder="اكتب سبب الإلغاء هنا..."
+            />
+          </div>
+
+          {(orderToCancel?.status === 'ready' || orderToCancel?.status === 'in_route') && (
+            <div>
+              <label className="block text-xs font-bold text-text-muted mb-2 uppercase tracking-wider">كلمة مرور المدير العام</label>
+              <input
+                type="password"
+                value={managerPassword}
+                onChange={(e) => setManagerPassword(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm text-white focus:border-primary outline-none transition-all"
+                placeholder="مطلوب لإلغاء طلبات جاهزة/في الطريق"
+              />
+            </div>
+          )}
+
+          <div className="flex gap-3 pt-4">
+            <button
+              onClick={executeCancellation}
+              disabled={isSubmittingCancel}
+              className="flex-1 bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white font-bold py-3 rounded-xl shadow-lg shadow-red-500/20 transition-all flex items-center justify-center gap-2"
+            >
+              {isSubmittingCancel ? 'جاري الإلغاء...' : 'تأكيد الإلغاء'}
+            </button>
+            <button
+              onClick={() => setShowCancelModal(false)}
+              className="px-6 bg-white/5 hover:bg-white/10 text-white font-bold py-3 rounded-xl transition-all"
+            >
+              تراجع
+            </button>
+          </div>
+        </div>
+      </motion.div>
     </div>
+  )
+}
+    </div >
   );
 };
 

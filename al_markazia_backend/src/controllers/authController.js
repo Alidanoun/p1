@@ -74,6 +74,13 @@ const login = async (req, res) => {
       return response.error(res, 'بيانات الدخول غير صحيحة', 'INVALID_CREDENTIALS', 401);
     }
 
+    // 🛡️ Account Status Security Check
+    const isDisabled = (user && !user.isActive) || (customer && customer.isBlacklisted);
+    if (isDisabled) {
+      logger.security('Login blocked: Account is disabled or blacklisted', { identifier: cleanEmail, uuid: account.uuid });
+      return response.error(res, 'هذا الحساب معطل حالياً أو محظور، يرجى التواصل مع الدعم', 'ACCOUNT_DISABLED', 403);
+    }
+
     // --- 📡 Smart FCM Token Sync ---
     if (fcmToken && fcmToken !== account.fcmToken) {
       if (user) {
@@ -174,12 +181,20 @@ const register = async (req, res) => {
       return response.error(res, 'كلمة المرور يجب أن تكون 8 خانات على الأقل وتحتوي على حرف ورقم أو رمز', 'WEAK_PASSWORD', 400);
     }
 
-    // 1. Validate if account exists in either table
+    // 1. Validate if account exists in either table (Email or Phone)
     const existingUser = await prisma.user.findUnique({ where: { email: cleanEmail } });
     const existingCustomer = await prisma.customer.findUnique({ where: { email: cleanEmail } });
     
     if (existingUser || existingCustomer) {
       return response.error(res, 'البريد الإلكتروني مسجل مسبقاً', 'EMAIL_EXISTS', 400);
+    }
+
+    if (phone) {
+      const existingUserPhone = await prisma.user.findUnique({ where: { phone } });
+      const existingCustomerPhone = await prisma.customer.findUnique({ where: { phone } });
+      if (existingUserPhone || existingCustomerPhone) {
+        return response.error(res, 'رقم الجوال مسجل مسبقاً', 'PHONE_EXISTS', 400);
+      }
     }
 
     // 2. Generate 6-digit OTP
