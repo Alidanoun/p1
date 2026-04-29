@@ -12,7 +12,10 @@ class OrderModel {
   String? cancellationStatus; // 'pending', 'approved', 'rejected'
   String? rejectionReason;
   final DateTime timestamp;
-  final DateTime? estimatedReadyAt; // New field for preparation timer
+  final DateTime? estimatedReadyAt;
+  final DateTime? estimatedArrivalAt;
+  final int? preparationTimeMinutes;
+  final int? deliveryTimeMinutes;
   final String customerName;
   final String customerPhone;
   final String orderType; 
@@ -40,6 +43,9 @@ class OrderModel {
     this.rejectionReason,
     required this.timestamp,
     this.estimatedReadyAt,
+    this.estimatedArrivalAt,
+    this.preparationTimeMinutes,
+    this.deliveryTimeMinutes,
     required this.customerName,
     required this.customerPhone,
     required this.orderType,
@@ -103,6 +109,11 @@ class OrderModel {
       estimatedReadyAt: json['estimatedReadyAt'] != null 
           ? DateTime.parse(json['estimatedReadyAt']) 
           : null,
+      estimatedArrivalAt: json['estimatedArrivalAt'] != null 
+          ? DateTime.parse(json['estimatedArrivalAt']) 
+          : null,
+      preparationTimeMinutes: json['preparationTimeMinutes'],
+      deliveryTimeMinutes: json['deliveryTimeMinutes'],
       customerName: json['customerName'] ?? 'Customer',
       customerPhone: json['customerPhone'] ?? '',
       orderType: json['orderType'] ?? 'takeaway',
@@ -131,6 +142,9 @@ class OrderModel {
     'status': status,
     'timestamp': timestamp.toIso8601String(),
     'estimatedReadyAt': estimatedReadyAt?.toIso8601String(),
+    'estimatedArrivalAt': estimatedArrivalAt?.toIso8601String(),
+    'preparationTimeMinutes': preparationTimeMinutes,
+    'deliveryTimeMinutes': deliveryTimeMinutes,
     'customerName': customerName,
     'customerPhone': customerPhone,
     'orderType': orderType,

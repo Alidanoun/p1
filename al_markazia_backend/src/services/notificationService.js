@@ -26,6 +26,7 @@ class NotificationService {
     eventBus.subscribe(eventTypes.ORDER_STATUS_CHANGED, (event) => this.processEvent(event, 'status_change'));
     eventBus.subscribe(eventTypes.ORDER_CANCELLED, (event) => this.processEvent(event, 'order_cancelled'));
     eventBus.subscribe('system.broadcast', (event) => this.processBroadcast(event));
+    eventBus.subscribe('RESTAURANT_OPENED', () => this.notifySubscribersOfReopening(true));
 
     // 2. Start Reconciliation Worker (The Self-Healer)
     setInterval(() => this.reconcile(), this.RECONCILE_INTERVAL);
@@ -104,27 +105,80 @@ class NotificationService {
       take: 50
     });
 
-    if (pendingTasks.length === 0) return;
+    if (pendingTasks.length > 0) {
+      logger.info(`[NotificationService] 🛠️ Found ${pendingTasks.length} notifications needing repair.`);
 
-    logger.info(`[NotificationService] 🛠️ Found ${pendingTasks.length} notifications needing repair.`);
+      for (const notif of pendingTasks) {
+        try {
+          // Fetch order context for retry
+          if (!notif.orderId || isNaN(parseInt(notif.orderId))) {
+            logger.warn(`[NotificationService] ⚠️ Skipping repair for #${notif.id}: Invalid orderId`, { orderId: notif.orderId });
+            await prisma.notification.update({ where: { id: notif.id }, data: { status: 'DEAD', lastError: 'Invalid orderId' } });
+            continue;
+          }
 
-    for (const notif of pendingTasks) {
-      try {
-        // Fetch order context for retry
-        const order = await prisma.order.findUnique({ 
-          where: { id: notif.orderId },
-          include: { customer: true }
-        });
-        
-        if (!order) {
-          await prisma.notification.update({ where: { id: notif.id }, data: { status: 'DEAD', lastError: 'Order not found' } });
-          continue;
+          const order = await prisma.order.findUnique({ 
+            where: { id: parseInt(notif.orderId) },
+            include: { customer: true }
+          });
+          
+          if (!order) {
+            await prisma.notification.update({ where: { id: notif.id }, data: { status: 'DEAD', lastError: 'Order not found' } });
+            continue;
+          }
+
+          await this.dispatch(notif, order);
+        } catch (err) {
+          logger.error(`[NotificationService] ❌ Reconciliation failed for #${notif.id}`, { error: err.message });
         }
-
-        await this.dispatch(notif, order);
-      } catch (err) {
-        logger.error(`[NotificationService] ❌ Reconciliation failed for #${notif.id}`, { error: err.message });
       }
+    }
+
+    // Also check for restaurant subscriptions that need notifying (auto-reopen check)
+    await this.notifySubscribersOfReopening();
+  }
+
+  /**
+   * 📢 Notify customers who opted-in when the restaurant was closed
+   */
+  async notifySubscribersOfReopening(forceAll = false) {
+    try {
+      const now = new Date();
+      // If forceAll is true (manual open), notify everyone. 
+      // Otherwise only those whose time has passed (automatic open).
+      const where = forceAll ? { notified: false } : { notified: false, targetTime: { lte: now } };
+      
+      const subs = await prisma.restaurantSubscription.findMany({
+        where,
+        take: 100
+      });
+
+      if (subs.length === 0) return;
+
+      logger.info(`[NotificationService] 📢 Notifying ${subs.length} subscribers about reopening...`);
+
+      for (const sub of subs) {
+        try {
+          await firebaseService.sendToToken(
+            sub.fcmToken,
+            "🎉 نـحـن بـانـتـظـاركـم!",
+            "تم فتح المطعم الآن، يمكنك تقديم طلبك والتمتع بأشهى الوجبات.",
+            { 
+              type: 'RESTAURANT_OPENED',
+              click_action: 'FLUTTER_NOTIFICATION_CLICK'
+            }
+          );
+          
+          await prisma.restaurantSubscription.update({
+            where: { id: sub.id },
+            data: { notified: true }
+          });
+        } catch (e) {
+          logger.warn(`[NotificationService] Failed to notify sub #${sub.id}: ${e.message}`);
+        }
+      }
+    } catch (error) {
+      logger.error('[NotificationService] Error in notifySubscribersOfReopening', { error: error.message });
     }
   }
 
@@ -138,25 +192,20 @@ class NotificationService {
       const { mapOrderResponse } = require('../mappers/order.mapper');
       const fullMappedOrder = (order && order.id !== 0) ? mapOrderResponse(order) : {};
 
-      // 🛡️ SECURITY: Socket payload is now UI-ONLY. 
-      // It must NOT contain instructions to show popups to prevent duplication with FCM.
       const payload = {
         ...fullMappedOrder,
-        id: String(notif.id), // Ensure consistent ID for UI matching
+        id: String(notif.id),
         timestamp: Date.now()
       };
 
       if (target.isBroadcast) {
-        logger.debug(`[GNE] 📡 Emitting Global Sync Update`);
         this.io.emit(SOCKET_EVENTS.ORDER_UPDATED, payload);
       }
       
       if (target.isToAdmin) {
-        // 🎯 Use correct event type: ORDER_CREATED for new orders, ORDER_UPDATED for status changes
         const eventName = notif.type === 'order_created' 
           ? SOCKET_EVENTS.ORDER_CREATED 
           : SOCKET_EVENTS.ORDER_UPDATED;
-        logger.debug(`[GNE] 📡 Emitting Admin Event: ${eventName}`);
         this.io.to(SOCKET_ROOMS.ADMIN).emit(eventName, payload);
       }
       
@@ -172,7 +221,6 @@ class NotificationService {
         
         if (uuid) {
           const room = SOCKET_ROOMS.CUSTOMER(uuid);
-          logger.debug(`[GNE] 📡 Emitting Customer Sync Update to: ${room}`);
           this.io.to(room).emit(SOCKET_EVENTS.ORDER_UPDATED, payload);
         }
       }
@@ -200,7 +248,6 @@ class NotificationService {
       }
 
       if (target.isToAdmin) {
-        // 🚨 Send to STAFF TOPIC
         await firebaseService.sendToTopic('staff_orders', notif.title, notif.message, {
           notificationId: String(notif.id),
           orderId: String(notif.orderId),
@@ -217,7 +264,6 @@ class NotificationService {
 
       const token = order.customer?.fcmToken;
       if (target.isToCustomer && token) {
-        logger.debug(`[GNE] 📲 Attempting FCM Push to token: ${token.substring(0, 15)}...`);
         await firebaseService.sendToToken(token, notif.title, notif.message, {
           notificationId: String(notif.id),
           orderId: String(notif.orderId),
@@ -241,7 +287,6 @@ class NotificationService {
 
   async _createNotificationRecord(order, content, type) {
     try {
-      // 🛡️ CRITICAL FIX: Extract the phone number correctly for DB filtering
       const phone = order.customerPhone || order.customer?.phone || null;
 
       return await prisma.notification.create({
@@ -249,8 +294,8 @@ class NotificationService {
           title: content.title,
           message: content.message,
           type: type,
-          orderId: order.id || null,
-          customerPhone: phone, // Must not be null for customer to see it
+          orderId: order.id ? parseInt(order.id) : null,
+          customerPhone: phone,
           status: 'PENDING',
           metadata: { originalEvent: type }
         }

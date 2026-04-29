@@ -201,5 +201,6 @@
   "resetPasswordAction": "تعيين كلمة المرور",
   "verificationCodeTitle": "كود التحقق",
   "biometricDialogTitle": "تفعيل الدخول بالبصمة",
-  "biometricDialogDesc": "هل تريد تفعيل الدخول بالبصمة لتسريع الوصول إلى حسابك في المستقبل؟"
+  "biometricDialogDesc": "هل تريد تفعيل الدخول بالبصمة لتسريع الوصول إلى حسابك في المستقبل؟",
+  "restaurantClosed": "المطعم مغلق حالياً"
 }

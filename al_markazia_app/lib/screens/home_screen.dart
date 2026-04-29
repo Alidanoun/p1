@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/menu_item.dart';
+import '../models/restaurant_status.dart';
 import '../services/api_service.dart';
 import '../services/storage_service.dart';
 import 'item_details.dart';
@@ -12,6 +13,11 @@ import '../l10n/generated/app_localizations.dart';
 import '../widgets/skeletons/item_card_skeleton.dart';
 import '../widgets/skeletons/category_skeleton.dart';
 import '../widgets/skeletons/featured_slider_skeleton.dart';
+import '../utils/time_formatter.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import '../widgets/order_tracking_widget.dart';
+import '../models/order_model.dart';
+import 'orders_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -28,6 +34,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String _activeCategory = ''; // Initialized in build
   bool _isLoading = true;
   String? _errorMessage;
+  RestaurantStatus? _status;
 
   String _searchQuery = '';
   bool _isSearching = false;
@@ -37,6 +44,9 @@ class _HomeScreenState extends State<HomeScreen> {
   String _lastSearchQuery = '';
   Timer? _debounce;
   List<String> _recentSearches = [];
+  Timer? _countdownTimer;
+  bool _isSubscribed = false;
+  OrderModel? _activeOrder;
   
   // Featured Slider Logic
   final PageController _featuredPageController = PageController();
@@ -88,6 +98,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _featuredTimer?.cancel();
+    _countdownTimer?.cancel();
     _debounce?.cancel();
     _searchController.dispose();
     _featuredPageController.dispose();
@@ -111,14 +122,19 @@ class _HomeScreenState extends State<HomeScreen> {
 
       final cats = await _apiService.fetchCategories(forceRefresh: silent);
       final items = await _apiService.fetchMenuItems(forceRefresh: silent);
+      final status = await _apiService.fetchRestaurantStatus();
+      final activeOrder = await _apiService.fetchActiveOrder();
       
       if (mounted) {
         setState(() {
           _categories = cats;
           _menuItems = items;
+          _status = status;
+          _activeOrder = activeOrder;
           _isLoading = false;
         });
         _startFeaturedTimer();
+        _startCountdownTimer();
       }
     } catch (e) {
       if (mounted) {
@@ -387,6 +403,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              _buildStatusBanner(),
                               if (_menuItems.where((i) => i.isFeatured).isNotEmpty) ...[
                                 _buildFeaturedSlider(primaryColor, isDark),
                                 const SizedBox(height: 24),
@@ -591,6 +608,182 @@ class _HomeScreenState extends State<HomeScreen> {
         return _buildGridCard(item, primaryColor, index);
       },
     );
+  }
+
+  void _startCountdownTimer() {
+    _countdownTimer?.cancel();
+    if (_status == null || _status!.isOpen || _status!.nextOpenAt == null) return;
+
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted) {
+        final now = DateTime.now();
+        if (now.isAfter(_status!.nextOpenAt!)) {
+          timer.cancel();
+          _fetchData(); // Re-fetch status to open the restaurant in UI
+          return;
+        }
+        setState(() {
+          // Just trigger rebuild to update the countdown text
+        });
+      }
+    });
+  }
+
+  Future<void> _handleSubscribe() async {
+    if (_status?.nextOpenAt == null) return;
+    
+    try {
+      final token = await FirebaseMessaging.instance.getToken();
+      if (token == null) throw Exception('TOKEN_NOT_FOUND');
+
+      final success = await _apiService.subscribeToReopening(
+        token, 
+        _status!.nextOpenAt!.toIso8601String()
+      );
+
+      if (success && mounted) {
+        setState(() => _isSubscribed = true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(Localizations.localeOf(context).languageCode == 'ar' 
+              ? 'سيتم إشعارك عند فتح المطعم ✅' 
+              : 'You will be notified when we open ✅'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Subscribe Error: $e');
+    }
+  }
+
+  Widget _buildStatusBanner() {
+    if (_status == null || _status!.isOpen) return const SizedBox.shrink();
+
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final locale = Localizations.localeOf(context).languageCode;
+    
+    String iconLabel = '🔒';
+    IconData icon = Icons.lock_outline_rounded;
+    Color accentColor = Colors.orangeAccent;
+
+    if (_status!.closureType == 'emergency') {
+      iconLabel = '🚨';
+      icon = Icons.error_outline_rounded;
+      accentColor = Colors.redAccent;
+    } else if (_status!.closureType == 'end_of_day') {
+      iconLabel = '🌙';
+      icon = Icons.nights_stay_outlined;
+      accentColor = Colors.indigoAccent;
+    }
+
+    String timeText = '';
+    if (_status!.nextOpenAt != null) {
+      timeText = TimeFormatter.formatReopeningTime(_status!.nextOpenAt!, context);
+    }
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      decoration: BoxDecoration(
+        color: accentColor.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: accentColor.withOpacity(0.3)),
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(color: accentColor, shape: BoxShape.circle),
+                  child: Icon(icon, color: Colors.white, size: 20),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _status!.closureType == 'temporary' 
+                          ? (locale == 'ar' ? 'المطعم مغلق مؤقتاً' : 'Temporarily Closed')
+                          : (_status!.closureType == 'end_of_day' 
+                              ? (locale == 'ar' ? 'انتهى دوام اليوم' : 'Closed for Today')
+                              : (locale == 'ar' ? 'نعتذر، المطعم مغلق حالياً' : 'Restaurant Closed')),
+                        style: TextStyle(fontWeight: FontWeight.w900, color: accentColor, fontSize: 15),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        timeText,
+                        style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 13, fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                ),
+                if (_status!.closureType == 'temporary' && _status!.nextOpenAt != null)
+                  Column(
+                    children: [
+                      Text(
+                        TimeFormatter.formatCountdown(_status!.nextOpenAt!.difference(DateTime.now())),
+                        style: TextStyle(color: accentColor, fontSize: 18, fontWeight: FontWeight.w900, fontFeatures: const [FontFeature.tabularFigures()]),
+                      ),
+                      Text(locale == 'ar' ? 'متبقي' : 'left', style: TextStyle(fontSize: 10, color: (isDark ? Colors.white : Colors.black).withOpacity(0.6))),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+          
+          if (!_isSubscribed && _status!.nextOpenAt != null)
+            InkWell(
+              onTap: _handleSubscribe,
+              borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: accentColor.withOpacity(0.1),
+                  border: Border(top: BorderSide(color: accentColor.withOpacity(0.2))),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.notifications_active_outlined, size: 16, color: accentColor),
+                    const SizedBox(width: 8),
+                    Text(
+                      locale == 'ar' ? 'ذكّرني عند الافتتاح 🔔' : 'Notify Me When Open 🔔',
+                      style: TextStyle(color: accentColor, fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          if (_isSubscribed)
+             Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.1),
+                  border: Border(top: BorderSide(color: Colors.green.withOpacity(0.2))),
+                  borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.check_circle_outline, size: 16, color: Colors.green),
+                    const SizedBox(width: 8),
+                    Text(
+                      locale == 'ar' ? 'سيتم إشعارك فور الافتتاح ✅' : 'We will notify you soon ✅',
+                      style: const TextStyle(color: Colors.green, fontSize: 11, fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+              ),
+        ],
+      ),
+    ).animate().fadeIn(duration: 500.ms).slideY(begin: 0.2, end: 0, curve: Curves.easeOutBack);
   }
 
   Widget _buildCategoryTab(String title, Color primaryColor, {bool isAll = false}) {
@@ -872,7 +1065,7 @@ class _HomeScreenState extends State<HomeScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => ItemDetailsSheet(item: item),
+      builder: (context) => ItemDetailsSheet(item: item, status: _status),
     );
   }
 

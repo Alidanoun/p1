@@ -586,4 +586,7 @@ class AppLocalizationsAr extends AppLocalizations {
   @override
   String get biometricDialogDesc =>
       'هل تريد تفعيل الدخول بالبصمة لتسريع الوصول إلى حسابك في المستقبل؟';
+
+  @override
+  String get restaurantClosed => 'المطعم مغلق حالياً';
 }

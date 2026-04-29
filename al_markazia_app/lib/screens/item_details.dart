@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/menu_item.dart';
+import '../models/restaurant_status.dart';
 import '../models/cart_item.dart';
 import '../services/storage_service.dart';
 import '../services/api_service.dart';
@@ -8,10 +10,12 @@ import '../features/cart/cart_controller.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../widgets/custom_snackbar.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../utils/time_formatter.dart';
 
 class ItemDetailsSheet extends StatefulWidget {
   final MenuItem item;
-  const ItemDetailsSheet({Key? key, required this.item}) : super(key: key);
+  final RestaurantStatus? status;
+  const ItemDetailsSheet({Key? key, required this.item, this.status}) : super(key: key);
 
   @override
   State<ItemDetailsSheet> createState() => _ItemDetailsSheetState();
@@ -25,6 +29,7 @@ class _ItemDetailsSheetState extends State<ItemDetailsSheet> {
 
   List<Review> _reviews = [];
   bool _isLoadingReviews = true;
+  Timer? _countdownTimer;
 
   @override
   void initState() {
@@ -41,6 +46,7 @@ class _ItemDetailsSheetState extends State<ItemDetailsSheet> {
         selectedOptions[group.id] = [firstAvailable];
       }
     }
+    _startCountdownTimer();
   }
 
   Future<void> _fetchReviews() async {
@@ -57,6 +63,27 @@ class _ItemDetailsSheetState extends State<ItemDetailsSheet> {
         setState(() => _isLoadingReviews = false);
       }
     }
+  }
+
+  void _startCountdownTimer() {
+    if (widget.status?.isOpen == false && widget.status?.nextOpenAt != null) {
+      _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        if (mounted) {
+          setState(() {
+            if (DateTime.now().isAfter(widget.status!.nextOpenAt!)) {
+              timer.cancel();
+            }
+          });
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _countdownTimer?.cancel();
+    _noteController.dispose();
+    super.dispose();
   }
 
   double get averageRating {
@@ -127,6 +154,17 @@ class _ItemDetailsSheetState extends State<ItemDetailsSheet> {
       Navigator.pop(context);
       showCustomSnackbar(context, l10n.addedToCart);
     }
+  }
+
+  String _statusButtonText() {
+    if (widget.status?.nextOpenAt == null) return '';
+    
+    final diff = widget.status!.nextOpenAt!.difference(DateTime.now());
+    if (widget.status!.closureType == 'temporary' && diff.inMinutes < 60) {
+      return TimeFormatter.formatCountdown(diff);
+    }
+    
+    return TimeFormatter.formatReopeningTime(widget.status!.nextOpenAt!, context);
   }
 
   @override
@@ -443,15 +481,26 @@ class _ItemDetailsSheetState extends State<ItemDetailsSheet> {
                       child: SizedBox(
                         height: 56,
                         child: ElevatedButton(
-                          onPressed: _addToCart,
+                          onPressed: (widget.status?.isOpen == false) ? null : _addToCart,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Theme.of(context).primaryColor,
+                            backgroundColor: (widget.status?.isOpen == false) 
+                              ? Colors.grey.withOpacity(0.3) 
+                              : Theme.of(context).primaryColor,
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
                             elevation: 0,
+                            disabledBackgroundColor: isDark ? Colors.white10 : Colors.black12,
                           ),
                           child: Text(
-                            '${l10n.addToCart} (${totalPrice.toStringAsFixed(totalPrice % 1 == 0 ? 0 : 2)} ${l10n.currency})',
-                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black),
+                            (widget.status?.isOpen == false)
+                              ? (Localizations.localeOf(context).languageCode == 'ar' 
+                                  ? '🔒 مغلق الآن (${_statusButtonText()})' 
+                                  : '🔒 Closed Now (${_statusButtonText()})')
+                              : '${l10n.addToCart} (${totalPrice.toStringAsFixed(totalPrice % 1 == 0 ? 0 : 2)} ${l10n.currency})',
+                            style: TextStyle(
+                              fontSize: (widget.status?.isOpen == false) ? 12 : 16, 
+                              fontWeight: FontWeight.bold, 
+                              color: (widget.status?.isOpen == false) ? Colors.grey : Colors.black
+                            ),
                           ),
                         ),
                       ),

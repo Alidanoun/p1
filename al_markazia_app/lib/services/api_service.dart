@@ -6,14 +6,50 @@ import '../models/order_model.dart';
 import 'api/auth_api.dart';
 import 'api/order_api.dart';
 import 'session_service.dart';
+import '../models/restaurant_status.dart';
 import '../features/checkout/models/delivery_zone.dart';
 
 class ApiService {
   final _authApi = AuthApi();
   final _orderApi = OrderApi();
+
+  /// 🏥 Fetch Restaurant Operational Status
+  Future<RestaurantStatus> fetchRestaurantStatus() async {
+    try {
+      final response = await http.get(Uri.parse('$baseUrl/restaurant/status'))
+          .timeout(const Duration(seconds: 5));
+      
+      if (response.statusCode == 200) {
+        final decoded = json.decode(utf8.decode(response.bodyBytes));
+        return RestaurantStatus.fromJson(decoded['data']);
+      }
+      return RestaurantStatus(isOpen: true, isEmergency: false);
+    } catch (e) {
+      return RestaurantStatus(isOpen: true, isEmergency: false); // Fail-safe
+    }
+  }
+
+  Future<bool> subscribeToReopening(String fcmToken, String nextOpenAt) async {
+    try {
+      final heads = await _headers;
+      final response = await http.post(
+        Uri.parse('$baseUrl/restaurant/subscribe'),
+        headers: heads,
+        body: json.encode({
+          'fcmToken': fcmToken,
+          'nextOpenAt': nextOpenAt,
+        }),
+      ).timeout(const Duration(seconds: 10));
+
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('Subscribe Error: $e');
+      return false;
+    }
+  }
   
   static String get baseUrl {
-    const ip = String.fromEnvironment('SERVER_IP', defaultValue: '192.168.3.122');
+    const ip = String.fromEnvironment('SERVER_IP', defaultValue: '192.168.3.138');
     const port = String.fromEnvironment('SERVER_PORT', defaultValue: '5000');
     final scheme = const bool.fromEnvironment('dart.vm.product') ? 'https' : 'http';
     return '$scheme://$ip:$port';
@@ -54,6 +90,23 @@ class ApiService {
   // --- RESILIENCE & OBSERVABILITY ---
 
   Future<bool>? _refreshFuture;
+
+  Future<OrderModel?> fetchActiveOrder() async {
+    try {
+      final heads = await _headers;
+      final orders = await _orderApi.fetchMyOrders(heads, page: 1, limit: 1);
+      if (orders.isNotEmpty) {
+        final order = orders.first;
+        if (order.status != 'delivered' && order.status != 'cancelled') {
+          return order;
+        }
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Fetch Active Order Error: $e');
+      return null;
+    }
+  }
 
   Future<T> _withRetry<T>(Future<T> Function() action, {int maxAttempts = 3, int refreshAttempts = 0}) async {
     int attempts = 0;
@@ -280,7 +333,12 @@ class ApiService {
     return _withRetry(() => _orderApi.fetchMyOrders(heads, page: page, limit: limit));
   }
   
-  Future<void> rateOrder(String orderId, int rating, String comment) => _orderApi.rateOrder(orderId, rating, comment);
+  Future<void> rateOrder(String orderId, int rating, String comment) {
+    return _withRetry(() async {
+      final heads = await _headers;
+      return _orderApi.rateOrder(orderId, rating, comment, heads);
+    });
+  }
 
   Future<void> cancelOrder({
     required String orderId,
@@ -343,22 +401,27 @@ class ApiService {
     }
   }
 
-  Future<void> submitReview(int itemId, String customerName, int rating, String comment) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/reviews'),
-      headers: {'Content-Type': 'application/json'},
-      body: json.encode({
-        'itemId': itemId,
-        'customerName': customerName,
-        'rating': rating,
-        'comment': comment,
-      }),
-    ).timeout(const Duration(seconds: 10));
+  Future<void> submitReview(int itemId, String customerName, int rating, String comment) {
+    return _withRetry(() async {
+      final heads = await _headers;
+      final response = await http.post(
+        Uri.parse('$baseUrl/reviews'),
+        headers: heads,
+        body: json.encode({
+          'itemId': itemId,
+          'customerName': customerName,
+          'rating': rating,
+          'comment': comment,
+        }),
+      ).timeout(const Duration(seconds: 10));
 
-    if (response.statusCode != 201) {
-      final errorData = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(errorData['error'] ?? 'Failed to submit review');
-    }
+      if (response.statusCode == 401) throw Exception('401');
+
+      if (response.statusCode != 201) {
+        final errorData = json.decode(utf8.decode(response.bodyBytes));
+        throw Exception(errorData['error'] ?? 'Failed to submit review');
+      }
+    });
   }
 
   /// 🔍 Professional Search API

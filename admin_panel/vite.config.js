@@ -34,6 +34,8 @@ export default defineConfig({
       '/system':         apiProxy('http://localhost:5000'),
       '/delivery-zones': apiProxy('http://localhost:5000'),
       '/dashboard':      apiProxy('http://localhost:5000'),
+      '/restaurant':     apiProxy('http://localhost:5000'),
+      '/health':         apiProxy('http://localhost:5000'),
     }
   }
 })

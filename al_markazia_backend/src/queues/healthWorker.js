@@ -138,19 +138,19 @@ const performFastDBCheck = async () => {
 };
 
 const initHealthWorker = () => {
-  // Schedule the Full System Check (every 30 seconds)
+  // Schedule the Full System Check (every 60 seconds)
   healthQueue.add('full-check', {}, {
     repeat: {
-      every: 30000,
+      every: 60000,
     },
     removeOnComplete: true,
     removeOnFail: true
   });
 
-  // Schedule the Fast DB Check (every 5 seconds)
+  // Schedule the Fast DB Check (every 30 seconds)
   healthQueue.add('fast-check', {}, {
     repeat: {
-      every: 5000,
+      every: 30000,
     },
     removeOnComplete: true,
     removeOnFail: true

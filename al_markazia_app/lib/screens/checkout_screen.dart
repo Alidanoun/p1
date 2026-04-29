@@ -607,7 +607,16 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   ),
                 ),
 
-              const SizedBox(height: 32),
+              const SizedBox(height: 12),
+              Center(
+                child: Text(
+                  AppLocalizations.of(context)!.languageCode == 'ar' 
+                    ? 'الأسعار شاملة ضريبة المبيعات' 
+                    : 'Prices are inclusive of sales tax',
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+              ),
+              const SizedBox(height: 8),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(

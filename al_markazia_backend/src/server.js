@@ -20,6 +20,10 @@ const systemRoutes = require('./routes/system');
 const deliveryZoneRoutes = require('./routes/deliveryZones');
 const dashboardRoutes = require('./routes/dashboard');
 const healthRoutes = require('./routes/health');
+const restaurantRoutes = require('./routes/restaurant');
+const loyaltyRoutes = require('./routes/loyalty');
+const analyticsProjection = require('./projections/analyticsProjection');
+const orderProjection = require('./projections/orderProjection');
 const http = require('http');
 const { initCronJobs } = require('./jobs/cronJobs');
 const { initOrderWorker, setupQueueDashboard } = require('./queues/orderQueue');
@@ -170,6 +174,8 @@ app.use('/system', systemRoutes);
 app.use('/delivery-zones', deliveryZoneRoutes);
 app.use('/dashboard', dashboardRoutes);
 app.use('/health', healthRoutes);
+app.use('/restaurant', restaurantRoutes);
+app.use('/loyalty', loyaltyRoutes);
 app.get('/health/external', externalProbeController.pings);
 
 // Global Error Handler
@@ -280,4 +286,11 @@ server.listen(PORT, '0.0.0.0', () => {
   
   // ⚡ Big Tech Predictive Warmup
   warmupService.run().catch(e => logger.error('Warmup Background Error', { error: e.message }));
+  
+  // 📊 Rehydrate Dashboard Projections (Memory Re-sync)
+  Promise.all([
+    analyticsProjection.replay(),
+    orderProjection.replay()
+  ]).then(() => logger.info('📊 Dashboard Projections rehydrated from database'))
+    .catch(e => logger.error('Dashboard Rehydration Failed', { error: e.message }));
 });

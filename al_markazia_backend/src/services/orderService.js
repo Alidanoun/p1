@@ -9,6 +9,7 @@ const xss = require('xss');
 const logger = require('../utils/logger');
 const AuditLogger = require('../utils/auditLogger');
 const analyticsService = require('./analyticsService');
+const loyaltyService = require('./loyaltyService');
 const { orderQueue } = require('../queues/orderQueue');
 const memoryCache = require('../lib/memoryCache');
 const { publishEvent } = require('../events/eventPublisher');
@@ -181,6 +182,49 @@ class OrderService {
     });
 
     return mapOrderResponse(order);
+  }
+
+  /**
+   * 👩‍🍳 Update Preparation Time (Minutes)
+   */
+  async updatePreparationTime(orderId, minutes) {
+    const order = await prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new Error('ORDER_NOT_FOUND');
+
+    const prepMinutes = parseInt(minutes);
+    const delMinutes = order.deliveryTimeMinutes || 15;
+
+    const newReadyAt = new Date(order.createdAt.getTime() + prepMinutes * 60000);
+    const newArrivalAt = new Date(order.createdAt.getTime() + (prepMinutes + delMinutes) * 60000);
+
+    const updated = await prisma.order.update({
+      where: { id: orderId },
+      data: {
+        preparationTimeMinutes: prepMinutes,
+        estimatedReadyAt: newReadyAt,
+        estimatedArrivalAt: newArrivalAt
+      },
+      include: ORDER_INCLUDE_FULL
+    });
+
+    const mapped = mapOrderResponse(updated);
+
+    // Notify Customer
+    await publishEvent({
+      type: eventTypes.ORDER_STATUS_CHANGED,
+      aggregateId: orderId,
+      payload: { 
+        order: mapped, 
+        newStatus: order.status, 
+        notification: {
+          title: 'تحديث وقت التجهيز ⏳',
+          message: `تم تحديث وقت التجهيز المتوقع لطلبك #${order.orderNumber}. سيبدأ التوصيل قريباً.`
+        }
+      },
+      version: updated.version
+    });
+
+    return mapped;
   }
 
   /**
@@ -369,9 +413,9 @@ class OrderService {
     // 5. 🔢 Generate Atomic Order Number
     const orderNumber = await this._generateOrderNumber();
 
-    // 🛡️ BUG-001: Server-side Tax Calculation (Never trust client)
-    const tax = toMoney(subtotal * 0.16);
-    const total = toMoney(subtotal + tax + deliveryDetails.fee);
+    // 🛡️ Pricing Logic: Inclusive of Tax
+    const tax = 0; 
+    const total = toMoney(subtotal + deliveryDetails.fee);
 
     // 6. 💎 Atomic Transactional Persistence
     const { newOrder } = await prisma.$transaction(async (tx) => {
@@ -395,6 +439,10 @@ class OrderService {
           deliveryZoneId: deliveryDetails.zoneId,
           deliveryZoneName: deliveryDetails.zoneName,
           deliveryMinOrder: deliveryDetails.minOrder,
+          preparationTimeMinutes: 20, // Default
+          deliveryTimeMinutes: 15,    // Default
+          estimatedReadyAt: new Date(Date.now() + 20 * 60000),
+          estimatedArrivalAt: new Date(Date.now() + (20 + 15) * 60000),
           orderItems: {
             create: validatedItems
           }
@@ -622,12 +670,17 @@ class OrderService {
       // 1. Real-time Admin Socket (Managed by EventBus automatically now)
       // No direct call needed here. publishEvent handles it.
 
-      // 2. Scheduled Auto-Accept (15s delay)
+      // 2. Scheduled Auto-Accept (15s delay, 3 retries)
       orderQueue.add('autoAccept', { orderId: order.id }, { 
         delay: 15000, 
         jobId: `autoAccept-${order.id}`,
-        removeOnComplete: true 
-      }).catch(() => {});
+        removeOnComplete: true,
+        removeOnFail: false,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 2000 }
+      }).catch((err) => {
+        logger.error('[OrderService] Failed to enqueue autoAccept job', { orderId: order.id, error: err.message });
+      });
 
       // 3. Analytics Pulse
       analyticsService.updateCacheIncrementally({
@@ -651,7 +704,9 @@ class OrderService {
    * Defered as per Business Design Cycle.
    */
   _onOrderCompleted(orderId) {
-    // logger.debug('[Loyalty] Order completed hook triggered for', orderId);
+    loyaltyService.awardPointsForOrder(orderId).catch(err => {
+      logger.error('[Loyalty] Failed to award points on completion', { orderId, error: err.message });
+    });
   }
 
   /**
@@ -716,6 +771,11 @@ class OrderService {
       previousStatus,
       orderNumber: updatedOrder.orderNumber
     });
+    
+    // 🎁 Loyalty Reward Hook
+    if (newStatus === 'delivered') {
+      this._onOrderCompleted(updatedOrder.id);
+    }
 
     return mappedOrder;
   }

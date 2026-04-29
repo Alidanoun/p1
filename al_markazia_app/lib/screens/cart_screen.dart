@@ -9,6 +9,8 @@ import 'checkout_screen.dart';
 import 'auth_screen.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../services/api_service.dart';
+import '../models/restaurant_status.dart';
 
 class CartScreen extends StatefulWidget {
   const CartScreen({Key? key}) : super(key: key);
@@ -19,9 +21,23 @@ class CartScreen extends StatefulWidget {
 
 class _CartScreenState extends State<CartScreen> {
 
+  RestaurantStatus? _status;
+  bool _isCheckingStatus = true;
+
   @override
   void initState() {
     super.initState();
+    _checkStatus();
+  }
+
+  Future<void> _checkStatus() async {
+    final status = await ApiService().fetchRestaurantStatus();
+    if (mounted) {
+      setState(() {
+        _status = status;
+        _isCheckingStatus = false;
+      });
+    }
   }
 
   Future<void> _clearCart() async {
@@ -141,35 +157,56 @@ class _CartScreenState extends State<CartScreen> {
                     width: double.infinity,
                     height: 56,
                     child: ElevatedButton(
-                      onPressed: () {
-                        final auth = context.read<AuthController>();
-                        if (!auth.isAuthenticated) {
-                          final l10n = AppLocalizations.of(context)!;
-                          showCustomConfirmDialog(
-                            context: context,
-                            title: l10n.loginRequired,
-                            content: l10n.loginToOrderMessage,
-                            confirmText: l10n.loginTab,
-                          ).then((confirmed) {
-                            if (confirmed == true && mounted) {
-                              Navigator.push(context, MaterialPageRoute(builder: (_) => const AuthScreen()));
+                      onPressed: (_isCheckingStatus || (_status != null && !_status!.isOpen))
+                          ? () {
+                              if (_status != null && !_status!.isOpen) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(_status!.reason ?? AppLocalizations.of(context)!.welcome),
+                                    backgroundColor: Colors.redAccent,
+                                  ),
+                                );
+                              }
                             }
-                          });
-                          return;
-                        }
-                        Navigator.push(context, MaterialPageRoute(builder: (_) => const CheckoutScreen()));
-                      },
+                          : () {
+                              final auth = context.read<AuthController>();
+                              if (!auth.isAuthenticated) {
+                                final l10n = AppLocalizations.of(context)!;
+                                showCustomConfirmDialog(
+                                  context: context,
+                                  title: l10n.loginRequired,
+                                  content: l10n.loginToOrderMessage,
+                                  confirmText: l10n.loginTab,
+                                ).then((confirmed) {
+                                  if (confirmed == true && mounted) {
+                                    Navigator.push(context, MaterialPageRoute(builder: (_) => const AuthScreen()));
+                                  }
+                                });
+                                return;
+                              }
+                              Navigator.push(context, MaterialPageRoute(builder: (_) => const CheckoutScreen()));
+                            },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Theme.of(context).primaryColor,
+                        backgroundColor: (_status != null && !_status!.isOpen) 
+                          ? Colors.grey 
+                          : Theme.of(context).primaryColor,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
                         elevation: 0,
                       ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Text(AppLocalizations.of(context)!.confirmOrder, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black)),
+                          Text(
+                            (_status != null && !_status!.isOpen)
+                              ? 'المطعم مغلق حالياً'
+                              : AppLocalizations.of(context)!.confirmOrder, 
+                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black)
+                          ),
                           const SizedBox(width: 8),
-                          const Icon(Icons.arrow_forward_rounded, color: Colors.black),
+                          Icon(
+                            (_status != null && !_status!.isOpen) ? Icons.lock_outline_rounded : Icons.arrow_forward_rounded, 
+                            color: Colors.black
+                          ),
                         ],
                       ),
                     ),
