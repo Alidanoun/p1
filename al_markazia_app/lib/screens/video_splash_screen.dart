@@ -88,16 +88,25 @@ class _VideoSplashScreenState extends State<VideoSplashScreen> {
     final auth = context.read<AuthController>();
     
     // Perform one last "Session Restoration" to be absolutely sure
-    auth.restoreSession().then((user) {
+    auth.initialize().then((_) {
       if (!mounted) return;
 
       Widget nextScreen;
       if (!storage.hasSelectedLanguage()) {
         nextScreen = const LanguageSelectionScreen();
-      } else if (auth.isAuthenticated) {
-        nextScreen = const MainNavScreen();
       } else {
-        nextScreen = const AuthScreen();
+        switch (auth.status) {
+          case AuthStatus.authenticated:
+            nextScreen = const MainNavScreen();
+            break;
+          case AuthStatus.biometricRequired:
+          case AuthStatus.sessionExpired:
+          case AuthStatus.unauthenticated:
+            nextScreen = const AuthScreen();
+            break;
+          default:
+            nextScreen = const AuthScreen();
+        }
       }
 
       Future.delayed(const Duration(milliseconds: 300), () {

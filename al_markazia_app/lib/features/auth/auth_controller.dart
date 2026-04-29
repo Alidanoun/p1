@@ -6,14 +6,19 @@ import '../../services/notification_service.dart';
 import '../../services/biometric_service.dart';
 import '../../services/api_service.dart';
 
+enum AuthStatus { loading, authenticated, unauthenticated, biometricRequired, sessionExpired }
+
 class AuthController extends ChangeNotifier {
   final AuthApi _api = AuthApi();
+
+  AuthStatus _status = AuthStatus.loading;
+  AuthStatus get status => _status;
 
   bool isLoading = false;
   String? errorMessage;
 
-  /// 🛡️ The 'Golden Record' of the current user session
-  Map<String, dynamic>? user;
+  /// 🛡️ Identity property (Derived from StorageService)
+  Map<String, dynamic>? get user => StorageService.instance.getCurrentUser();
 
   // ── Biometric state ──
   bool _biometricAvailable = false;
@@ -23,37 +28,52 @@ class AuthController extends ChangeNotifier {
   bool get isBiometricEnabled => _biometricEnabled;
 
   AuthController() {
-    _initSession();
+    initialize();
   }
 
-  bool get isAuthenticated => user != null && user!['id'] != null;
+  bool get isAuthenticated => status == AuthStatus.authenticated;
 
-  /// 🧠 System-level initialization
-  Future<void> _initSession() async {
-    await restoreSession();
+  /// 🧠 SYSTEM INITIALIZE (The Core Boot Logic)
+  Future<void> initialize() async {
+    _status = AuthStatus.loading;
+    notifyListeners();
+
+    try {
+      final session = SessionService.instance;
+      final storage = StorageService.instance;
+
+      // 1. Check if we have active tokens
+      if (await session.hasSession) {
+        _status = AuthStatus.authenticated;
+      } else {
+        // 2. No session — check if biometrics are enabled and we have a user identity
+        final hasIdentity = storage.userId != null;
+        final biometricActive = storage.isBiometricEnabled;
+        
+        if (hasIdentity && biometricActive) {
+          _status = AuthStatus.biometricRequired;
+        } else {
+          _status = AuthStatus.unauthenticated;
+        }
+      }
+    } catch (e) {
+      debugPrint('⚠️ Auth Init Error: $e');
+      _status = AuthStatus.unauthenticated;
+    }
+
     await _refreshBiometricState();
+    notifyListeners();
   }
 
   Future<void> _refreshBiometricState() async {
     _biometricAvailable = await BiometricService.instance.isAvailable;
-    final hasToken = await SessionService.instance.refreshToken != null;
-    _biometricEnabled = (await BiometricService.instance.isEnabled) && hasToken;
+    _biometricEnabled = StorageService.instance.isBiometricEnabled;
     notifyListeners();
   }
 
-  /// 🚀 Smart Session Restoration
+  /// 🚀 Smart Session Restoration (Legacy support for splash)
   Future<Map<String, dynamic>?> restoreSession() async {
-    final session = SessionService.instance;
-    if (await session.isLoggedIn) {
-      user ??= {
-        'id': session.uuid,
-        'name': session.name,
-        'role': session.role,
-        'phone': session.phone,
-      };
-      notifyListeners();
-      return user;
-    }
+    await initialize();
     return user;
   }
 
@@ -63,8 +83,17 @@ class AuthController extends ChangeNotifier {
   Future<bool> login(String email, String password) async {
     _setLoading(true);
     try {
-      final authResponse = await _api.loginCustomer(email, password);
-      await _saveSession(authResponse);
+      final authResponse = await ApiService.instance.loginCustomer(email, password);
+      
+      // 🛡️ Auto-update Biometric Token if enabled
+      if (_biometricEnabled) {
+        final rt = await SessionService.instance.refreshToken;
+        if (rt != null) await SessionService.instance.saveBiometricToken(rt);
+      }
+
+      _status = AuthStatus.authenticated;
+      NotificationService().reinitialize();
+      _setLoading(false);
       return true;
     } catch (e) {
       errorMessage = _mapError(e.toString());
@@ -76,35 +105,21 @@ class AuthController extends ChangeNotifier {
   // ════════════════════════════════════════════════════════
   //  🔐 LOGIN (Biometrics)
   // ════════════════════════════════════════════════════════
-  /// Fast biometric re-authentication.
   Future<BiometricLoginResult> loginWithBiometrics({required String reason}) async {
-    // 1. Verify biometric
-    final result = await BiometricService.instance.authenticate(
-      reason: reason,
-    );
+    final result = await BiometricService.instance.authenticate(reason: reason);
 
     if (!result.success) {
-      if (result.isLockedOut) {
-        return BiometricLoginResult(
-          status: BiometricLoginStatus.lockedOut,
-          message: result.message ?? 'تم تجميد البصمة',
-        );
-      }
-      if (result.wasCancelled) {
-        return BiometricLoginResult(status: BiometricLoginStatus.cancelled);
-      }
-      return BiometricLoginResult(
-        status: BiometricLoginStatus.failed,
-        message: result.message ?? 'فشل التحقق',
-      );
+      if (result.isLockedOut) return BiometricLoginResult(status: BiometricLoginStatus.lockedOut, message: result.message);
+      if (result.wasCancelled) return BiometricLoginResult(status: BiometricLoginStatus.cancelled);
+      return BiometricLoginResult(status: BiometricLoginStatus.failed, message: result.message);
     }
 
-    // 2. Biometric approved — use stored refresh token via ApiService silent refresh
     _setLoading(true);
     try {
       final newAccessToken = await ApiService.instance.refreshTokens();
 
       if (newAccessToken == null) {
+        _status = AuthStatus.sessionExpired;
         _setLoading(false);
         return BiometricLoginResult(
           status: BiometricLoginStatus.sessionExpired,
@@ -112,22 +127,13 @@ class AuthController extends ChangeNotifier {
         );
       }
 
-      user = {
-        'id': SessionService.instance.uuid,
-        'name': SessionService.instance.name,
-        'role': SessionService.instance.role,
-        'phone': SessionService.instance.phone,
-      };
-
+      _status = AuthStatus.authenticated;
       NotificationService().reinitialize();
       _setLoading(false);
       return BiometricLoginResult(status: BiometricLoginStatus.success);
     } catch (e) {
       _setLoading(false);
-      return BiometricLoginResult(
-        status: BiometricLoginStatus.failed,
-        message: 'فشل التحقق من الجلسة',
-      );
+      return BiometricLoginResult(status: BiometricLoginStatus.failed, message: 'فشل التحقق من الجلسة');
     }
   }
 
@@ -136,19 +142,24 @@ class AuthController extends ChangeNotifier {
   // ════════════════════════════════════════════════════════
 
   Future<bool> enableBiometrics({required String reason}) async {
-    final result = await BiometricService.instance.authenticate(
-      reason: reason,
-    );
+    final result = await BiometricService.instance.authenticate(reason: reason);
     if (!result.success) return false;
 
-    await BiometricService.instance.enable();
+    // 🛡️ Save the 'Hint' for future logins: current refreshToken
+    final currentRefresh = await SessionService.instance.refreshToken;
+    if (currentRefresh != null) {
+      await SessionService.instance.saveBiometricToken(currentRefresh);
+    }
+
+    await StorageService.instance.setBiometricEnabled(true);
     _biometricEnabled = true;
     notifyListeners();
     return true;
   }
 
   Future<void> disableBiometrics() async {
-    await BiometricService.instance.disable();
+    await StorageService.instance.setBiometricEnabled(false);
+    await SessionService.instance.clearBiometricToken();
     _biometricEnabled = false;
     notifyListeners();
   }
@@ -164,7 +175,7 @@ class AuthController extends ChangeNotifier {
   }) async {
     _setLoading(true);
     try {
-      await _api.registerCustomer(
+      await ApiService.instance.registerCustomer(
         name: name,
         email: email,
         password: password,
@@ -183,7 +194,22 @@ class AuthController extends ChangeNotifier {
     _setLoading(true);
     try {
       final authResponse = await _api.verifyRegistration(email, code);
-      await _saveSession(authResponse);
+      // Update session & identity
+      await SessionService.instance.saveTokens(
+        accessToken: authResponse['accessToken'],
+        refreshToken: authResponse['refreshToken'],
+      );
+      await StorageService.instance.setCurrentUser(authResponse['user']);
+      
+      // 🛡️ Auto-update Biometric Token if enabled
+      if (_biometricEnabled) {
+        final rt = await SessionService.instance.refreshToken;
+        if (rt != null) await SessionService.instance.saveBiometricToken(rt);
+      }
+
+      _status = AuthStatus.authenticated;
+      NotificationService().reinitialize();
+      _setLoading(false);
       return true;
     } catch (e) {
       errorMessage = _mapError(e.toString());
@@ -220,7 +246,21 @@ class AuthController extends ChangeNotifier {
         code: code,
         newPassword: newPassword,
       );
-      await _saveSession(authResponse);
+      // Update session & identity
+      await SessionService.instance.saveTokens(
+        accessToken: authResponse['accessToken'],
+        refreshToken: authResponse['refreshToken'],
+      );
+      await StorageService.instance.setCurrentUser(authResponse['user']);
+      
+      // 🛡️ Auto-update Biometric Token if enabled
+      if (_biometricEnabled) {
+        final rt = await SessionService.instance.refreshToken;
+        if (rt != null) await SessionService.instance.saveBiometricToken(rt);
+      }
+
+      _status = AuthStatus.authenticated;
+      _setLoading(false);
       return true;
     } catch (e) {
       errorMessage = _mapError(e.toString());
@@ -234,24 +274,22 @@ class AuthController extends ChangeNotifier {
   // ════════════════════════════════════════════════════════
   Future<void> logout() async {
     await BiometricService.instance.cancelAuthentication();
-    await BiometricService.instance.disable(); // 🔥 Reset biometric preference on logout
-    await SessionService.instance.clearSession();
-    await StorageService.instance.setCurrentUser(null);
-    user = null;
-    await NotificationService().reset(); // 🧹 Bulletproof Teardown
+    
+    // 🛡️ SECURITY UPGRADE:
+    // We clear the session tokens (Security)
+    await SessionService.instance.clearTokens();
+    
+    // We clear user-specific UI data (Identity Profile)
+    await StorageService.instance.clearIdentityOnLogout();
+    
+    // ⚠️ WE KEEP: biometricsEnabled and user_email for next login!
+    
+    _status = AuthStatus.unauthenticated;
+    await NotificationService().reset(); 
     notifyListeners();
   }
 
   // ── Private Helpers ──────────────────────────────────────
-
-  Future<void> _saveSession(Map<String, dynamic> authResponse) async {
-    await SessionService.instance.saveUser(authResponse);
-    await StorageService.instance.setCurrentUser(authResponse['user']);
-    user = authResponse['user'];
-    NotificationService().reinitialize();
-    _setLoading(false);
-    notifyListeners();
-  }
 
   void _setLoading(bool val) {
     isLoading = val;

@@ -108,60 +108,60 @@ class ApiService {
     }
   }
 
+  /// 🔐 JWT SECURITY LAYER: SINGLETON AUTO REFRESH & RETRY
+  /// Handles 401 errors by attempting a token refresh and retrying the action.
   Future<T> _withRetry<T>(Future<T> Function() action, {int maxAttempts = 3, int refreshAttempts = 0}) async {
     int attempts = 0;
     while (true) {
       attempts++;
       try {
-        final stopwatch = Stopwatch()..start();
-        final result = await action();
-        stopwatch.stop();
-        debugPrint('⏱️ [API Timing] Request completed in ${stopwatch.elapsedMilliseconds}ms');
-        return result;
+        return await action();
       } catch (e) {
         final errorStr = e.toString();
         
-        // --- 🔐 JWT SECURITY LAYER: SINGLETON AUTO REFRESH ---
+        // 1. Detect Authentication Errors (401)
         if (errorStr.contains('401') || errorStr.contains('SESSION_EXPIRED') || errorStr.contains('TOKEN_EXPIRED')) {
           
-          // 🛡️ Loop Guard: Only 1 refresh attempt per logical request chain
+          // 🛡️ Loop Guard: Prevent infinite refresh loops
           if (refreshAttempts >= 1) {
-            debugPrint('🚨 [Auth] Refresh loop detected. Triggering Logout.');
+            debugPrint('🚨 [Auth] Refresh loop detected. Forced logout.');
             _handle401();
             rethrow;
           }
 
-          debugPrint('🔐 [Auth] Token Invalidation Detected. Synchronizing Refresh...');
+          debugPrint('🔐 [Auth] Token Invalidation. Starting atomic refresh...');
           
-          // 🥇 Singleton Refresh: Concurrent requests will WAIT for this future
+          // 🥇 Atomic Singleton Refresh: All concurrent 401s will wait for this single future
           _refreshFuture ??= _attemptTokenRefresh();
           
-          final refreshed = await _refreshFuture;
-          
-          // Reset future after completion so next batch can refresh if needed
-          _refreshFuture = null;
+          final isSuccess = await _refreshFuture;
+          _refreshFuture = null; // Clear for next potential cycle
 
-          if (refreshed == true) {
-            debugPrint('✅ [Auth] Session Restored. Retrying original request (Attempt chain 2)...');
-            // Retry the action with incremented refreshAttempts to prevent loops
+          if (isSuccess == true) {
+            debugPrint('✅ [Auth] Session Restored. Retrying request...');
             return _withRetry(action, maxAttempts: maxAttempts, refreshAttempts: refreshAttempts + 1);
           } else {
-            debugPrint('❌ [Auth] Refresh failed. Triggering Logout.');
+            debugPrint('❌ [Auth] Refresh failed. Forced logout.');
             _handle401();
             rethrow;
           }
         }
 
-        // --- NETWORK RETRY LAYER ---
+        // 2. Detect Network Errors (Retry logic)
         if (attempts >= maxAttempts) {
-          debugPrint('❌ [API Error] Max retries ($maxAttempts) reached: $errorStr');
+          debugPrint('❌ [API] Max attempts reached: $errorStr');
           rethrow;
         }
 
-        // Exponential Backoff for Network blips
-        final delay = Duration(seconds: attempts * 2);
-        debugPrint('⚠️ [API Retry] Attempt $attempts failed. Retrying in ${delay.inSeconds}s... ($errorStr)');
-        await Future.delayed(delay);
+        // Only retry on network issues, not client/server errors (except 401 handled above)
+        if (errorStr.contains('Exception: Failed') || errorStr.contains('timeout') || errorStr.contains('Connection')) {
+          final delay = Duration(seconds: attempts * 2);
+          debugPrint('⚠️ [API] Network blip. Retrying in ${delay.inSeconds}s (Attempt $attempts)...');
+          await Future.delayed(delay);
+          continue;
+        }
+        
+        rethrow;
       }
     }
   }
@@ -191,7 +191,8 @@ class ApiService {
           }
         }
         
-        await SessionService.instance.saveSession(
+        // 🛡️ Save only security tokens here
+        await SessionService.instance.saveTokens(
           accessToken: data['accessToken'],
           refreshToken: newRefresh ?? refresh,
         );
@@ -360,7 +361,12 @@ class ApiService {
   // --- Auth Delegation (Strangler Pattern) ---
   Future<Map<String, dynamic>> loginCustomer(String email, String password) async {
     final response = await _authApi.loginCustomer(email, password);
-    await SessionService.instance.saveUser(response);
+    // 🛡️ Split Session (Tokens) from Identity (Profile)
+    await SessionService.instance.saveTokens(
+      accessToken: response['accessToken'],
+      refreshToken: response['refreshToken'],
+    );
+    await StorageService.instance.setCurrentUser(response['user']);
     return response;
   }
 
@@ -376,7 +382,12 @@ class ApiService {
       password: password,
       phone: phone,
     );
-    await SessionService.instance.saveUser(response);
+    // 🛡️ Split Session (Tokens) from Identity (Profile)
+    await SessionService.instance.saveTokens(
+      accessToken: response['accessToken'],
+      refreshToken: response['refreshToken'],
+    );
+    await StorageService.instance.setCurrentUser(response['user']);
     return response;
   }
 
@@ -457,16 +468,23 @@ class ApiService {
 
   Future<String?> refreshTokens() async {
     try {
-      final refreshToken = await SessionService.instance.refreshToken;
-      if (refreshToken == null) return null;
+      // 1. Try standard refresh token first
+      String? refresh = await SessionService.instance.refreshToken;
+      
+      // 2. Fallback to biometric token (if user logged out but biometrics are enabled)
+      if (refresh == null) {
+        debugPrint('🔑 [Auth] No standard session found. Attempting Biometric Token recovery...');
+        refresh = await SessionService.instance.biometricToken;
+      }
+
+      if (refresh == null) return null;
 
       final response = await http.post(
         Uri.parse('$baseUrl/auth/refresh'),
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer $refreshToken',
         },
-        body: json.encode({'refreshToken': refreshToken}),
+        body: json.encode({'refreshToken': refresh}),
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
@@ -476,10 +494,14 @@ class ApiService {
         final newRefreshToken = data['refreshToken'] as String?;
 
         if (newAccessToken != null) {
-          await SessionService.instance.saveSession(
+          // 🛡️ Save new tokens (Session & Biometric update)
+          await SessionService.instance.saveTokens(
             accessToken: newAccessToken,
             refreshToken: newRefreshToken,
           );
+          if (newRefreshToken != null) {
+            await SessionService.instance.saveBiometricToken(newRefreshToken);
+          }
           return newAccessToken;
         }
       }

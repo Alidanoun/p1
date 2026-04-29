@@ -134,15 +134,15 @@ class _MarkaziaAppState extends State<MarkaziaApp> {
 
     ApiService.onAuthError = () async {
       debugPrint('🚪 Auth Error Bridge Triggered - Force Logout');
-      // 1. Clear Storage (Synchronous clear for safety)
-      await SessionService.instance.clearSession();
-      await StorageService.instance.setCurrentUser(null);
-      await StorageService.instance.clearCart();
+      
+      // We use the static instance logic because this callback is static
+      await SessionService.instance.clearTokens();
+      await StorageService.instance.clearIdentityOnLogout();
       
       // 2. Clear Notification Identity
-      NotificationService().init();
+      NotificationService().reset();
       
-      // 3. Clear Navigation & Force Login Screen
+      // 3. Force Navigation to Auth Screen
       if (navigatorKey.currentState != null) {
         navigatorKey.currentState!.pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const AuthScreen()),
