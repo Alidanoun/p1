@@ -4,8 +4,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/cart_item.dart';
 import '../models/order_model.dart';
 import '../models/menu_item.dart';
-import 'session_service.dart';
 
+/// 👤 Enterprise Storage Service (Identity & Settings Layer)
+/// Handles non-sensitive persistent data like user profiles and app preferences.
 class StorageService extends ChangeNotifier {
   static final StorageService instance = StorageService._internal();
   StorageService._internal();
@@ -18,18 +19,60 @@ class StorageService extends ChangeNotifier {
 
   // 🛡️ Data Isolation Layer (Rooms per user)
   String _userKey(String key) {
-    final uuid = SessionService.instance.uuid ?? 'guest';
+    final uuid = userId ?? 'guest';
     return 'u_${uuid}_$key';
   }
 
-  // --- Theme ---
+  // ── 👤 IDENTITY (Persists after Logout) ───────────────────────
+  
+  String? get userId => _prefs.getString('user_id');
+  String? get userEmail => _prefs.getString('user_email');
+  String? get userName => _prefs.getString('user_name');
+  String? get userRole => _prefs.getString('user_role');
+  String? get userPhone => _prefs.getString('user_phone');
+
+  Future<void> saveIdentity({
+    required String id,
+    String? email,
+    String? name,
+    String? role,
+    String? phone,
+  }) async {
+    await _prefs.setString('user_id', id);
+    if (email != null) await _prefs.setString('user_email', email);
+    if (name != null) await _prefs.setString('user_name', name);
+    if (role != null) await _prefs.setString('user_role', role);
+    if (phone != null) await _prefs.setString('user_phone', phone);
+    notifyListeners();
+  }
+
+  /// 🚪 Logout Clear: Clears identity and user-specific data,
+  /// but KEEPS the Email and Biometric settings for the next login.
+  Future<void> clearIdentityOnLogout() async {
+    // We keep 'user_email' for the login screen identity/biometrics
+    await _prefs.remove('user_id');
+    await _prefs.remove('user_name');
+    await _prefs.remove('user_role');
+    await _prefs.remove('user_phone');
+    // Note: 'currentUser' JSON string is legacy, we use individual keys now
+    await _prefs.remove('currentUser');
+    notifyListeners();
+  }
+
+  // ── 🔒 SETTINGS (Always Persist) ──────────────────────────────
+  
+  bool get isBiometricEnabled => _prefs.getBool('biometricsEnabled') ?? false;
+  Future<void> setBiometricEnabled(bool value) async {
+    await _prefs.setBool('biometricsEnabled', value);
+    notifyListeners();
+  }
+
   bool getDarkMode() => _prefs.getBool('darkMode') ?? false;
   Future<void> setDarkMode(bool value) async {
     await _prefs.setBool('darkMode', value);
     notifyListeners();
   }
 
-  // --- Localization ---
   String getLanguageCode() => _prefs.getString('languageCode') ?? 'ar';
   bool hasSelectedLanguage() => _prefs.getBool('hasSelectedLanguage') ?? false;
 
@@ -39,19 +82,36 @@ class StorageService extends ChangeNotifier {
     notifyListeners();
   }
 
-  // --- Current User ---
+  // ── 🛒 APP DATA (Cart, Favorites, etc.) ───────────────────────
+
+  // --- Legacy Support ---
   Map<String, dynamic>? getCurrentUser() {
     final str = _prefs.getString('currentUser');
     if (str != null) return json.decode(str);
+    if (userId != null) {
+      return {
+        'id': userId,
+        'email': userEmail,
+        'name': userName,
+        'role': userRole,
+        'phone': userPhone,
+      };
+    }
     return null;
   }
+
   Future<void> setCurrentUser(Map<String, dynamic>? user) async {
     if (user == null) {
-      await _prefs.remove('currentUser');
+      await clearIdentityOnLogout();
     } else {
-      await _prefs.setString('currentUser', json.encode(user));
+      await saveIdentity(
+        id: user['id']?.toString() ?? user['uuid']?.toString() ?? '',
+        email: user['email'],
+        name: user['name'],
+        role: user['role'],
+        phone: user['phone'],
+      );
     }
-    notifyListeners();
   }
 
   // --- Cart ---
@@ -147,7 +207,7 @@ class StorageService extends ChangeNotifier {
     notifyListeners();
   }
 
-  // --- Generic Generic Access (for NotificationService & others) ---
+  // --- Shared Tools ---
   String? getString(String key) => _prefs.getString(key);
   Future<void> setString(String key, String value) async => await _prefs.setString(key, value);
   Future<void> remove(String key) async => await _prefs.remove(key);
