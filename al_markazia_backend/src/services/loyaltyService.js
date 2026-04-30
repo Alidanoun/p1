@@ -94,22 +94,25 @@ class LoyaltyService {
     const startTime = now.toFormat('HH:mm');
     const endTime = now.plus({ hours: 2 }).toFormat('HH:mm');
 
-    const updated = await prisma.loyaltyConfig.update({
-      where: { id: config.id },
-      data: {
-        isHappyHourEnabled: true,
-        happyHourStart: startTime,
-        happyHourEnd: endTime
-      }
-    });
+    const updated = await prisma.$transaction(async (tx) => {
+      const result = await tx.loyaltyConfig.update({
+        where: { id: config.id },
+        data: {
+          isHappyHourEnabled: true,
+          happyHourStart: startTime,
+          happyHourEnd: endTime
+        }
+      });
 
-    // 📢 Push Notification Broadcast
-    eventBus.publish({
-      type: 'system.broadcast',
-      payload: {
+      // 📮 [RESILIENCE-FIX] Transactional Outbox Enqueue
+      const outboxService = require('./outboxService');
+      await outboxService.enqueue('loyalty.happy_hour_activated', {
         title: '🎁 بدأت سـاعـة الـسـعـادة!',
-        message: `تم تفعيل مضاعفة النقاط x${updated.happyHourMultiplier} الآن! اطلب واستمتع بمكافآت إضافية.`,
-      }
+        message: `تم تفعيل مضاعفة النقاط x${result.happyHourMultiplier} الآن! اطلب واستمتع بمكافآت إضافية.`,
+        multiplier: result.happyHourMultiplier
+      }, tx);
+
+      return result;
     });
 
     return {
@@ -124,20 +127,20 @@ class LoyaltyService {
   async stopNow() {
     const config = await this.getConfig();
     
-    const updated = await prisma.loyaltyConfig.update({
-      where: { id: config.id },
-      data: {
-        isHappyHourEnabled: false
-      }
-    });
+    const updated = await prisma.$transaction(async (tx) => {
+      const result = await tx.loyaltyConfig.update({
+        where: { id: config.id },
+        data: { isHappyHourEnabled: false }
+      });
 
-    // 📢 Push Notification Broadcast
-    eventBus.publish({
-      type: 'system.broadcast',
-      payload: {
+      // 📮 [RESILIENCE-FIX] Transactional Outbox Enqueue
+      const outboxService = require('./outboxService');
+      await outboxService.enqueue('system.broadcast', {
         title: '🏁 انتهت ساعة السعادة',
         message: 'انتهت فترة مضاعفة النقاط حالياً، شكراً لتواجدكم معنا. انتظرونا في فترات قادمة!',
-      }
+      }, tx);
+
+      return result;
     });
 
     return {
@@ -157,7 +160,7 @@ class LoyaltyService {
     const numFields = [
       'pointsPerJod', 'tierGoldMinOrders', 'tierPlatinumMinOrders', 
       'pointsMultiplierGold', 'pointsMultiplierPlatinum', 'reviewPoints', 
-      'referralPoints', 'socialSharePoints', 'happyHourMultiplier'
+      'referralPoints', 'socialSharePoints', 'happyHourMultiplier', 'cancellationCompensationRate'
     ];
     
     numFields.forEach(field => {
@@ -174,12 +177,22 @@ class LoyaltyService {
     // String fields
     if (data.happyHourStart) sanitized.happyHourStart = data.happyHourStart;
     if (data.happyHourEnd) sanitized.happyHourEnd = data.happyHourEnd;
-
     const config = await this.getConfig();
 
-    return await prisma.loyaltyConfig.update({
-      where: { id: config.id },
-      data: sanitized
+    return await prisma.$transaction(async (tx) => {
+      const result = await tx.loyaltyConfig.update({
+        where: { id: config.id },
+        data: sanitized
+      });
+
+      // 📮 [RESILIENCE-FIX] Outbox for Audit Trail / External Sync
+      const outboxService = require('./outboxService');
+      await outboxService.enqueue('loyalty.config_updated', {
+        configId: config.id,
+        changes: sanitized
+      }, tx);
+
+      return result;
     });
   }
 
@@ -325,9 +338,9 @@ class LoyaltyService {
 
       if (!order || !order.customerId) return null;
 
-      // Compensation is 5% of order total or at least 50 points
+      // Compensation is based on config rate (e.g. 5%) of order total or at least 50 points
       const config = await this.getConfig();
-      const amount = Math.max(50, Math.floor(Number(order.total) * 0.05 * config.pointsPerJod));
+      const amount = Math.max(50, Math.floor(Number(order.total) * config.cancellationCompensationRate * config.pointsPerJod));
 
       await prisma.customer.update({
         where: { id: order.customerId },

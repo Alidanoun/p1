@@ -116,24 +116,42 @@ function initCronJobs(io = null) {
     }
   }, 5000);
 
-  // 5. 🎁 Happy Hour Monitoring - Every Minute
-  // Automatically disables Happy Hour when the time window passes
-  cron.schedule('* * * * *', async () => {
-    try {
-      const result = await loyaltyService.checkAndAutoDisable();
-      if (result && result.disabled) {
-        logger.info(`[Cron] Happy Hour automatically disabled for config ID: ${result.id}`);
-        // Notify all clients (Admin + App) to refresh their state
-        if (io) {
-          io.emit('loyalty:configUpdated', { refreshNeeded: true });
-        }
+  // 6. 🛡️ System Integrity Reconciliation - Every 2 Hours
+  cron.schedule('0 */2 * * *', async () => {
+    await withLock('system_integrity_audit', 300, async () => {
+      try {
+        const validator = require('../services/systemValidator');
+        logger.info('Cron Job Trace: Starting System Integrity Reconciliation...');
+        
+        // 1. Check for stalled modification flows
+        const stuckCount = await validator.checkStuckModifications();
+        if (stuckCount > 0) logger.warn(`[Integrity] Found ${stuckCount} stuck modifications.`);
+        
+        // 2. Perform periodic financial sanity check
+        // (In production, you'd loop through active/large accounts)
+      } catch (err) {
+        logger.error('Cron Job Failed: System Integrity Audit', { error: err.message });
       }
-    } catch (err) {
-      logger.error('Cron Job Failed: Happy Hour Monitoring', { error: err.message });
-    }
+    });
   });
 
-  logger.info('🚀 Automated Maintenance Jobs (Archiving & Cleanup) Initialized.');
+  // 7. 📮 Transactional Outbox Dispatcher - Every 5 seconds (High Frequency)
+  // Ensures events saved in DB are dispatched to subscribers reliably.
+  setInterval(async () => {
+    await withLock('outbox_dispatcher', 10, async () => {
+      try {
+        const outboxService = require('../services/outboxService');
+        await outboxService.processPending();
+        // Periodically retry failed ones
+        if (Math.random() < 0.1) await outboxService.retryFailed(); 
+      } catch (err) {
+        // Silently log outbox errors to avoid spamming cron logs
+        logger.error('[Outbox] Background dispatch failed', { error: err.message });
+      }
+    });
+  }, 5000);
+
+  logger.info('🚀 Automated Maintenance Jobs (Archiving, Cleanup & Outbox) Initialized.');
 }
 
 module.exports = { initCronJobs };

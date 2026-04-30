@@ -26,6 +26,9 @@ async function init() {
     const notificationService = require('../services/notificationService');
     notificationService.init();
 
+    // 5. 🔔 Activate Event Subscribers
+    require('../subscribers/notificationSubscriber');
+
     logger.info('[EventSystem] 🚀 ALL REAL-TIME SYSTEMS ONLINE.');
   } catch (err) {
     logger.error('[EventSystem] ❌ CRITICAL: Real-time Pipeline Initialization Failed', { error: err.message });

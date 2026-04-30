@@ -30,21 +30,40 @@ class OrderService {
     if (startDate || endDate) {
       where.createdAt = {};
       if (startDate) where.createdAt.gte = new Date(startDate + 'T00:00:00.000Z');
-      if (endDate)   where.createdAt.lte = new Date(endDate + 'T23:59:59.999Z');
+      if (endDate) where.createdAt.lte = new Date(endDate + 'T23:59:59.999Z');
     }
     if (status) where.status = status;
 
     const pageNum = page ? Math.max(1, parseInt(page)) : null;
     const limitNum = limit ? Math.min(1000, parseInt(limit)) : 500;
 
-    const [orders, total, aggregates, completedAggregates] = await Promise.all([
+    const [orders, total] = await Promise.all([
       prisma.order.findMany({
         where,
         include: ORDER_INCLUDE_FULL,
         orderBy: { createdAt: 'desc' },
         ...(pageNum ? { skip: (pageNum - 1) * limitNum, take: limitNum } : { take: limitNum })
       }),
-      prisma.order.count({ where }),
+      prisma.order.count({ where })
+    ]);
+
+    // 🚀 [PERF-FIX] Dedicated Summary Aggregation (Optimized DB Query)
+    const summary = await this._calculateReportSummary(where);
+
+    return {
+      orders: orders.map(mapOrderResponse),
+      total,
+      summary,
+      page: pageNum,
+      limit: limitNum
+    };
+  }
+
+  /**
+   * 📉 Optimized DB-level aggregation for reports
+   */
+  async _calculateReportSummary(where) {
+    const [aggregates, deliveredCount] = await Promise.all([
       prisma.order.aggregate({
         where,
         _sum: { total: true },
@@ -57,16 +76,10 @@ class OrderService {
     ]);
 
     return {
-      orders: orders.map(mapOrderResponse),
-      total,
-      page: pageNum,
-      limit: limitNum,
-      summary: {
-        totalSales: toNumber(aggregates._sum.total || 0),
-        orderCount: aggregates._count.id,
-        avgValue: toMoney(aggregates._avg.total || 0),
-        completedCount: completedAggregates
-      }
+      totalRevenue: toNumber(aggregates._sum.total),
+      orderCount: aggregates._count.id,
+      averageOrderValue: toNumber(aggregates._avg.total),
+      deliveredCount
     };
   }
 
@@ -126,14 +139,14 @@ class OrderService {
     const { status, active_only } = query;
     const { page, limit, skip } = require('../utils/pagination').parsePagination(query);
 
-    const customer = await prisma.customer.findUnique({ 
+    const customer = await prisma.customer.findUnique({
       where: { uuid: userUuid },
-      select: { id: true } 
+      select: { id: true }
     });
     if (!customer) throw new Error('CUSTOMER_NOT_FOUND');
 
     const where = { customerId: customer.id };
-    
+
     // 🔍 Apply Filters (Fix for "Current Orders" not appearing)
     if (active_only === 'true') {
       where.status = { notIn: ['delivered', 'cancelled'] };
@@ -233,9 +246,9 @@ class OrderService {
     await publishEvent({
       type: eventTypes.ORDER_STATUS_CHANGED,
       aggregateId: orderId,
-      payload: { 
-        order: mapped, 
-        newStatus: order.status, 
+      payload: {
+        order: mapped,
+        newStatus: order.status,
         notification: {
           title: 'تحديث وقت التجهيز ⏳',
           message: `تم تحديث وقت التجهيز المتوقع لطلبك #${order.orderNumber}. سيبدأ التوصيل قريباً.`
@@ -259,9 +272,9 @@ class OrderService {
       where: { id: orderId },
       include: { customer: true }
     });
-    
+
     if (!order) throw new Error('ORDER_NOT_FOUND');
-    
+
     if (user?.role !== 'admin' && order.customer?.uuid !== user?.id) {
       throw new Error('ORDER_FORBIDDEN');
     }
@@ -288,14 +301,51 @@ class OrderService {
     if (order.status !== 'waiting_cancellation') throw new Error('NOT_PENDING_CANCELLATION');
 
     if (action === 'approve') {
-      const result = await this.updateOrderStatus(orderId, 'cancelled');
-      if (order.cancellation) {
-        await prisma.orderCancellation.update({
-          where: { orderId },
-          data: { status: 'approved', adminName: user?.email }
+      const result = await prisma.$transaction(async (tx) => {
+        // 💰 [FINANCIAL-FIX] Refund on approval
+        if (order.paymentMethod === 'wallet' && order.customerId) {
+          const walletService = require('./walletService');
+          await walletService.credit(
+            order.customerId,
+            toNumber(order.total),
+            'REFUND',
+            order.orderNumber,
+            `استرداد المبلغ بعد موافقة الإدارة على الإلغاء #${order.orderNumber}`,
+            `approve_cancel_${order.id}`,
+            tx
+          );
+        }
+
+        // 📊 [REVENUE-FIX] Set total to 0 on cancellation to prevent reporting errors
+        const updated = await tx.order.update({
+          where: { id: orderId, version: order.version },
+          data: { 
+            status: 'cancelled', 
+            total: 0, 
+            subtotal: 0,
+            version: { increment: 1 } 
+          },
+          include: ORDER_INCLUDE_FULL
         });
-      }
-      return result;
+
+        if (order.cancellation) {
+          await tx.orderCancellation.update({
+            where: { orderId },
+            data: { status: 'approved', adminName: user?.email }
+          });
+        }
+        
+        const resultData = { order: updated, previousStatus: order.status, newStatus: 'cancelled' };
+        
+        // 📮 [RESILIENCE-FIX] Transactional Outbox Enqueue
+        const outboxService = require('./outboxService');
+        const outbox = await outboxService.enqueue(eventTypes.ORDER_STATUS_CHANGED, resultData, tx);
+
+        return { updatedOrder: updated, _outboxId: outbox.id };
+      });
+
+      const mapped = mapOrderResponse(result.updatedOrder);
+      return { ...mapped, _outboxId: result._outboxId };
     } else {
       // Reject — restore previous status
       const previousStatus = order.cancellation?.previousStatus || 'preparing';
@@ -338,7 +388,7 @@ class OrderService {
   /**
    * 🛑 Cancel Order with Multi-tier Validation
    */
-  async cancelOrder(orderId, user, reason, managerPassword) {
+  async cancelOrder(orderId, user, reason, managerPassword, isRestaurantFault = false) {
     const order = await prisma.order.findUnique({
       where: { id: orderId },
       include: { customer: true }
@@ -347,7 +397,7 @@ class OrderService {
     if (!order) throw new Error('ORDER_NOT_FOUND');
 
     const isOrderManager = user?.role === 'admin';
-    
+
     // 🛡️ [CRITICAL] Manager Password Validation for advanced-stage orders
     if (isOrderManager && order.status !== 'pending') {
       if (!managerPassword) {
@@ -357,26 +407,54 @@ class OrderService {
       const admin = await prisma.user.findUnique({ where: { uuid: user.id } });
       if (!admin) throw new Error('ADMIN_NOT_FOUND');
 
+      const startTime = Date.now();
       const isPasswordValid = await bcrypt.compare(managerPassword, admin.password);
+
+      // 🛡️ Timing Attack Protection: Ensure comparison takes at least 250ms
+      const duration = Date.now() - startTime;
+      if (duration < 250) {
+        await new Promise(resolve => setTimeout(resolve, 250 - duration));
+      }
+
       if (!isPasswordValid) {
         throw new Error('INVALID_MANAGER_PASSWORD');
       }
-      
+
       logger.info(`[OrderService] Manager password verified for cancellation of order #${order.orderNumber} by ${user.email}`);
     }
 
     const canCancelDirectly = isOrderManager || order.status === 'pending';
-    
+
     const targetStatus = canCancelDirectly ? 'cancelled' : 'waiting_cancellation';
     const cancellationStatus = canCancelDirectly ? 'approved' : 'pending';
     const previousStatus = order.status;
 
     const updatedOrder = await prisma.$transaction(async (tx) => {
+      // 📊 [REVENUE-FIX] Set total to 0 if cancelled directly
       const updated = await tx.order.update({
         where: { id: orderId, version: order.version },
-        data: { status: targetStatus, version: { increment: 1 } },
+        data: {
+          status: targetStatus,
+          total: targetStatus === 'cancelled' ? 0 : order.total,
+          subtotal: targetStatus === 'cancelled' ? 0 : order.subtotal,
+          version: { increment: 1 }
+        },
         include: ORDER_INCLUDE_FULL
       });
+
+      // 💰 [FINANCIAL-FIX] Automated Refund for Wallet Payments
+      if (targetStatus === 'cancelled' && order.paymentMethod === 'wallet' && order.customerId) {
+        const walletService = require('./walletService');
+        await walletService.credit(
+          order.customerId,
+          toNumber(order.total),
+          'REFUND',
+          order.orderNumber,
+          `استرداد كامل المبلغ بسبب إلغاء الطلب #${order.orderNumber}`,
+          `cancel_${order.id}`, // Idempotency
+          tx
+        );
+      }
 
       await tx.orderCancellation.create({
         data: {
@@ -410,7 +488,8 @@ class OrderService {
     });
 
     // 🎁 Loyalty Compensation Hook
-    if (targetStatus === 'cancelled' && reason && (reason.includes('تأخر') || reason.toLowerCase().includes('delay'))) {
+    // 🛡️ [SEC-FIX]: Use explicit flag instead of string matching to prevent abuse
+    if (targetStatus === 'cancelled' && isRestaurantFault === true) {
       loyaltyService.compensatePointsForCancellation(updatedOrder.id, reason).catch(err => {
         logger.error('[Loyalty] Auto-compensation failed', { orderId: updatedOrder.id, error: err.message });
       });
@@ -424,14 +503,14 @@ class OrderService {
    * Full transactional logic moved from Controller.
    */
   async createOrder(data, authUser = null) {
-    const { 
-      customerName, 
-      customerPhone, 
-      orderType, 
-      paymentMethod, 
-      address, 
-      notes, 
-      cartItems, 
+    const {
+      customerName,
+      customerPhone,
+      orderType,
+      paymentMethod,
+      address,
+      notes,
+      cartItems,
       branch,
       deliveryZoneId
     } = data;
@@ -445,7 +524,7 @@ class OrderService {
 
     // 1. 🆔 Identity & Blacklist Resolution
     const resolvedCustomer = await this._resolveAndValidateCustomer(phoneInput, authUser);
-    
+
     logger.info(`[OrderService] Creating Order. AuthUser: ${authUser?.id}, InputPhone: ${phoneInput}, ResolvedCustomer: ${resolvedCustomer.id}`);
 
     // 2. 🛡️ Spam Protection (Multi-factor)
@@ -461,7 +540,7 @@ class OrderService {
     const orderNumber = await this._generateOrderNumber();
 
     // 🛡️ Pricing Logic: Inclusive of Tax
-    const tax = 0; 
+    const tax = 0;
     const total = toMoney(subtotal + deliveryDetails.fee);
 
     // 6. 💎 Atomic Transactional Persistence
@@ -542,7 +621,7 @@ class OrderService {
   async _validateSpamLimits(phone) {
     // 🛡️ 3-Tier Fallback for Settings
     let settings = memoryCache.get('system:settings');
-    
+
     if (!settings) {
       const redisSettings = await redis.get('system:settings');
       if (redisSettings) {
@@ -572,7 +651,7 @@ class OrderService {
       const expires = new Date(Date.now() + window * 60 * 1000);
       await prisma.customer.update({
         where: { phone },
-        data: { 
+        data: {
           isBlacklisted: true,
           blacklistExpiresAt: expires,
           blacklistReason: `Spam detected: ${count} cancellations in ${window}m`,
@@ -626,9 +705,9 @@ class OrderService {
       }
     }
 
-    return { 
-      id: customer?.id || null, 
-      phone: resolvedPhone 
+    return {
+      id: customer?.id || null,
+      phone: resolvedPhone
     };
   }
 
@@ -640,7 +719,7 @@ class OrderService {
     const validatedItems = [];
 
     for (const item of cartItems) {
-      const dbItem = await prisma.item.findUnique({ 
+      const dbItem = await prisma.item.findUnique({
         where: { id: parseInt(item.productId || item.id) },
         include: { optionGroups: { include: { options: true } } }
       });
@@ -666,7 +745,7 @@ class OrderService {
 
       const qty = parseInt(item.quantity);
       if (isNaN(qty) || qty <= 0) throw new Error(`INVALID_QUANTITY:${dbItem.title}`);
-      
+
       const lineTotal = toMoney(unitPrice * qty);
       subtotal += lineTotal;
 
@@ -692,8 +771,8 @@ class OrderService {
     if (type !== 'delivery') return { fee: 0, zoneId: null, zoneName: null, minOrder: 0 };
 
     if (!zoneId) {
-       const settings = await prisma.systemSettings.findFirst();
-       return { fee: toNumber(settings?.defaultDeliveryFee, 1), zoneId: null, zoneName: 'Default', minOrder: 0 };
+      const settings = await prisma.systemSettings.findFirst();
+      return { fee: toNumber(settings?.defaultDeliveryFee, 1), zoneId: null, zoneName: 'Default', minOrder: 0 };
     }
 
     const zone = await prisma.deliveryZone.findUnique({ where: { id: zoneId } });
@@ -706,11 +785,11 @@ class OrderService {
       throw new Error(`MIN_ORDER_NOT_MET:${minOrder}`);
     }
 
-    return { 
-      fee, 
-      zoneId: zone.id, 
-      zoneName: zone.nameAr, 
-      minOrder 
+    return {
+      fee,
+      zoneId: zone.id,
+      zoneName: zone.nameAr,
+      minOrder
     };
   }
 
@@ -721,9 +800,9 @@ class OrderService {
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const counterKey = `order_counter:${dateStr}`;
     const serialNumber = await redis.incr(counterKey);
-    
+
     if (serialNumber === 1) await redis.expire(counterKey, 172800);
-    
+
     const serial = serialNumber.toString().padStart(4, '0');
     const randomSuffix = Math.random().toString(36).substring(2, 5).toUpperCase();
     return `ORD-${dateStr}-${serial}-${randomSuffix}`;
@@ -738,8 +817,8 @@ class OrderService {
       // No direct call needed here. publishEvent handles it.
 
       // 2. Scheduled Auto-Accept (15s delay, 3 retries)
-      orderQueue.add('autoAccept', { orderId: order.id }, { 
-        delay: 15000, 
+      orderQueue.add('autoAccept', { orderId: order.id }, {
+        delay: 15000,
         jobId: `autoAccept-${order.id}`,
         removeOnComplete: true,
         removeOnFail: false,
@@ -779,13 +858,18 @@ class OrderService {
   /**
    * ⚡ Atomic Status Update & State Machine Validation
    */
-  async updateOrderStatus(orderId, newStatus) {
+  async updateOrderStatus(orderId, newStatus, version = null) {
     const order = await prisma.order.findUnique({
       where: { id: orderId },
       include: { customer: true }
     });
 
     if (!order || order.status === newStatus) return null;
+
+    // 🛡️ [SEC-FIX] Optimistic Locking Validation
+    if (version !== null && version !== undefined && order.version !== parseInt(version)) {
+      throw new Error('CONCURRENCY_CONFLICT');
+    }
 
     const previousStatus = order.status;
 
@@ -804,43 +888,39 @@ class OrderService {
       throw new Error(`Invalid status transition from ${previousStatus} to ${newStatus}`);
     }
 
-    const updatedOrder = await prisma.order.update({
-      where: { id: order.id, version: order.version },
-      data: { status: newStatus, version: { increment: 1 } },
-      include: ORDER_INCLUDE_FULL
+    const { updatedOrder, _outboxId } = await prisma.$transaction(async (tx) => {
+      const updated = await tx.order.update({
+        where: { id: order.id, version: order.version },
+        data: { status: newStatus, version: { increment: 1 } },
+        include: ORDER_INCLUDE_FULL
+      });
+
+      // 🎁 Loyalty Reward Hook (Inline for synchronous points in notification)
+      let pointsEarned = 0;
+      if (newStatus === 'delivered') {
+        try {
+          pointsEarned = await loyaltyService.awardPointsForOrder(updated, tx);
+        } catch (err) {
+          logger.error('[Loyalty] Failed to award points on status update', { orderId: updated.id, error: err.message });
+        }
+      }
+
+      // 📮 [RESILIENCE-FIX] Transactional Outbox Enqueue
+      const outboxService = require('./outboxService');
+      const outbox = await outboxService.enqueue(eventTypes.ORDER_STATUS_CHANGED, {
+        previousStatus,
+        newStatus,
+        order: {
+          ...mapOrderResponse(updated),
+          pointsEarned
+        }
+      }, tx);
+
+      return { updatedOrder: updated, _outboxId: outbox.id };
     });
 
     const mappedOrder = mapOrderResponse(updatedOrder);
 
-    // 🎁 Loyalty Reward Hook (Inline for synchronous points in notification)
-    let pointsEarned = 0;
-    if (newStatus === 'delivered') {
-      try {
-        pointsEarned = await loyaltyService.awardPointsForOrder(updatedOrder);
-      } catch (err) {
-        logger.error('[Loyalty] Failed to award points on status update', { orderId: updatedOrder.id, error: err.message });
-      }
-    }
-
-    // 📣 Publish Status Event
-    await publishEvent({
-      type: eventTypes.ORDER_STATUS_CHANGED,
-      aggregateId: updatedOrder.id,
-      payload: { 
-        previousStatus, 
-        newStatus, 
-        order: {
-          ...mappedOrder,
-          id: updatedOrder.id,
-          customerId: updatedOrder.customerId,
-          customerPhone: updatedOrder.customer?.phone || null,
-          customer: updatedOrder.customer,
-          pointsEarned // 🎁 Inject points for notification content
-        } 
-      },
-      version: updatedOrder.version
-    });
-    
     // 📊 Incremental Analytics Update
     analyticsService.updateCacheIncrementally({
       type: 'ORDER_STATUS_CHANGE',
@@ -850,91 +930,91 @@ class OrderService {
       orderNumber: updatedOrder.orderNumber
     });
 
-    return mappedOrder;
+    return { ...mappedOrder, _outboxId };
   }
 
   /**
    * Existing Batch Operation Logic
    */
   async batchAcceptOrders(adminEmail) {
-    const results = { accepted: 0, skipped: 0 };
+  const results = { accepted: 0, skipped: 0 };
 
-    // 1. Fetch pending orders atomically
-    const pendingOrders = await prisma.order.findMany({
-      where: { status: 'pending' },
-      include: ORDER_INCLUDE_FULL
-    });
+  // 1. Fetch pending orders atomically
+  const pendingOrders = await prisma.order.findMany({
+    where: { status: 'pending' },
+    include: ORDER_INCLUDE_FULL
+  });
 
-    for (const order of pendingOrders) {
-      try {
-        // 2. Optimistic lock via version check
-        const affected = await prisma.order.updateMany({
-          where: {
-            id: order.id,
-            status: 'pending',
-            version: order.version
-          },
-          data: {
-            status: 'preparing',
-            version: { increment: 1 },
-            updatedAt: new Date()
-          }
+  for (const order of pendingOrders) {
+    try {
+      // 2. Optimistic lock via version check
+      const affected = await prisma.order.updateMany({
+        where: {
+          id: order.id,
+          status: 'pending',
+          version: order.version
+        },
+        data: {
+          status: 'preparing',
+          version: { increment: 1 },
+          updatedAt: new Date()
+        }
+      });
+
+      if (affected.count > 0) {
+        results.accepted++;
+
+        // 3. Audit Log
+        await AuditLogger.logOrderChange(prisma, {
+          orderId: order.id,
+          eventType: 'ORDER_STATUS_CHANGE',
+          eventAction: 'BATCH_ACCEPTED',
+          changedBy: adminEmail || 'Admin System',
+          changedByRole: 'admin',
+          previousData: { status: 'pending' },
+          newData: { status: 'preparing' }
         });
 
-        if (affected.count > 0) {
-          results.accepted++;
-
-          // 3. Audit Log
-          await AuditLogger.logOrderChange(prisma, {
-            orderId: order.id,
-            eventType: 'ORDER_STATUS_CHANGE',
-            eventAction: 'BATCH_ACCEPTED',
-            changedBy: adminEmail || 'Admin System',
-            changedByRole: 'admin',
-            previousData: { status: 'pending' },
-            newData: { status: 'preparing' }
-          });
-
-          // 4. Notification (Centralized via EventBus)
-          const mappedOrder = mapOrderResponse({ ...order, status: 'preparing' });
-          await publishEvent({
-            type: eventTypes.ORDER_STATUS_CHANGED,
-            aggregateId: mappedOrder.id,
-            payload: {
-              previousStatus: 'pending',
-              newStatus: 'preparing',
-              order: {
-                ...mappedOrder,
-                id: order.id,
-                customerId: order.customerId,
-                customerPhone: order.customer?.phone || null,
-                customer: order.customer
-              }
-            },
-            version: order.version + 1
-          });
-
-          // 5. Analytics — BUG-08 FIX: pending→preparing triggers live revenue
-          analyticsService.updateCacheIncrementally({
-            type: 'ORDER_STATUS_CHANGE',
-            amount: toNumber(order.total),
-            status: 'preparing',
+        // 4. Notification (Centralized via EventBus)
+        const mappedOrder = mapOrderResponse({ ...order, status: 'preparing' });
+        await publishEvent({
+          type: eventTypes.ORDER_STATUS_CHANGED,
+          aggregateId: mappedOrder.id,
+          payload: {
             previousStatus: 'pending',
-            orderNumber: order.orderNumber,
-            action: `قبول تلقائي (batch)`
-          });
+            newStatus: 'preparing',
+            order: {
+              ...mappedOrder,
+              id: order.id,
+              customerId: order.customerId,
+              customerPhone: order.customer?.phone || null,
+              customer: order.customer
+            }
+          },
+          version: order.version + 1
+        });
 
-        } else {
-          results.skipped++;
-        }
-      } catch (err) {
-        logger.error('Batch process item error', { orderId: order.id, error: err.message });
+        // 5. Analytics — BUG-08 FIX: pending→preparing triggers live revenue
+        analyticsService.updateCacheIncrementally({
+          type: 'ORDER_STATUS_CHANGE',
+          amount: toNumber(order.total),
+          status: 'preparing',
+          previousStatus: 'pending',
+          orderNumber: order.orderNumber,
+          action: `قبول تلقائي (batch)`
+        });
+
+      } else {
         results.skipped++;
       }
+    } catch (err) {
+      logger.error('Batch process item error', { orderId: order.id, error: err.message });
+      results.skipped++;
     }
-
-    return results;
   }
+
+  return results;
+}
 }
 
 module.exports = new OrderService();

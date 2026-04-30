@@ -135,18 +135,40 @@ exports.acceptAllNewOrders = async (req, res) => {
 };
 
 exports.updateOrderStatus = async (req, res) => {
-   try {
-     const orderId = parseInt(req.params.id);
-     const { status } = req.body;
-     if (isNaN(orderId)) return res.status(400).json({ error: 'ID مطلوب' });
-     
-     const result = await orderService.updateOrderStatus(orderId, status);
-     if (!result) return res.status(400).json({ error: 'فشل تحديث الحالة' });
-     res.json(result);
-   } catch (error) {
-     logger.error('updateOrderStatus error', { error: error.message });
-     res.status(500).json({ error: error.message || 'Status update failed' });
-   }
+  try {
+    const orderId = parseInt(req.params.id);
+    const { status, version } = req.body;
+    const idempotencyKey = req.headers['idempotency-key'];
+
+    if (isNaN(orderId)) {
+      return res.status(400).json({ error: 'معرف الطلب غير صحيح' });
+    }
+
+    const contractGateway = require('../services/contractGateway');
+    const result = await contractGateway.execute(orderId, 'UPDATE_STATUS', {
+      status,
+      version,
+      idempotencyKey
+    }, req.user);
+
+    if (!result) {
+      return res.status(400).json({ error: 'فشل تحديث الحالة' });
+    }
+    
+    return res.json(result);
+  } catch (error) {
+    logger.error('updateOrderStatus error', { error: error.message });
+    
+    if (error.message.includes('Invalid status transition')) {
+      return res.status(400).json({ error: 'انتقال غير صالح لحالة الطلب' });
+    }
+    
+    if (error.message === 'CONCURRENCY_CONFLICT') {
+      return res.status(409).json({ error: 'تم تحديث الطلب من قبل موظف آخر. يرجى تحديث الصفحة' });
+    }
+
+    return res.status(500).json({ error: 'فشل تحديث حالة الطلب' });
+  }
 };
 
 /**
@@ -188,22 +210,34 @@ exports.submitOrderRating = async (req, res) => {
 exports.cancelOrder = async (req, res) => {
   try {
     const orderId = parseInt(req.params.id);
-    const { reason, managerPassword } = req.body;
-    
+    const { reason, managerPassword, isRestaurantFault } = req.body;
+    const idempotencyKey = req.headers['idempotency-key'] || `cancel_manual_${orderId}_${Date.now()}`;
+
     if (reason && reason.length > 500) {
       return res.status(400).json({ error: 'سبب الإلغاء يتجاوز الحد المسموح (500 حرف)' });
     }
 
-    const updatedOrder = await orderService.cancelOrder(orderId, req.user, reason, managerPassword);
-    res.json(updatedOrder);
+    const contractGateway = require('../services/contractGateway');
+    const updatedOrder = await contractGateway.execute(orderId, 'CANCEL', {
+      reason,
+      managerPassword,
+      isRestaurantFault,
+      idempotencyKey
+    }, req.user);
+
+    return res.json(updatedOrder);
   } catch (error) {
     logger.error('cancelOrder failed', { error: error.message });
-    
-    if (error.message === 'ORDER_NOT_FOUND') return res.status(404).json({ error: 'الطلب غير موجود' });
-    if (error.message === 'MANAGER_PASSWORD_REQUIRED') return res.status(400).json({ error: 'كلمة مرور المدير مطلوبة لإلغاء طلب نشط' });
-    if (error.message === 'INVALID_MANAGER_PASSWORD') return res.status(401).json({ error: 'كلمة مرور المدير غير صحيحة' });
-    
-    res.status(500).json({ error: 'فشل إلغاء الطلب' });
+
+    const errorMap = {
+      'ORDER_NOT_FOUND': ['الطلب غير موجود', 404],
+      'MANAGER_PASSWORD_REQUIRED': ['كلمة مرور المدير مطلوبة لإلغاء طلب نشط', 400],
+      'INVALID_MANAGER_PASSWORD': ['كلمة مرور المدير غير صحيحة', 401],
+      'CONCURRENCY_CONFLICT': ['تم تعديل الطلب من قبل مستخدم آخر، يرجى التحديث', 409]
+    };
+
+    const [msg, status] = errorMap[error.message] || ['فشل إلغاء الطلب', 500];
+    return res.status(status).json({ error: msg });
   }
 };
 
