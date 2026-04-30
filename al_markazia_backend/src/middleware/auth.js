@@ -59,10 +59,39 @@ const authenticateToken = async (req, res, next) => {
 };
 
 /**
- * Role-Based Access Control (RBAC) Helper
+ * 👑 Role Hierarchy Definition
  */
-const requireRoles = (allowedRoles) => (req, res, next) => {
-  if (req.user && allowedRoles.includes(req.user.role)) {
+const ROLE_LEVELS = {
+  'super_admin': 3,
+  'admin': 2,
+  'manager': 2,
+  'staff': 1,
+  'customer': 0
+};
+
+/**
+ * Role-Based Access Control (RBAC) Helper
+ * Supports both explicit role lists and minimum level requirements.
+ */
+const requireRoles = (allowedRolesOrMinRole) => (req, res, next) => {
+  if (!req.user) {
+    return responseError(res, 'يجب تسجيل الدخول أولاً', 'UNAUTHORIZED', 401);
+  }
+
+  const userRole = req.user.role;
+  let isAuthorized = false;
+
+  if (Array.isArray(allowedRolesOrMinRole)) {
+    // Check if user has one of the specific roles
+    isAuthorized = allowedRolesOrMinRole.includes(userRole);
+  } else if (typeof allowedRolesOrMinRole === 'string') {
+    // Check if user meets minimum role level
+    const userLevel = ROLE_LEVELS[userRole] || 0;
+    const requiredLevel = ROLE_LEVELS[allowedRolesOrMinRole] || 0;
+    isAuthorized = userLevel >= requiredLevel;
+  }
+
+  if (isAuthorized) {
     return next();
   }
   
@@ -70,14 +99,16 @@ const requireRoles = (allowedRoles) => (req, res, next) => {
     ip: req.ip, 
     endpoint: req.originalUrl,
     userId: req.user?.id,
-    userRole: req.user?.role,
-    requiredRoles: allowedRoles
+    userRole: userRole,
+    requiredRoles: allowedRolesOrMinRole
   });
 
   return responseError(res, 'غير مصرح لك بالوصول لهذه المنطقة', 'FORBIDDEN_ACCESS', 403);
 };
 
-const isAdmin = requireRoles(['admin', 'super_admin']);
+const isAdmin = requireRoles('admin');
+const isSuperAdmin = requireRoles('super_admin');
+const isStaff = requireRoles('staff');
 
 /**
  * 🟡 Optional Authentication Middleware
@@ -131,6 +162,8 @@ const optionalAuth = async (req, res, next) => {
 module.exports = { 
   authenticateToken, 
   isAdmin, 
+  isSuperAdmin,
+  isStaff,
   requireRoles,
   optionalAuth
 };

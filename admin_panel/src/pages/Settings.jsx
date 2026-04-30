@@ -1,32 +1,60 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Save, MessageCircle, Bell, Shield, Settings as SettingsIcon, Clock, Phone, MapPin, Image as ImageIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import Header from '../components/Header';
 import { cn } from '../lib/utils';
 import Switch from '../components/Switch';
+import api, { unwrap } from '../api/client';
 
 const Settings = () => {
   const [activeTab, setActiveTab] = useState('general');
+  const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [settings, setSettings] = useState({
-     restaurantName: 'المركزية - Al Markazia',
-     phone: '079XXXXXXX',
-     whatsapp: '079XXXXXXX',
-     address: 'عمان، الأردن',
-     openingHours: '10:00 AM - 11:00 PM',
-     deliveryFee: '2.00',
+     restaurantName: '',
+     phone: '',
+     whatsapp: '',
+     address: '',
+     openingHours: '',
+     deliveryFee: '0',
      currency: 'JOD',
      notificationsEnabled: true,
      autoAcceptOrders: false,
      logo: null
   });
 
-  const handleSave = () => {
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const data = unwrap(await api.get('/settings'));
+        if (data) {
+          // Merge fetched settings with default state
+          setSettings(prev => ({
+            ...prev,
+            ...data
+          }));
+        }
+      } catch (error) {
+        toast.error('فشل في تحميل الإعدادات');
+        console.error('Fetch settings error:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchSettings();
+  }, []);
+
+  const handleSave = async () => {
      setUpdating(true);
-     setTimeout(() => {
+     try {
+        await api.put('/settings', settings);
         toast.success('تم حفظ التغييرات بنجاح');
+     } catch (error) {
+        const message = error.response?.data?.error || 'فشل في حفظ التغييرات';
+        toast.error(message);
+     } finally {
         setUpdating(false);
-     }, 1000);
+     }
   };
 
   const tabs = [
@@ -121,13 +149,33 @@ const Settings = () => {
                            />
                         </div>
                      </div>
+                     <div className="space-y-2">
+                        <label className="text-xs font-bold text-text-muted pr-1">رسوم التوصيل (JOD)</label>
+                        <input 
+                           type="number" 
+                           step="0.1"
+                           className="glass-input text-right" 
+                           value={settings.deliveryFee} 
+                           onChange={e => setSettings({...settings, deliveryFee: e.target.value})}
+                        />
+                     </div>
+                     <div className="space-y-2">
+                        <label className="text-xs font-bold text-text-muted pr-1">الحد الأدنى للطلب (JOD)</label>
+                        <input 
+                           type="number" 
+                           step="0.1"
+                           className="glass-input text-right" 
+                           value={settings.minOrderValue} 
+                           onChange={e => setSettings({...settings, minOrderValue: e.target.value})}
+                        />
+                     </div>
                      <div className="md:col-span-2 space-y-4 pt-4 border-t border-white/5">
                         <div className="flex items-center justify-between p-4 bg-background/50 rounded-2xl border border-white/5">
                            <div>
                               <p className="font-bold text-white text-sm">قبول الطلبات تلقائياً</p>
                               <p className="text-text-muted text-[10px]">تفعيل هذه الميزة سيجعل جميع الطلبات الجدد تنتقل مباشرة لقيد التجهيز</p>
                            </div>
-                           <Switch checked={settings.autoAcceptOrders} onChange={val => setSettings({...settings, autoAcceptOrders: val})} />
+                           <Switch checked={settings.autoAcceptOrders === 'true' || settings.autoAcceptOrders === true} onChange={val => setSettings({...settings, autoAcceptOrders: val})} />
                         </div>
                      </div>
                   </div>
