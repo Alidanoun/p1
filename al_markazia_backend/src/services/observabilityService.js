@@ -2,8 +2,6 @@ const logger = require('../utils/logger');
 const redis = require('../lib/redis');
 const prisma = require('../lib/prisma');
 const { toNumber } = require('../utils/number');
-const eventBus = require('../lib/eventBus');
-const circuitBreaker = require('./circuitBreakerService');
 
 const SYSTEM_STATES = {
   HEALTHY: 'HEALTHY',
@@ -19,15 +17,12 @@ const CRITICALITY = {
 };
 
 const DEPENDENCY_MAP = {
-  'socket': ['db'], // Socket depends on DB for some events
-  'fcm': ['db'],    // FCM might depend on DB for token lookup
-  // Add other dependencies as needed
+  'socket': ['db'],
+  'fcm': ['db'],
 };
 
 /**
  * 🛰️ Global Observability Service
- * Normalizes system health using criticality levels, calculates scores,
- * and maintains the high-level State Machine.
  */
 class ObservabilityService {
   constructor() {
@@ -40,46 +35,29 @@ class ObservabilityService {
     };
     this.emaSmoothing = 0.3; 
     this.history = []; 
-    
-    // SLO Config (Big Tech Level 9)
+    this.isUpdating = false; // 🛡️ Recursion Guard
+
     this.SLO = {
-      SUCCESS_RATE: 99.0, // %
-      P95_LATENCY: 300,   // ms
-      ERROR_RATE: 0.5,    // %
+      SUCCESS_RATE: 99.0,
+      P95_LATENCY: 300,
+      ERROR_RATE: 0.5,
       ERROR_BUDGET_HOURS: 24
     };
   }
 
-  /**
-   * Exponential Risk Scoring
-   * Penalizes metrics more heavily as they approach critical thresholds.
-   */
-  _calculateScore(value, threshold, weight) {
-    const ratio = Math.min(value / threshold, 2); 
-    // Exponential growth of penalty: score * (1 - e^ratio)
-    const penalty = weight * (Math.pow(2, ratio) - 1);
-    return Math.max(0, penalty);
-  }
-
-  /**
-   * Normalizes health status across services.
-   * Logic: If a CRITICAL service (DB) is down, the whole system drops to CRITICAL/DEGRADED.
-   */
   calculateHealthState(results) {
+    const circuitBreaker = require('./circuitBreakerService');
     let score = 100;
     let status = SYSTEM_STATES.HEALTHY;
     const services = {};
     const latencies = {};
 
-    // 1. Identify "Root Failures" first
     const failingRootNames = results
       .filter(r => !r.ok && !DEPENDENCY_MAP[r.name])
       .map(r => r.name);
 
     results.forEach(res => {
-      const { name, ok, latency, error } = res;
-      
-      // Update EMA Latency
+      const { name, ok, latency } = res;
       const prevLat = this.currentMetrics.latencies[name] || latency;
       const smoothedLat = Math.round(prevLat * (1 - this.emaSmoothing) + latency * this.emaSmoothing);
       latencies[name] = smoothedLat;
@@ -87,15 +65,12 @@ class ObservabilityService {
       services[name] = ok ? 'ok' : 'down';
 
       if (!ok) {
-        // Dependency Guard: Is this a "Cascade" failure?
         const roots = DEPENDENCY_MAP[name] || [];
         const isCascade = roots.some(r => failingRootNames.includes(r));
 
         if (isCascade) {
           services[name] = 'blocked';
-          logger.debug(`[Observability] Service ${name} marked as BLOCKED due to root dependency failure.`);
         } else {
-          // Actual Failure: Penalize and trigger Circuit Breaker
           if (name === CRITICALITY.DB) score -= 50;
           else if (name === CRITICALITY.REDIS) score -= 20;
           else score -= 10;
@@ -115,64 +90,59 @@ class ObservabilityService {
   }
 
   async updateHealth(results) {
-    const nextState = this.calculateHealthState(results);
-    const prevState = { ...this.currentMetrics };
-    // 4. Load Metrics (RPS & Queues)
-    const governor = require('./governorService');
-    const arbitrator = require('./arbitratorService');
-    const { orderQueue } = require('../queues/orderQueue');
-    
+    if (this.isUpdating) return this.currentMetrics;
+    this.isUpdating = true;
+
     try {
+      const nextState = this.calculateHealthState(results);
+      const prevState = { ...this.currentMetrics };
+      
+      const governor = require('./governorService');
+      const arbitrator = require('./arbitratorService');
+      const { orderQueue } = require('../queues/orderQueue');
+      const eventBus = require('../lib/eventBus');
+
       const rps = await governor.getCurrentRPS();
       const queueSize = await orderQueue.count();
       nextState.load = { rps, queueSize };
 
-      // 🧠 Pre-failure Detection (Slope Analysis)
       const prevLoad = prevState.load || { rps: 0, queueSize: 0 };
       const queueGrowth = queueSize - prevLoad.queueSize;
       if (queueGrowth > 5) {
-        logger.warn(`[Observability] 🌋 Rapid Queue Growth Detected: Slope=${queueGrowth}. Pre-failure alert.`);
-        nextState.score -= 15; // Manual penalty for instability
+        logger.warn(`[Observability] 🌋 Rapid Queue Growth Detected: Slope=${queueGrowth}.`);
+        nextState.score -= 15;
       }
 
-      // ⚖️ Consensus Arbitration
       const hasCircuitOpen = results.some(r => !r.ok);
       await arbitrator.arbitrateMode(nextState.score, nextState.score < 80, hasCircuitOpen);
 
-      // 🛒 Business Metrics SLO (Level 9 - Big Tech)
       await this.updateBusinessSLOs(nextState);
 
-    } catch (err) {
-      logger.error('[Observability] Runtime metrics failed', { error: err.message });
-    }
+      this.currentMetrics = nextState;
 
-    this.currentMetrics = nextState;
-
-    // 1. Persistence (Redis for Live State)
-    try {
       await redis.set('system:health:current', JSON.stringify(nextState));
-    } catch (err) {
-      logger.error('[Observability] Redis update failed', { error: err.message });
-    }
 
-    // 2. Logging & Audit (Prisma for History)
-    if (nextState.status !== prevState.status || Math.abs(nextState.score - prevState.score) > 10) {
-      await this.logHealthMetric(nextState);
-    }
-
-    // 3. Decoupled Signaling
-    if (nextState.status !== prevState.status) {
-      eventBus.emitSafe('HEALTH_STATUS_CHANGED', { from: prevState.status, to: nextState.status });
-    }
-
-    // Explicit Service Down Events
-    results.forEach(res => {
-      if (!res.ok) {
-        eventBus.emitSafe(`SERVICE_DOWN_${res.name.toUpperCase()}`, { error: res.error });
+      if (nextState.status !== prevState.status || Math.abs(nextState.score - prevState.score) > 10) {
+        await this.logHealthMetric(nextState);
       }
-    });
 
-    return nextState;
+      if (nextState.status !== prevState.status) {
+        eventBus.emitSafe('HEALTH_STATUS_CHANGED', { from: prevState.status, to: nextState.status });
+      }
+
+      results.forEach(res => {
+        if (!res.ok) {
+          eventBus.emitSafe(`SERVICE_DOWN_${res.name.toUpperCase()}`, { error: res.error });
+        }
+      });
+
+      return nextState;
+    } catch (err) {
+      logger.error('[Observability] Update failed', { error: err.message });
+      return this.currentMetrics;
+    } finally {
+      this.isUpdating = false;
+    }
   }
 
   async logHealthMetric(data) {
@@ -186,14 +156,10 @@ class ObservabilityService {
         }
       });
     } catch (err) {
-      logger.error('[Observability] DB persistent log failed', { error: err.message });
+      logger.error('[Observability] Persistence failed', { error: err.message });
     }
   }
 
-  /**
-   * 🛒 Business SLO Engine
-   * Analyzes order success/cancellation rates and latency to detect UX degradation.
-   */
   async updateBusinessSLOs(nextState) {
     try {
       const oneHourAgo = new Date(Date.now() - 3600000);
@@ -203,7 +169,6 @@ class ObservabilityService {
           where: { createdAt: { gte: oneHourAgo } },
           _count: true
         }),
-        // Track non-business errors (5xx)
         redis.get('stats:errors:1h')
       ]);
 
@@ -215,22 +180,13 @@ class ObservabilityService {
       const total = Object.values(stats).reduce((a, b) => a + b, 0);
       const cancelled = stats['cancelled'] || 0;
       const successRate = total > 0 ? ((total - cancelled) / total) * 100 : 100;
-      const errorRate = total > 0 ? (parseInt(errorCount || '0') / total) * 100 : 0;
 
-      // P95 Latency Aggregate (From EMA system)
-      const p95 = Math.max(...Object.values(nextState.latencies));
+      const p95 = Math.max(...Object.values(nextState.latencies), 0);
 
-      nextState.business = { 
-        totalOrders: total, 
-        successRate, 
-        errorRate,
-        p95 
-      };
+      nextState.business = { totalOrders: total, successRate, p95 };
       
-      // 📊 Error Budget Tracking (Persistent Consumption)
       await this._consumeErrorBudget(nextState);
 
-      // Penalty for SLO Breach (Exponential)
       if (successRate < this.SLO.SUCCESS_RATE) {
         const diff = this.SLO.SUCCESS_RATE - successRate;
         nextState.score -= Math.round(Math.pow(diff, 1.5) * 5);
@@ -243,27 +199,21 @@ class ObservabilityService {
 
       nextState.score = Math.max(0, nextState.score);
 
-      // 🧠 Big Tech Decision Intelligence
       const intelligence = require('./intelligenceEngine');
       await intelligence.orchestrate(nextState);
 
     } catch (err) {
-      logger.error('[Observability] Business SLO calculation failed', { error: err.message });
+      logger.error('[Observability] SLO analysis failed', { error: err.message });
     }
   }
 
-  /**
-   * 🛡️ Error Budget Consumer
-   * Tracks cumulative failure over time and persists in Redis.
-   */
   async _consumeErrorBudget(state) {
     const budgetKey = 'system:error_budget:remaining';
-    let budget = 1000; // Start with 1000 "Reliability Units"
+    let budget = 1000;
     
     const cached = await redis.get(budgetKey);
     if (cached) budget = toNumber(cached, 1000);
 
-    // Cost of unreliability
     let cost = 0;
     if (state.business.successRate < 99) cost += 5;
     if (state.business.p95 > 500) cost += 10;
@@ -271,7 +221,6 @@ class ObservabilityService {
 
     budget = Math.max(0, budget - cost);
     
-    // Regeneration (slowly add 2 units per check if healthy)
     if (state.status === SYSTEM_STATES.HEALTHY && budget < 1000) {
       budget += 2;
     }
@@ -280,7 +229,7 @@ class ObservabilityService {
     await redis.set(budgetKey, budget.toFixed(2), 'EX', 86400 * 7);
 
     if (budget < 200) {
-      logger.error('[Observability] 🚨 ERROR BUDGET EXHAUSTED. Forced Safety Mode.');
+      logger.error('[Observability] 🚨 ERROR BUDGET EXHAUSTED.');
     }
   }
 
