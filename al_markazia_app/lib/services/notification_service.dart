@@ -8,6 +8,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'api_service.dart';
 import 'session_service.dart';
 import 'storage_service.dart';
+import 'app_events.dart';
 import '../main.dart';
 import '../screens/notification_detail_screen.dart';
 import 'package:flutter/services.dart';
@@ -233,6 +234,12 @@ class NotificationService extends ChangeNotifier {
     
     // 4. Refresh notification list from server
     fetchNotifications();
+    
+    // 5. 🎁 Loyalty/Profile Sync: Refresh profile if order was delivered
+    if (data is Map && data['status'] == 'delivered') {
+      print('🎁 [NotificationService] Order delivered. Triggering profile sync...');
+      AppEvents.emit(IdentityRefreshEvent());
+    }
     
     notifyListeners();
   }

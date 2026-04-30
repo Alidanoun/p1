@@ -30,6 +30,8 @@ class StorageService extends ChangeNotifier {
   String? get userName => _prefs.getString('user_name');
   String? get userRole => _prefs.getString('user_role');
   String? get userPhone => _prefs.getString('user_phone');
+  int get userPoints => _prefs.getInt('user_points') ?? 0;
+  String get userTier => _prefs.getString('user_tier') ?? 'SILVER';
 
   Future<void> saveIdentity({
     required String id,
@@ -37,12 +39,16 @@ class StorageService extends ChangeNotifier {
     String? name,
     String? role,
     String? phone,
+    int? points,
+    String? tier,
   }) async {
     await _prefs.setString('user_id', id);
     if (email != null) await _prefs.setString('user_email', email);
     if (name != null) await _prefs.setString('user_name', name);
     if (role != null) await _prefs.setString('user_role', role);
     if (phone != null) await _prefs.setString('user_phone', phone);
+    if (points != null) await _prefs.setInt('user_points', points);
+    if (tier != null) await _prefs.setString('user_tier', tier);
     notifyListeners();
   }
 
@@ -54,6 +60,8 @@ class StorageService extends ChangeNotifier {
     await _prefs.remove('user_name');
     await _prefs.remove('user_role');
     await _prefs.remove('user_phone');
+    await _prefs.remove('user_points');
+    await _prefs.remove('user_tier');
     // Note: 'currentUser' JSON string is legacy, we use individual keys now
     await _prefs.remove('currentUser');
     notifyListeners();
@@ -95,6 +103,8 @@ class StorageService extends ChangeNotifier {
         'name': userName,
         'role': userRole,
         'phone': userPhone,
+        'points': userPoints,
+        'tier': userTier,
       };
     }
     return null;
@@ -110,6 +120,8 @@ class StorageService extends ChangeNotifier {
         name: user['name'],
         role: user['role'],
         phone: user['phone'],
+        points: user['points'] != null ? int.tryParse(user['points'].toString()) : null,
+        tier: user['tier'],
       );
     }
   }

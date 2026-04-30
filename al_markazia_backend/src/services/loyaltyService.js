@@ -1,5 +1,7 @@
 const prisma = require('../lib/prisma');
+const { DateTime } = require('luxon');
 const logger = require('../utils/logger');
+const eventBus = require('../events/eventBus');
 
 /**
  * 🎁 Loyalty Service
@@ -14,30 +16,194 @@ class LoyaltyService {
     if (!config) {
       config = await prisma.loyaltyConfig.create({ data: {} });
     }
-    return config;
+
+    // 🕒 Calculate Happy Hour Status
+    const status = this._calculateHappyHourStatus(config);
+    
+    return {
+      ...config,
+      happyHourStatus: status
+    };
+  }
+
+  /**
+   * 🕒 Internal Helper: Calculate if Happy Hour is currently active and time remaining
+   */
+  _calculateHappyHourStatus(config) {
+    if (!config.isHappyHourEnabled) {
+      return { isActive: false, status: 'DISABLED', remainingSeconds: 0 };
+    }
+
+    const now = DateTime.now().setZone('Asia/Amman'); // Jordan Time
+    const today = now.toISODate();
+
+    const start = DateTime.fromISO(`${today}T${config.happyHourStart}`, { zone: 'Asia/Amman' });
+    const end = DateTime.fromISO(`${today}T${config.happyHourEnd}`, { zone: 'Asia/Amman' });
+
+    if (now >= start && now <= end) {
+      return {
+        isActive: true,
+        status: 'ACTIVE',
+        remainingSeconds: Math.floor(end.diff(now, 'seconds').seconds)
+      };
+    } else if (now < start) {
+      return {
+        isActive: false,
+        status: 'PENDING',
+        remainingSeconds: Math.floor(start.diff(now, 'seconds').seconds)
+      };
+    } else {
+      return {
+        isActive: false,
+        status: 'EXPIRED',
+        remainingSeconds: 0
+      };
+    }
+  }
+
+  /**
+   * 🤖 Automated Maintenance: Checks if Happy Hour should be disabled after end time
+   */
+  async checkAndAutoDisable() {
+    const config = await prisma.loyaltyConfig.findFirst();
+    if (!config || !config.isHappyHourEnabled) return null;
+
+    const status = this._calculateHappyHourStatus(config);
+    
+    // If it was enabled but the time window has passed, we can choose to auto-disable 
+    // OR just let it stay enabled for the next day. 
+    // The user asked to "تغلق تلقائياً وعند انتهاء الوقت فعلياً تغلق هذه الخاصية".
+    if (status.status === 'EXPIRED') {
+      const updated = await prisma.loyaltyConfig.update({
+        where: { id: config.id },
+        data: { isHappyHourEnabled: false }
+      });
+      return { id: config.id, disabled: true };
+    }
+    return null;
+  }
+
+  /**
+   * 🚀 Immediate Activation: Starts Happy Hour NOW and notifies all users
+   */
+  async startNow() {
+    const config = await this.getConfig();
+    const now = DateTime.now().setZone('Asia/Amman');
+    
+    // Set start to now and end to 2 hours from now (default window)
+    const startTime = now.toFormat('HH:mm');
+    const endTime = now.plus({ hours: 2 }).toFormat('HH:mm');
+
+    const updated = await prisma.loyaltyConfig.update({
+      where: { id: config.id },
+      data: {
+        isHappyHourEnabled: true,
+        happyHourStart: startTime,
+        happyHourEnd: endTime
+      }
+    });
+
+    // 📢 Push Notification Broadcast
+    eventBus.publish({
+      type: 'system.broadcast',
+      payload: {
+        title: '🎁 بدأت سـاعـة الـسـعـادة!',
+        message: `تم تفعيل مضاعفة النقاط x${updated.happyHourMultiplier} الآن! اطلب واستمتع بمكافآت إضافية.`,
+      }
+    });
+
+    return {
+      ...updated,
+      happyHourStatus: this._calculateHappyHourStatus(updated)
+    };
+  }
+
+  /**
+   * 🛑 Manual Deactivation: Stops Happy Hour immediately
+   */
+  async stopNow() {
+    const config = await this.getConfig();
+    
+    const updated = await prisma.loyaltyConfig.update({
+      where: { id: config.id },
+      data: {
+        isHappyHourEnabled: false
+      }
+    });
+
+    // 📢 Push Notification Broadcast
+    eventBus.publish({
+      type: 'system.broadcast',
+      payload: {
+        title: '🏁 انتهت ساعة السعادة',
+        message: 'انتهت فترة مضاعفة النقاط حالياً، شكراً لتواجدكم معنا. انتظرونا في فترات قادمة!',
+      }
+    });
+
+    return {
+      ...updated,
+      happyHourStatus: this._calculateHappyHourStatus(updated)
+    };
   }
 
   /**
    * Update Loyalty Configuration
    */
   async updateConfig(data) {
+    // 🛡️ Data Sanitization & Type Conversion
+    const sanitized = {};
+    
+    // Numeric fields
+    const numFields = [
+      'pointsPerJod', 'tierGoldMinOrders', 'tierPlatinumMinOrders', 
+      'pointsMultiplierGold', 'pointsMultiplierPlatinum', 'reviewPoints', 
+      'referralPoints', 'socialSharePoints', 'happyHourMultiplier'
+    ];
+    
+    numFields.forEach(field => {
+      if (data[field] !== undefined) {
+        sanitized[field] = parseFloat(data[field]);
+      }
+    });
+
+    // Boolean fields
+    if (data.isHappyHourEnabled !== undefined) {
+      sanitized.isHappyHourEnabled = String(data.isHappyHourEnabled) === 'true' || data.isHappyHourEnabled === true;
+    }
+
+    // String fields
+    if (data.happyHourStart) sanitized.happyHourStart = data.happyHourStart;
+    if (data.happyHourEnd) sanitized.happyHourEnd = data.happyHourEnd;
+
+    const config = await this.getConfig();
+
     return await prisma.loyaltyConfig.update({
-      where: { id: 1 },
-      data
+      where: { id: config.id },
+      data: sanitized
     });
   }
 
   /**
    * Award Points for Order Completion
    */
-  async awardPointsForOrder(orderId) {
+  async awardPointsForOrder(orderIdOrOrder) {
     try {
-      const order = await prisma.order.findUnique({
-        where: { id: orderId },
-        include: { customer: true }
-      });
+      let order;
+      if (typeof orderIdOrOrder === 'object') {
+        order = orderIdOrOrder;
+      } else {
+        order = await prisma.order.findUnique({
+          where: { id: orderIdOrOrder },
+          include: { customer: true }
+        });
+      }
 
-      if (!order || !order.customerId || order.status !== 'delivered') return;
+      const orderId = order?.id;
+
+      if (!order || !order.customerId || order.status !== 'delivered') {
+        logger.info(`[Loyalty] Skipping points for order ${orderId} (Status: ${order?.status}, HasCustomer: ${!!order?.customerId})`);
+        return 0;
+      }
 
       const config = await this.getConfig();
       const customer = order.customer;
@@ -49,8 +215,9 @@ class LoyaltyService {
 
       // 2. Apply Happy Hour Multiplier if active
       if (config.isHappyHourEnabled) {
-        const now = new Date();
-        const currentTime = now.getHours() * 60 + now.getMinutes();
+        const now = DateTime.now().setZone('Asia/Amman');
+        const currentTime = now.hour * 60 + now.minute;
+        
         const [startH, startM] = config.happyHourStart.split(':').map(Number);
         const [endH, endM] = config.happyHourEnd.split(':').map(Number);
         const startTime = startH * 60 + startM;
@@ -58,11 +225,24 @@ class LoyaltyService {
 
         if (currentTime >= startTime && currentTime <= endTime) {
           multiplier *= config.happyHourMultiplier;
-          logger.info(`Happy Hour active! Applying ${config.happyHourMultiplier}x multiplier`);
+          logger.info(`[Loyalty] Happy Hour active! Applying ${config.happyHourMultiplier}x multiplier`);
         }
       }
 
       const pointsEarned = Math.floor(Number(order.subtotal) * config.pointsPerJod * multiplier);
+
+      logger.info(`[Loyalty] Calculating points for Order #${order.orderNumber}:`, {
+        subtotal: order.subtotal,
+        pointsPerJod: config.pointsPerJod,
+        multiplier,
+        calculatedPoints: pointsEarned,
+        targetCustomerId: order.customerId
+      });
+
+      if (pointsEarned <= 0) {
+        logger.warn(`[Loyalty] Zero points calculated for order ${orderId}`, { subtotal: order.subtotal, multiplier });
+        return 0;
+      }
 
       // 3. Update Customer Points & Total Orders
       const updatedCustomer = await prisma.customer.update({
@@ -73,13 +253,16 @@ class LoyaltyService {
         }
       });
 
-      // 3. Evaluate Tier Upgrade
+      logger.info(`[Loyalty] DB Update Success. Customer ${updatedCustomer.id} (UUID: ${updatedCustomer.uuid}) new balance: ${updatedCustomer.points}`);
+
+      // 4. Evaluate Tier Upgrade
       await this.evaluateTierUpgrade(updatedCustomer.id, config);
 
-      logger.info(`Awarded ${pointsEarned} points to customer ${customer.id} for order ${orderId}`);
+      logger.info(`[Loyalty] Awarded ${pointsEarned} points to customer ${customer.uuid} for order #${order.orderNumber}`);
       return pointsEarned;
     } catch (err) {
       logger.error('Failed to award loyalty points', { error: err.message, orderId });
+      throw err; // Re-throw to ensure OrderService knows it failed
     }
   }
 

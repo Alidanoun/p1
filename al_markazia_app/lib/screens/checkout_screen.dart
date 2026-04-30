@@ -551,6 +551,47 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                       )),
                       
                       const Divider(height: 32),
+                      
+                      // 🎁 Loyalty Points Preview
+                      if (checkout.estimatedPoints > 0)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 16.0),
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.amber.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.amber.withOpacity(0.3)),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.card_giftcard, color: Colors.amber, size: 20),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        Localizations.localeOf(context).languageCode == 'ar' 
+                                          ? 'ستحصل على ${checkout.estimatedPoints} نقطة' 
+                                          : 'You will earn ${checkout.estimatedPoints} points',
+                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.amber),
+                                      ),
+                                      if (checkout.loyaltyConfig?['happyHourStatus']?['isActive'] == true)
+                                        Text(
+                                          Localizations.localeOf(context).languageCode == 'ar' 
+                                            ? 'بما في ذلك مكافأة ساعة السعادة! 🔥' 
+                                            : 'Including Happy Hour bonus! 🔥',
+                                          style: TextStyle(fontSize: 10, color: Colors.amber.shade700),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -610,7 +651,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               const SizedBox(height: 12),
               Center(
                 child: Text(
-                  AppLocalizations.of(context)!.languageCode == 'ar' 
+                  Localizations.localeOf(context).languageCode == 'ar' 
                     ? 'الأسعار شاملة ضريبة المبيعات' 
                     : 'Prices are inclusive of sales tax',
                   style: TextStyle(color: Colors.grey.shade600, fontSize: 12, fontWeight: FontWeight.bold),

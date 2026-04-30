@@ -36,6 +36,7 @@ export default defineConfig({
       '/dashboard':      apiProxy('http://localhost:5000'),
       '/restaurant':     apiProxy('http://localhost:5000'),
       '/health':         apiProxy('http://localhost:5000'),
+      '/loyalty':        apiProxy('http://localhost:5000'),
     }
   }
 })

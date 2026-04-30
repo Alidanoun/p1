@@ -72,12 +72,10 @@ class _VideoSplashScreenState extends State<VideoSplashScreen> {
   }
 
   void _handleNavigation() {
-    if (_hasNavigated && _controller.value.position < _controller.value.duration) return; 
-    if (_hasNavigated && _controller.value.position >= _controller.value.duration && _hasNavigatedAlreadyCalled) return;
+    if (_hasNavigated) return;
+    _hasNavigated = true;
     
-    _hasNavigatedAlreadyCalled = true;
     setState(() {
-      _hasNavigated = true;
       _videoReadyToShow = false; 
     });
 
@@ -87,7 +85,7 @@ class _VideoSplashScreenState extends State<VideoSplashScreen> {
     final storage = StorageService.instance;
     final auth = context.read<AuthController>();
     
-    // Perform one last "Session Restoration" to be absolutely sure
+    // AuthController.initialize has its own guard now, so this is safe and clean.
     auth.initialize().then((_) {
       if (!mounted) return;
 
@@ -99,13 +97,9 @@ class _VideoSplashScreenState extends State<VideoSplashScreen> {
           case AuthStatus.authenticated:
             nextScreen = const MainNavScreen();
             break;
-          case AuthStatus.biometricRequired:
-          case AuthStatus.sessionExpired:
-          case AuthStatus.unauthenticated:
-            nextScreen = const AuthScreen();
-            break;
           default:
             nextScreen = const AuthScreen();
+            break;
         }
       }
 
@@ -124,8 +118,6 @@ class _VideoSplashScreenState extends State<VideoSplashScreen> {
       });
     });
   }
-
-  bool _hasNavigatedAlreadyCalled = false;
 
   @override
   void dispose() {

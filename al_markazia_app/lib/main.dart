@@ -132,25 +132,11 @@ class _MarkaziaAppState extends State<MarkaziaApp> {
     final user = StorageService.instance.getCurrentUser();
     NotificationService().init();
 
-    ApiService.onAuthError = () async {
-      debugPrint('🚪 Auth Error Bridge Triggered - Force Logout');
-      
-      // We use the static instance logic because this callback is static
-      await SessionService.instance.clearTokens();
-      await StorageService.instance.clearIdentityOnLogout();
-      
-      // 2. Clear Notification Identity
-      NotificationService().reset();
-      
-      // 3. Force Navigation to Auth Screen
-      if (navigatorKey.currentState != null) {
-        navigatorKey.currentState!.pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const AuthScreen()),
-          (route) => false,
-        );
-      }
-    };
+    // ApiService.onAuthError removed as part of state machine hardening.
+    // Auth failures are now handled by refresh flow or explicit logout.
   }
+
+
 
   @override
   Widget build(BuildContext context) {

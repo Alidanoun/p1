@@ -45,11 +45,10 @@ const Analytics = () => {
   }, [period, source]);
 
   const peakHourInfo = useMemo(() => {
-    if (!data?.peakHours || data.peakHours.length === 0) return 0;
-    // Create a copy before sorting to avoid mutating the state
-    const sorted = [...data.peakHours].sort((a, b) => b.count - a.count);
-    return sorted[0]?.hour || 0;
-  }, [data?.peakHours]);
+    if (!data?.chartData || data.chartData.length === 0) return null;
+    const sorted = [...data.chartData].sort((a, b) => b.count - a.count);
+    return sorted[0];
+  }, [data?.chartData]);
 
   if (loading && !data) {
     return (
@@ -127,8 +126,8 @@ const Analytics = () => {
           isPositive={false}
         />
         <StatCard 
-          title="ساعة الذروة المتوقعة" 
-          value={data.overview.totalOrders > 0 ? `${peakHourInfo}:00` : "---"} 
+          title={period === 'today' ? "ساعة الذروة المتوقعة" : "اليوم الأكثر طلباً"} 
+          value={data.overview.totalOrders > 0 ? (peakHourInfo?.label || "---") : "---"} 
           icon={<Clock className="text-amber-500" />} 
         />
       </div>
@@ -136,11 +135,14 @@ const Analytics = () => {
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
         {/* 📈 Revenue & Peak Activity */}
         <div className="xl:col-span-2 space-y-8">
-          <ChartCard title="ساعات الذروة (ضغط الطلبات)" icon={<Clock className="w-4 h-4" />}>
+          <ChartCard 
+            title={period === 'today' ? "ضغط الطلبات بالساعة" : period === 'week' ? "ضغط الطلبات بالأيام" : "ضغط الطلبات بالشهر"} 
+            icon={<Clock className="w-4 h-4" />}
+          >
             <div className="h-[350px] w-full">
               {data.overview.totalOrders > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={data?.peakHours}>
+                  <AreaChart data={data?.chartData}>
                     <defs>
                       <linearGradient id="colorPeak" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#FF7F3E" stopOpacity={0.3}/>
@@ -149,16 +151,15 @@ const Analytics = () => {
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
                     <XAxis 
-                      dataKey="hour" 
+                      dataKey="label" 
                       stroke="#94a3b8" 
                       fontSize={10} 
-                      tickFormatter={(val) => `${val}:00`}
                     />
                     <YAxis stroke="#94a3b8" fontSize={10} />
                     <Tooltip 
                       contentStyle={{ backgroundColor: '#1e293b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px' }}
                       itemStyle={{ color: '#FF7F3E', fontWeight: 'bold' }}
-                      labelFormatter={(val) => `الساعة: ${val}:00`}
+                      labelFormatter={(val) => `الفترة: ${val}`}
                     />
                     <Area 
                       type="monotone" 

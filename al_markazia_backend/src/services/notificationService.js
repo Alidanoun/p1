@@ -195,6 +195,10 @@ class NotificationService {
       const payload = {
         ...fullMappedOrder,
         id: String(notif.id),
+        notification: {
+          title: notif.title,
+          message: notif.message
+        },
         timestamp: Date.now()
       };
 
@@ -308,11 +312,17 @@ class NotificationService {
 
   _generateStatusContent(order, status) {
     const num = order.orderNumber || order.id;
+    const points = order.pointsEarned;
     const map = {
       pending: { title: 'طلب جديد 🔔', message: `تم استلام طلبك رقم ${num}` },
       preparing: { title: 'جاري التحضير 👨‍🍳', message: `طلبك رقم ${num} قيد التحضير الآن` },
       ready: { title: 'طلبك جاهز! ✅', message: `طلبك رقم ${num} جاهز للاستلام أو التوصيل` },
-      delivered: { title: 'تم التسليم 🥡', message: 'بالهناء والشفاء! نتمنى رؤيتك قريباً' },
+      delivered: { 
+        title: 'تم التسليم 🥡', 
+        message: points > 0 
+          ? `بالهناء والشفاء! تم إضافة ${points} نقطة إلى حسابك. شكراً لطلبك من المركزية` 
+          : 'بالهناء والشفاء! نتمنى رؤيتك قريباً' 
+      },
       cancelled: { title: 'تم الإلغاء ❌', message: `تم إلغاء طلبك رقم ${num}` }
     };
     return map[status] || { title: 'تحديث الطلب', message: `الطلب رقم ${num} أصبح ${status}` };

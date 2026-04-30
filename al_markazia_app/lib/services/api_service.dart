@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart' hide Category;
+import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/menu_item.dart';
@@ -6,12 +7,25 @@ import '../models/order_model.dart';
 import 'api/auth_api.dart';
 import 'api/order_api.dart';
 import 'session_service.dart';
+import 'storage_service.dart';
+import 'app_events.dart';
 import '../models/restaurant_status.dart';
 import '../features/checkout/models/delivery_zone.dart';
 
+/// 🏥 Enterprise API Service (Intelligent Interceptor & Resilience Layer)
 class ApiService {
   final _authApi = AuthApi();
   final _orderApi = OrderApi();
+  
+  // 🕒 Silent Refresh Management
+  Timer? _silentRefreshTimer;
+
+  static String get baseUrl {
+    const ip = String.fromEnvironment('SERVER_IP', defaultValue: '192.168.3.154');
+    const port = String.fromEnvironment('SERVER_PORT', defaultValue: '5000');
+    final scheme = const bool.fromEnvironment('dart.vm.product') ? 'https' : 'http';
+    return '$scheme://$ip:$port';
+  }
 
   /// 🏥 Fetch Restaurant Operational Status
   Future<RestaurantStatus> fetchRestaurantStatus() async {
@@ -27,6 +41,22 @@ class ApiService {
     } catch (e) {
       return RestaurantStatus(isOpen: true, isEmergency: false); // Fail-safe
     }
+  }
+
+  /// 🎁 Fetch Happy Hour / Loyalty Status
+  Future<Map<String, dynamic>> fetchLoyaltyStatus() async {
+    try {
+      final response = await http.get(Uri.parse('$baseUrl/loyalty/status'))
+          .timeout(const Duration(seconds: 5));
+      
+      if (response.statusCode == 200) {
+        final decoded = json.decode(utf8.decode(response.bodyBytes));
+        return decoded['data'] ?? {};
+      }
+    } catch (e) {
+      debugPrint('Loyalty Status Error: $e');
+    }
+    return {'isHappyHourEnabled': false};
   }
 
   Future<bool> subscribeToReopening(String fcmToken, String nextOpenAt) async {
@@ -47,13 +77,6 @@ class ApiService {
       return false;
     }
   }
-  
-  static String get baseUrl {
-    const ip = String.fromEnvironment('SERVER_IP', defaultValue: '192.168.3.138');
-    const port = String.fromEnvironment('SERVER_PORT', defaultValue: '5000');
-    final scheme = const bool.fromEnvironment('dart.vm.product') ? 'https' : 'http';
-    return '$scheme://$ip:$port';
-  }
 
   /// 🛡️ Enterprise Security: Centralized Header Injection
   Future<Map<String, String>> get _headers async {
@@ -72,11 +95,10 @@ class ApiService {
   DateTime? _menuItemCacheTime;
   List<DeliveryZone>? _deliveryZoneCache;
   DateTime? _deliveryZoneCacheTime;
-  // ✅ Reduced TTL to 1 minute so admin panel changes reflect quickly
+  
   static const _cacheTTL = Duration(minutes: 1);
   static const _longCacheTTL = Duration(minutes: 5);
 
-  /// Clears all cached data to force a fresh fetch from the server.
   void clearCache() {
     _categoryCache = null;
     _categoryCacheTime = null;
@@ -90,23 +112,6 @@ class ApiService {
   // --- RESILIENCE & OBSERVABILITY ---
 
   Future<bool>? _refreshFuture;
-
-  Future<OrderModel?> fetchActiveOrder() async {
-    try {
-      final heads = await _headers;
-      final orders = await _orderApi.fetchMyOrders(heads, page: 1, limit: 1);
-      if (orders.isNotEmpty) {
-        final order = orders.first;
-        if (order.status != 'delivered' && order.status != 'cancelled') {
-          return order;
-        }
-      }
-      return null;
-    } catch (e) {
-      debugPrint('Fetch Active Order Error: $e');
-      return null;
-    }
-  }
 
   /// 🔐 JWT SECURITY LAYER: SINGLETON AUTO REFRESH & RETRY
   /// Handles 401 errors by attempting a token refresh and retrying the action.
@@ -124,8 +129,8 @@ class ApiService {
           
           // 🛡️ Loop Guard: Prevent infinite refresh loops
           if (refreshAttempts >= 1) {
-            debugPrint('🚨 [Auth] Refresh loop detected. Forced logout.');
-            _handle401();
+            debugPrint('🚨 [Auth] Refresh loop detected. Session unrecoverable.');
+            _triggerLogout();
             rethrow;
           }
 
@@ -141,8 +146,8 @@ class ApiService {
             debugPrint('✅ [Auth] Session Restored. Retrying request...');
             return _withRetry(action, maxAttempts: maxAttempts, refreshAttempts: refreshAttempts + 1);
           } else {
-            debugPrint('❌ [Auth] Refresh failed. Forced logout.');
-            _handle401();
+            debugPrint('❌ [Auth] Refresh failed. Session unrecoverable.');
+            _triggerLogout();
             rethrow;
           }
         }
@@ -191,7 +196,6 @@ class ApiService {
           }
         }
         
-        // 🛡️ Save only security tokens here
         await SessionService.instance.saveTokens(
           accessToken: data['accessToken'],
           refreshToken: newRefresh ?? refresh,
@@ -205,16 +209,13 @@ class ApiService {
     }
   }
 
+  // --- CORE DATA FETCHING ---
+
   Future<List<Category>> fetchCategories({bool forceRefresh = false}) async {
     return _withRetry(() async {
-      // 🥇 Check Cache First (skip if forceRefresh)
       if (!forceRefresh && _categoryCache != null && _categoryCacheTime != null) {
-        if (DateTime.now().difference(_categoryCacheTime!) < _cacheTTL) {
-          debugPrint('🚀 [Cache Hit] Categories served from cache.');
-          return _categoryCache!;
-        }
+        if (DateTime.now().difference(_categoryCacheTime!) < _cacheTTL) return _categoryCache!;
       }
-      // ✅ Wipe stale cache to guarantee fresh data on forceRefresh
       _categoryCache = null;
       _categoryCacheTime = null;
 
@@ -222,37 +223,28 @@ class ApiService {
       final response = await http.get(Uri.parse('$baseUrl/categories'), headers: heads).timeout(const Duration(seconds: 10));
       
       if (response.statusCode == 401) throw Exception('401');
-      
       if (response.statusCode == 200) {
         final decoded = json.decode(utf8.decode(response.bodyBytes));
         final List data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : (decoded is List ? decoded : []);
-        
         final categories = data.map((json) {
           if (json['image'] != null && json['image'].toString().startsWith('/')) {
             json['image'] = '$baseUrl${json['image']}';
           }
           return Category.fromJson(json);
         }).toList();
-
         _categoryCache = categories;
         _categoryCacheTime = DateTime.now();
         return categories;
-      } else {
-        throw Exception('Failed to load categories');
       }
+      throw Exception('Failed to load categories');
     });
   }
 
   Future<List<MenuItem>> fetchMenuItems({bool forceRefresh = false}) async {
     return _withRetry(() async {
-      // 🥇 Check Cache First (skip if forceRefresh)
       if (!forceRefresh && _menuItemCache != null && _menuItemCacheTime != null) {
-        if (DateTime.now().difference(_menuItemCacheTime!) < _cacheTTL) {
-          debugPrint('🚀 [Cache Hit] Menu items served from cache.');
-          return _menuItemCache!;
-        }
+        if (DateTime.now().difference(_menuItemCacheTime!) < _cacheTTL) return _menuItemCache!;
       }
-      // ✅ Wipe stale cache to guarantee fresh data on forceRefresh
       _menuItemCache = null;
       _menuItemCacheTime = null;
 
@@ -260,38 +252,28 @@ class ApiService {
       final response = await http.get(Uri.parse('$baseUrl/items'), headers: heads).timeout(const Duration(seconds: 10));
       
       if (response.statusCode == 401) throw Exception('401');
-
       if (response.statusCode == 200) {
         final decoded = json.decode(utf8.decode(response.bodyBytes));
         final List data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : (decoded is List ? decoded : []);
-        
         final items = data.map((json) {
           if (json['image'] != null && json['image'].toString().startsWith('/')) {
             json['image'] = '$baseUrl${json['image']}';
           }
           return MenuItem.fromJson(json);
         }).toList();
-
         _menuItemCache = items;
         _menuItemCacheTime = DateTime.now();
         return items;
-      } else {
-        throw Exception('Failed to load menu items');
       }
+      throw Exception('Failed to load menu items');
     });
   }
 
-  // --- Dependencies ---
   Future<List<DeliveryZone>> fetchDeliveryZones({bool forceRefresh = false}) async {
     return _withRetry(() async {
-      // 🥇 Check Cache First (skip if forceRefresh)
       if (!forceRefresh && _deliveryZoneCache != null && _deliveryZoneCacheTime != null) {
-        if (DateTime.now().difference(_deliveryZoneCacheTime!) < _longCacheTTL) {
-          debugPrint('🚀 [Cache Hit] Delivery zones served from cache.');
-          return _deliveryZoneCache!;
-        }
+        if (DateTime.now().difference(_deliveryZoneCacheTime!) < _longCacheTTL) return _deliveryZoneCache!;
       }
-      // ✅ Wipe stale cache
       _deliveryZoneCache = null;
       _deliveryZoneCacheTime = null;
 
@@ -303,26 +285,32 @@ class ApiService {
         if (body['success'] == true) {
           final List data = body['data'] ?? [];
           final zones = data.map((z) => DeliveryZone.fromJson(z)).toList();
-          
           _deliveryZoneCache = zones;
           _deliveryZoneCacheTime = DateTime.now();
           return zones;
         }
-        throw Exception('API returned failure for delivery zones');
-      } else {
-        throw Exception('Failed to load delivery zones (${response.statusCode})');
       }
+      throw Exception('Failed to load delivery zones');
     });
   }
 
-  static Function()? onAuthError;
+  // --- ORDERS ---
 
-  void _handle401() {
-    debugPrint('Token expired or invalid: 401');
-    if (onAuthError != null) onAuthError!();
+  Future<OrderModel?> fetchActiveOrder() async {
+    try {
+      final heads = await _headers;
+      final orders = await _orderApi.fetchMyOrders(heads, page: 1, limit: 1);
+      if (orders.isNotEmpty) {
+        final order = orders.first;
+        if (order.status != 'delivered' && order.status != 'cancelled') return order;
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Fetch Active Order Error: $e');
+      return null;
+    }
   }
 
-  // --- Orders Delegation (Strangler Pattern) ---
   Future<OrderModel?> placeOrder(OrderModel order) async {
     final heads = await _headers;
     return _withRetry(() => _orderApi.placeOrder(order, heads));
@@ -330,7 +318,6 @@ class ApiService {
 
   Future<List<OrderModel>> fetchCustomerOrders(String phone, {int page = 1, int limit = 10}) async {
     final heads = await _headers;
-    // Note: phone parameter is kept for signature compatibility but ignored for authenticated my-orders
     return _withRetry(() => _orderApi.fetchMyOrders(heads, page: page, limit: limit));
   }
   
@@ -358,16 +345,43 @@ class ApiService {
     ));
   }
 
-  // --- Auth Delegation (Strangler Pattern) ---
+  /// 🕒 Silent Refresh: Proactively renew tokens before they expire
+  void scheduleSilentRefresh(String accessToken) {
+    _silentRefreshTimer?.cancel();
+    
+    // We assume a 1-hour expiry (3600s), refresh at 55 minutes (3300s)
+    // In a real app, you'd decode the JWT 'exp' claim here.
+    const refreshInterval = Duration(minutes: 55);
+    
+    debugPrint('🕒 [Auth] Silent refresh scheduled in 55 minutes.');
+    _silentRefreshTimer = Timer(refreshInterval, () {
+      debugPrint('🕒 [Auth] Executing scheduled silent refresh...');
+      refreshTokens();
+    });
+  }
+
+  // --- AUTH ---
+
   Future<Map<String, dynamic>> loginCustomer(String email, String password) async {
     final response = await _authApi.loginCustomer(email, password);
-    // 🛡️ Split Session (Tokens) from Identity (Profile)
     await SessionService.instance.saveTokens(
       accessToken: response['accessToken'],
       refreshToken: response['refreshToken'],
     );
     await StorageService.instance.setCurrentUser(response['user']);
+    
+    if (response['accessToken'] != null) {
+      scheduleSilentRefresh(response['accessToken']);
+    }
+    
     return response;
+  }
+
+  Future<Map<String, dynamic>> getMe() async {
+    final token = await SessionService.instance.accessToken;
+    if (token == null) throw Exception('No session found');
+    final user = await _authApi.getMe(token);
+    return user;
   }
 
   Future<Map<String, dynamic>> registerCustomer({
@@ -382,12 +396,7 @@ class ApiService {
       password: password,
       phone: phone,
     );
-    // 🛡️ Split Session (Tokens) from Identity (Profile)
-    await SessionService.instance.saveTokens(
-      accessToken: response['accessToken'],
-      refreshToken: response['refreshToken'],
-    );
-    await StorageService.instance.setCurrentUser(response['user']);
+
     return response;
   }
 
@@ -395,8 +404,8 @@ class ApiService {
     return loginCustomer(email, password);
   }
 
-  // --- Reviews Delegation ---
-  // If there are other review actions, they should eventually move to ReviewApi
+  // --- REVIEWS & SEARCH ---
+
   Future<List<Review>> fetchItemReviews(int itemId) async {
     try {
       final response = await http.get(Uri.parse('$baseUrl/reviews/item/$itemId')).timeout(const Duration(seconds: 5));
@@ -407,7 +416,6 @@ class ApiService {
       }
       return [];
     } catch (e) {
-      debugPrint('Fetch Reviews Error: $e');
       return [];
     }
   }
@@ -427,15 +435,10 @@ class ApiService {
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 401) throw Exception('401');
-
-      if (response.statusCode != 201) {
-        final errorData = json.decode(utf8.decode(response.bodyBytes));
-        throw Exception(errorData['error'] ?? 'Failed to submit review');
-      }
+      if (response.statusCode != 201) throw Exception('Failed to submit review');
     });
   }
 
-  /// 🔍 Professional Search API
   Future<List<MenuItem>> searchItems(String query) async {
     final response = await http.get(
       Uri.parse('$baseUrl/items/search?q=${Uri.encodeComponent(query)}'),
@@ -445,21 +448,18 @@ class ApiService {
     if (response.statusCode == 200) {
       final decoded = json.decode(utf8.decode(response.bodyBytes));
       final List data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : (decoded is List ? decoded : []);
-      
       return data.map((json) {
         if (json['image'] != null && json['image'].toString().startsWith('/')) {
           json['image'] = '$baseUrl${json['image']}';
         }
         return MenuItem.fromJson(json);
       }).toList();
-    } else {
-      throw Exception('Search failed');
     }
+    throw Exception('Search failed');
   }
 
-  // ════════════════════════════════════════════════════════
-  //  🆕 Token Refresh (used by biometric login)
-  // ════════════════════════════════════════════════════════
+  // --- SINGLETON & TOKEN REFRESH ---
+
   static ApiService? _instance;
   static ApiService get instance {
     _instance ??= ApiService();
@@ -468,22 +468,22 @@ class ApiService {
 
   Future<String?> refreshTokens() async {
     try {
-      // 1. Try standard refresh token first
       String? refresh = await SessionService.instance.refreshToken;
       
-      // 2. Fallback to biometric token (if user logged out but biometrics are enabled)
+      // 🛡️ User Fix: Fallback only if biometrics enabled AND token exists
       if (refresh == null) {
-        debugPrint('🔑 [Auth] No standard session found. Attempting Biometric Token recovery...');
-        refresh = await SessionService.instance.biometricToken;
+        final bioToken = await SessionService.instance.biometricToken;
+        if (bioToken != null && StorageService.instance.isBiometricEnabled) {
+          debugPrint('🔑 [Auth] Recovering via Biometric Token...');
+          refresh = bioToken;
+        }
       }
 
       if (refresh == null) return null;
 
       final response = await http.post(
         Uri.parse('$baseUrl/auth/refresh'),
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: {'Content-Type': 'application/json'},
         body: json.encode({'refreshToken': refresh}),
       ).timeout(const Duration(seconds: 10));
 
@@ -494,7 +494,6 @@ class ApiService {
         final newRefreshToken = data['refreshToken'] as String?;
 
         if (newAccessToken != null) {
-          // 🛡️ Save new tokens (Session & Biometric update)
           await SessionService.instance.saveTokens(
             accessToken: newAccessToken,
             refreshToken: newRefreshToken,
@@ -502,6 +501,8 @@ class ApiService {
           if (newRefreshToken != null) {
             await SessionService.instance.saveBiometricToken(newRefreshToken);
           }
+          
+          scheduleSilentRefresh(newAccessToken);
           return newAccessToken;
         }
       }
@@ -512,5 +513,8 @@ class ApiService {
     }
   }
 
-  // Ends of API Service
+  void _triggerLogout() {
+    debugPrint('🚨 [Auth] Session unrecoverable. Emitting Expiry Event.');
+    AppEvents.emit(SessionExpiredEvent());
+  }
 }

@@ -47,6 +47,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Timer? _countdownTimer;
   bool _isSubscribed = false;
   OrderModel? _activeOrder;
+  Map<String, dynamic>? _loyaltyStatus;
+  int _happyHourRemainingSeconds = 0;
   
   // Featured Slider Logic
   final PageController _featuredPageController = PageController();
@@ -117,13 +119,13 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       // ✨ Smart UI Polish: Add a tiny artificial delay for premium transition feel
-      // This prevents the skeleton from "flickering" if the API is ultra-fast.
       if (!silent) await Future.delayed(const Duration(milliseconds: 350));
 
       final cats = await _apiService.fetchCategories(forceRefresh: silent);
       final items = await _apiService.fetchMenuItems(forceRefresh: silent);
       final status = await _apiService.fetchRestaurantStatus();
       final activeOrder = await _apiService.fetchActiveOrder();
+      final loyalty = await _apiService.fetchLoyaltyStatus();
       
       if (mounted) {
         setState(() {
@@ -131,6 +133,8 @@ class _HomeScreenState extends State<HomeScreen> {
           _menuItems = items;
           _status = status;
           _activeOrder = activeOrder;
+          _loyaltyStatus = loyalty;
+          _happyHourRemainingSeconds = (loyalty['happyHourStatus']?['remainingSeconds'] ?? 0).toInt();
           _isLoading = false;
         });
         _startFeaturedTimer();
@@ -404,6 +408,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               _buildStatusBanner(),
+                              _buildHappyHourBanner(),
                               if (_menuItems.where((i) => i.isFeatured).isNotEmpty) ...[
                                 _buildFeaturedSlider(primaryColor, isDark),
                                 const SizedBox(height: 24),
@@ -612,19 +617,39 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _startCountdownTimer() {
     _countdownTimer?.cancel();
-    if (_status == null || _status!.isOpen || _status!.nextOpenAt == null) return;
-
+    
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (mounted) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+
+      bool needsRefresh = false;
+
+      // 1. Restaurant Status Countdown
+      if (_status != null && !_status!.isOpen && _status!.nextOpenAt != null) {
         final now = DateTime.now();
         if (now.isAfter(_status!.nextOpenAt!)) {
-          timer.cancel();
-          _fetchData(); // Re-fetch status to open the restaurant in UI
-          return;
+          needsRefresh = true;
         }
+      }
+
+      // 2. Happy Hour Countdown
+      if (_happyHourRemainingSeconds > 0) {
         setState(() {
-          // Just trigger rebuild to update the countdown text
+          _happyHourRemainingSeconds--;
         });
+        if (_happyHourRemainingSeconds <= 0) {
+          needsRefresh = true;
+        }
+      } else {
+        // If 0, just trigger a rebuild to ensure UI reflects 'EXPIRED' if needed
+        setState(() {});
+      }
+
+      if (needsRefresh) {
+        timer.cancel();
+        _fetchData(silent: true);
       }
     });
   }
@@ -655,6 +680,70 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (e) {
       debugPrint('Subscribe Error: $e');
     }
+  }
+
+  Widget _buildHappyHourBanner() {
+    if (_loyaltyStatus == null || _loyaltyStatus!['isHappyHourEnabled'] != true) return const SizedBox.shrink();
+    
+    final status = _loyaltyStatus!['happyHourStatus']?['status'] ?? 'DISABLED';
+    if (status == 'EXPIRED' || status == 'DISABLED') return const SizedBox.shrink();
+
+    final isActive = status == 'ACTIVE';
+    final accentColor = isActive ? Colors.teal : Colors.amber;
+    final multiplier = _loyaltyStatus!['happyHourMultiplier'] ?? 2.0;
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [accentColor.withOpacity(0.2), accentColor.withOpacity(0.05)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: accentColor.withOpacity(0.3)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(color: accentColor, shape: BoxShape.circle),
+            child: Icon(isActive ? Icons.stars_rounded : Icons.timer_outlined, color: Colors.white, size: 20),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isActive 
+                    ? (Localizations.localeOf(context).languageCode == 'ar' ? 'ساعة السعادة نشطة! 🎁' : 'Happy Hour is LIVE! 🎁')
+                    : (Localizations.localeOf(context).languageCode == 'ar' ? 'استعد لساعة السعادة ⏳' : 'Get Ready for Happy Hour ⏳'),
+                  style: TextStyle(fontWeight: FontWeight.w900, color: accentColor, fontSize: 15),
+                ),
+                Text(
+                  isActive
+                    ? (Localizations.localeOf(context).languageCode == 'ar' ? 'نقاطك مضاعفة x$multiplier على كل طلب' : 'Your points are x$multiplier on every order')
+                    : (Localizations.localeOf(context).languageCode == 'ar' ? 'العرض سيبدأ قريباً' : 'Offer will start soon'),
+                  style: TextStyle(color: (Theme.of(context).brightness == Brightness.dark ? Colors.white : Colors.black).withOpacity(0.6), fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          Column(
+            children: [
+              Text(
+                TimeFormatter.formatCountdown(Duration(seconds: _happyHourRemainingSeconds)),
+                style: TextStyle(color: accentColor, fontSize: 18, fontWeight: FontWeight.w900, fontFeatures: const [FontFeature.tabularFigures()]),
+              ),
+              Text(isActive ? (Localizations.localeOf(context).languageCode == 'ar' ? 'متبقي' : 'left') : (Localizations.localeOf(context).languageCode == 'ar' ? 'قريباً' : 'soon'), style: TextStyle(fontSize: 10, color: (Theme.of(context).brightness == Brightness.dark ? Colors.white : Colors.black).withOpacity(0.6))),
+            ],
+          ),
+        ],
+      ),
+    ).animate().fadeIn().slideX(begin: -0.1, end: 0);
   }
 
   Widget _buildStatusBanner() {

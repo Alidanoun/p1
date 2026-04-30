@@ -2,12 +2,14 @@ const logger = require('../utils/logger');
 const TokenService = require('../services/tokenService');
 const { error: responseError } = require('../utils/response');
 
+const redis = require('../lib/redis');
+
 /**
  * Enterprise Authentication Middleware
  * Validates JWT tokens and populates req.user with UUID context.
  * Standardizes security for both Admins and Customers.
  */
-const authenticateToken = (req, res, next) => {
+const authenticateToken = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
 
@@ -21,12 +23,23 @@ const authenticateToken = (req, res, next) => {
 
   try {
     const decoded = TokenService.verifyAccessToken(token);
+    const { id: userId, jti } = decoded;
+
+    // 🛡️ JTI Revocation Check (Foundation Step)
+    if (jti) {
+      const sessionExists = await redis.exists(`session:${userId}:${jti}`);
+      if (!sessionExists) {
+        logger.security('REVOKED_SESSION_ACCESS_ATTEMPT', { userId, jti, ip: req.ip });
+        return responseError(res, 'انتهت صلاحية الجلسة أو تم إلغاؤها', 'SESSION_REVOKED', 401);
+      }
+    }
     
     // Populate request with User Context
     req.user = {
-      id: decoded.id, // This is the UUID
+      id: userId, // This is the UUID
       phone: decoded.phone,
-      role: (decoded.role || '').toLowerCase() // 🧠 Identity Normalization
+      role: (decoded.role || '').toLowerCase(), // 🧠 Identity Normalization
+      jti: jti
     };
     
     next();
@@ -70,7 +83,7 @@ const isAdmin = requireRoles(['admin', 'super_admin']);
  * 🟡 Optional Authentication Middleware
  * Allows guests (no token) while validating existing tokens.
  */
-const optionalAuth = (req, res, next) => {
+const optionalAuth = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
 
@@ -83,10 +96,22 @@ const optionalAuth = (req, res, next) => {
   // 2. Token Provided: MUST be valid
   try {
     const decoded = TokenService.verifyAccessToken(token);
+    const { id: userId, jti } = decoded;
+
+    // 🛡️ JTI Revocation Check
+    if (jti) {
+      const sessionExists = await redis.exists(`session:${userId}:${jti}`);
+      if (!sessionExists) {
+        req.user = null; // Treat as guest if session revoked
+        return next();
+      }
+    }
+
     req.user = {
-      id: decoded.id,
+      id: userId,
       phone: decoded.phone,
-      role: (decoded.role || '').toLowerCase()
+      role: (decoded.role || '').toLowerCase(),
+      jti: jti
     };
     next();
   } catch (error) {

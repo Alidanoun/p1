@@ -8,16 +8,17 @@ datasource db {
 }
 
 model User {
-  id        Int      @id @default(autoincrement())
-  email     String   @unique
-  phone     String?  @unique
-  name      String?
-  password  String
-  role      String   @default("admin")
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  fcmToken  String?
-  uuid      String   @unique @default(uuid())
+  id           Int      @id @default(autoincrement())
+  email        String   @unique
+  phone        String?  @unique
+  name         String?
+  password     String
+  role         String   @default("admin")
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  fcmToken     String?
+  uuid         String   @unique @default(uuid())
+  tokenVersion Int      @default(1)
 }
 
 model Category {
@@ -197,6 +198,7 @@ model Customer {
   phoneVerifiedAt     DateTime?
   username            String?            @unique
   uuid                String             @unique @default(uuid())
+  tokenVersion        Int                @default(1)
   auditLogs           CustomerAuditLog[]
   orders              Order[]
   reviews             Review[]
@@ -387,15 +389,17 @@ model DeliveryZone {
 model RefreshToken {
   id        String   @id @default(uuid())
   token     String   @unique
+  jti       String?  @unique
   userId    String
   role      String
   expiresAt DateTime
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime @default(now()) @updatedAt
   isRevoked Boolean  @default(false)
 
   @@index([userId])
   @@index([token])
+  @@index([jti])
 }
 
 model HealthMetric {

@@ -1,6 +1,8 @@
 const jwt = require('jsonwebtoken');
+const { v4: uuidv4 } = require('uuid');
 const logger = require('../utils/logger');
 const prisma = require('../lib/prisma');
+const redis = require('../lib/redis');
 
 const {
   JWT_SECRET: ACCESS_TOKEN_SECRET,
@@ -12,18 +14,19 @@ const {
 
 /**
  * Enterprise Token Service (Level 4 Security)
- * Handles generation, DB-backed storage, and rotation of JWT tokens.
+ * Handles generation, Redis-backed session management, and JTI rotation.
  */
 class TokenService {
   /**
    * Generates a signed Access Token for short-term authorization
    */
-  static generateAccessToken(user) {
+  static generateAccessToken(user, jti) {
     return jwt.sign(
       { 
         id: user.uuid, 
         phone: user.phone,
-        role: user.role || 'customer'
+        role: user.role || 'customer',
+        jti: jti // Bind to session
       },
       ACCESS_TOKEN_SECRET,
       { expiresIn: ACCESS_TOKEN_EXPIRY }
@@ -31,44 +34,45 @@ class TokenService {
   }
 
   /**
-   * Generates AND SAVES a signed Refresh Token for session persistence.
-   * 🛡️ Multi-Device Support: Relaxes single-session enforcement while pruning old ones.
+   * Generates AND SAVES a signed Refresh Token to Redis.
+   * 🛡️ JTI-based Session Store: Allows instant revocation and multi-device tracking.
    */
   static async generateAndSaveRefreshToken(user) {
     const role = user.role || 'customer';
-
-    // 🛡️ Prune only very old or revoked sessions for this user (Cleanup)
-    // We allow up to 5 concurrent sessions per user for multi-device support.
-    const sessions = await prisma.refreshToken.findMany({
-      where: { userId: user.uuid },
-      orderBy: { createdAt: 'desc' }
-    });
-
-    if (sessions.length >= 5) {
-      const idsToPrune = sessions.slice(4).map(s => s.id);
-      await prisma.refreshToken.deleteMany({
-        where: { id: { in: idsToPrune } }
-      });
-      logger.info(`[TokenService] Pruned ${idsToPrune.length} old session(s) for user ${user.uuid}`);
-    }
+    const jti = uuidv4(); // Unique Session Identifier
+    const userId = user.uuid;
 
     const token = jwt.sign(
-      { id: user.uuid, role: role },
+      { id: userId, role: role, jti: jti },
       REFRESH_TOKEN_SECRET,
       { expiresIn: REFRESH_TOKEN_EXPIRY }
     );
 
-    // Persist session to DB
+    // 🚀 Store in Redis: Hot Storage for Active Sessions
+    const sessionKey = `session:${userId}:${jti}`;
+    const sessionData = {
+      jti,
+      userId,
+      role,
+      createdAt: new Date().toISOString()
+    };
+
+    // Save to Redis with expiry (matched to Refresh Token duration)
+    const ttlSeconds = Math.floor(REFRESH_TOKEN_EXPIRY_MS / 1000);
+    await redis.set(sessionKey, JSON.stringify(sessionData), 'EX', ttlSeconds);
+
+    // 📊 Backup to DB: Cold Storage (Optional but recommended for audit)
     await prisma.refreshToken.create({
       data: {
         token,
-        userId: user.uuid,
+        userId: userId,
         role,
+        jti: jti, // Ensure jti is in your schema or add it
         expiresAt: new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS)
       }
-    });
+    }).catch(e => logger.error('Cold storage backup failed', { error: e.message }));
 
-    return token;
+    return { token, jti };
   }
 
   /**
@@ -86,102 +90,48 @@ class TokenService {
   }
 
   /**
-   * Implements Secure Rotation & Abuse Detection with Concurrency Grace Window
-   * Logic: If a token is reused very recently (< 10s), it's likely a race condition, not an attack.
+   * Implements Secure Rotation & Abuse Detection with Redis Session Validation
    */
   static async validateAndRotate(oldTokenString) {
     try {
       // 1. JWT Standard Verification
       const decoded = jwt.verify(oldTokenString, REFRESH_TOKEN_SECRET);
-      
-      // 2. Database Lookup
-      const tokenRecord = await prisma.refreshToken.findUnique({
-        where: { token: oldTokenString }
-      });
+      const { id: userId, jti: oldJti } = decoded;
 
-      // 🚨 ABUSE DETECTION: Token missing or revoked
-      if (!tokenRecord || tokenRecord.isRevoked) {
-        
-        // 🛡️ CONCURRENCY GRACE WINDOW: 
-        // If the token was revoked VERY recently (e.g. within 10 seconds), 
-        // it's likely a duplicate request from the client (common in high-latency or React StrictMode).
-        // We allow it to "succeed" by returning a fresh token pair without a security alarm.
-        if (tokenRecord && tokenRecord.isRevoked) {
-          const now = new Date();
-          // We use createdAt + 10s as a proxy for 'recently rotated' if updatedAt isn't available,
-          // but since we just added updatedAt to schema (even if push failed, Prisma client might see it),
-          // let's use a safe check.
-          const lastChange = tokenRecord.updatedAt || tokenRecord.createdAt;
-          const secondsSinceRotation = (now.getTime() - new Date(lastChange).getTime()) / 1000;
-          
-          if (secondsSinceRotation < 10) {
-            logger.info('[TokenService] Concurrency grace window hit. Returning new session for user', { userId: decoded.id });
-            // Since it's already rotated, we should ideally find the *new* token created for this user,
-            // but for simplicity and safety, we'll just allow this request to trigger a NEW rotation
-            // as if it were the first one, OR better: return the existing newest token.
-            // For now, let's just proceed to generate a new one to avoid blocking the user.
-          } else {
-            logger.security('REUSE_ATTEMPT_DETECTED: Critical breach warning', { 
-              userId: decoded.id, 
-              tokenHash: oldTokenString.substring(0, 10) + '...' 
-            });
-            await this.revokeAllSessions(decoded.id);
-            throw new Error('TOKEN_REUSE_DETECTED');
-          }
-        } else {
-          // Token completely missing from DB
-          throw new Error('REFRESH_TOKEN_INVALID');
-        }
+      if (!oldJti) throw new Error('MALFORMED_TOKEN');
+
+      // 2. Redis Session Lookup (Source of Truth)
+      const sessionKey = `session:${userId}:${oldJti}`;
+      const sessionDataRaw = await redis.get(sessionKey);
+
+      if (!sessionDataRaw) {
+        logger.security('REUSE_OR_REVOKED_SESSION_DETECTED', { userId, jti: oldJti });
+        // Panic: If a session is missing from Redis but token is valid, it's either revoked or replayed
+        await this.revokeAllSessions(userId);
+        throw new Error('SESSION_REVOKED_OR_EXPIRED');
       }
 
-      // 3. ATOMIC ROTATION: Update old (Revoke) + Create new in ONE transaction
-      let user, newRefreshToken;
-      await prisma.$transaction(async (tx) => {
-        // Mark old token as revoked instead of deleting (to support grace window)
-        // Check if tokenRecord was already revoked (grace window case)
-        if (tokenRecord && !tokenRecord.isRevoked) {
-          await tx.refreshToken.update({ 
-            where: { id: tokenRecord.id },
-            data: { isRevoked: true }
-          });
-        }
+      // 3. Resolve Identity
+      let user;
+      if (decoded.role === 'admin' || decoded.role === 'super_admin') {
+        user = await prisma.user.findFirst({ where: { uuid: userId } });
+      } else {
+        user = await prisma.customer.findFirst({ where: { uuid: userId } });
+      }
 
-        // Resolve Identity
-        if (decoded.role === 'admin' || decoded.role === 'super_admin') {
-          user = await tx.user.findFirst({ where: { uuid: decoded.id } });
-        } else {
-          user = await tx.customer.findFirst({ where: { uuid: decoded.id } });
-        }
+      if (!user) throw new Error('USER_NOT_FOUND');
 
-        if (!user) throw new Error('USER_NOT_FOUND');
+      // 4. ATOMIC ROTATION
+      // Delete old session from Redis
+      await redis.del(sessionKey);
 
-        // Generate and Save New Token
-        const role = user.role || 'customer';
-        const token = jwt.sign(
-          { id: user.uuid, role: role },
-          REFRESH_TOKEN_SECRET,
-          { expiresIn: REFRESH_TOKEN_EXPIRY }
-        );
-
-        await tx.refreshToken.create({
-          data: {
-            token,
-            userId: user.uuid,
-            role,
-            expiresAt: new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS)
-          }
-        });
-
-        newRefreshToken = token;
-      });
-
-      // 4. Generate Access Token (Safe to do outside transaction)
-      const accessToken = this.generateAccessToken(user);
+      // Generate New Pair
+      const { token: newRefreshToken, jti: newJti } = await this.generateAndSaveRefreshToken(user);
+      const accessToken = this.generateAccessToken(user, newJti);
 
       return { accessToken, newRefreshToken, user };
     } catch (error) {
-      if (error.message === 'TOKEN_REUSE_DETECTED') throw error;
-      if (error.message === 'REFRESH_TOKEN_INVALID') throw error;
+      logger.error('Token Rotation Failed', { error: error.message });
       throw new Error('REFRESH_TOKEN_INVALID');
     }
   }
@@ -190,16 +140,32 @@ class TokenService {
    * Manual Revocation (Logout)
    */
   static async revokeToken(tokenString) {
-    await prisma.refreshToken.deleteMany({ where: { token: tokenString } });
+    try {
+      const decoded = jwt.verify(tokenString, REFRESH_TOKEN_SECRET);
+      const sessionKey = `session:${decoded.id}:${decoded.jti}`;
+      await redis.del(sessionKey);
+      await prisma.refreshToken.deleteMany({ where: { jti: decoded.jti } }).catch(() => {});
+    } catch (e) {
+      // Token might be malformed or already expired
+    }
   }
 
   /**
-   * Panic Revocation (Security Breach)
+   * Panic Revocation (Security Breach / Reset Password)
    */
   static async revokeAllSessions(userId) {
-    await prisma.refreshToken.deleteMany({ where: { userId } });
-    logger.info('Panic: All sessions revoked for user', { userId });
+    // 1. Clear Redis (Pattern matching)
+    const keys = await redis.keys(`session:${userId}:*`);
+    if (keys.length > 0) {
+      await redis.del(...keys);
+    }
+
+    // 2. Clear DB Backup
+    await prisma.refreshToken.deleteMany({ where: { userId } }).catch(() => {});
+    
+    logger.info('Panic: All sessions revoked for user', { userId, sessionCount: keys.length });
   }
 }
 
 module.exports = TokenService;
+

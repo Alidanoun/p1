@@ -222,8 +222,14 @@ const gracefulShutdown = async (signal) => {
 
       // Close BullMQ Queues/Workers
       const { orderQueue } = require('./queues/orderQueue');
-      await orderQueue.close();
-      logger.info('Order queue closed.');
+      const { emailQueue } = require('./queues/emailQueue');
+      
+      await Promise.all([
+        orderQueue.close(),
+        emailQueue.close()
+      ]);
+      
+      logger.info('All background queues closed.');
 
       process.exit(0);
     } catch (err) {
