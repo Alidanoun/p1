@@ -311,6 +311,52 @@ class LoyaltyService {
       logger.info(`Awarded ${points} engagement points to customer ${customerId} for ${type}`);
     }
   }
+
+  /**
+   * ⚠️ Compensate Customer with Points for Cancellation
+   * Triggered when restaurant cancels due to delay or error.
+   */
+  async compensatePointsForCancellation(orderId, reason = 'تأخير من المطعم') {
+    try {
+      const order = await prisma.order.findUnique({
+        where: { id: orderId },
+        include: { customer: true }
+      });
+
+      if (!order || !order.customerId) return null;
+
+      // Compensation is 5% of order total or at least 50 points
+      const config = await this.getConfig();
+      const amount = Math.max(50, Math.floor(Number(order.total) * 0.05 * config.pointsPerJod));
+
+      await prisma.customer.update({
+        where: { id: order.customerId },
+        data: { points: { increment: amount } }
+      });
+
+      // 📝 Audit Trail
+      await prisma.systemAuditLog.create({
+        data: {
+          userId: order.customer.uuid,
+          userRole: 'customer',
+          action: 'LOYALTY_COMPENSATION',
+          metadata: { 
+            orderId, 
+            amount, 
+            reason, 
+            orderNumber: order.orderNumber 
+          }
+        }
+      });
+
+      logger.info(`[Loyalty] Compensated customer ${order.customerId} with ${amount} points for order cancellation (#${order.orderNumber})`);
+      
+      return amount;
+    } catch (err) {
+      logger.error('[Loyalty] Compensation failed', { orderId, error: err.message });
+      return null;
+    }
+  }
 }
 
 module.exports = new LoyaltyService();

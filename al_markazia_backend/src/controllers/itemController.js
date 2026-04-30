@@ -210,13 +210,19 @@ exports.createItem = async (req, res) => {
             minSelect: parseInt(group.minSelect) || 0,
             maxSelect: parseInt(group.maxSelect) || 1,
             options: {
-              create: group.options.map(opt => ({
-                name: opt.name,
-                nameEn: opt.nameEn,
-                price: parseFloat(opt.price) || 0,
-                isDefault: opt.isDefault || false,
-                isAvailable: opt.isAvailable !== false
-              }))
+              create: group.options.map(opt => {
+                const optPrice = parseFloat(opt.price);
+                if (isNaN(optPrice) || optPrice < 0) {
+                  throw new Error(`INVALID_OPTION_PRICE:${opt.name}`);
+                }
+                return {
+                  name: opt.name,
+                  nameEn: opt.nameEn,
+                  price: optPrice,
+                  isDefault: opt.isDefault || false,
+                  isAvailable: opt.isAvailable !== false
+                };
+              })
             }
           }))
         }
@@ -293,13 +299,19 @@ exports.updateItem = async (req, res) => {
             minSelect: parseInt(group.minSelect) || 0,
             maxSelect: parseInt(group.maxSelect) || 1,
             options: {
-              create: group.options.map(opt => ({
-                name: opt.name,
-                nameEn: opt.nameEn,
-                price: parseFloat(opt.price) || 0,
-                isDefault: opt.isDefault || false,
-                isAvailable: opt.isAvailable !== false
-              }))
+              create: group.options.map(opt => {
+                const optPrice = parseFloat(opt.price);
+                if (isNaN(optPrice) || optPrice < 0) {
+                  throw new Error(`INVALID_OPTION_PRICE:${opt.name}`);
+                }
+                return {
+                  name: opt.name,
+                  nameEn: opt.nameEn,
+                  price: optPrice,
+                  isDefault: opt.isDefault || false,
+                  isAvailable: opt.isAvailable !== false
+                };
+              })
             }
           }))
         } : undefined

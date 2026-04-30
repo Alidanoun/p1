@@ -36,3 +36,41 @@ exports.updateSetting = async (req, res) => {
     res.status(500).json({ error: 'فشل في تحديث الإعداد' });
   }
 };
+
+exports.updateBulkSettings = async (req, res) => {
+  try {
+    const settings = req.body;
+    
+    // 🛡️ [CRITICAL] Business Rule Validation
+    if (settings.deliveryFee !== undefined) {
+      const fee = parseFloat(settings.deliveryFee);
+      if (isNaN(fee) || fee < 0) {
+        return res.status(400).json({ error: 'رسوم التوصيل يجب أن تكون رقماً صالحاً وغير سالب' });
+      }
+    }
+
+    if (settings.minOrderValue !== undefined) {
+      const minVal = parseFloat(settings.minOrderValue);
+      if (isNaN(minVal) || minVal < 0) {
+        return res.status(400).json({ error: 'الحد الأدنى للطلب يجب أن يكون رقماً صالحاً' });
+      }
+    }
+
+    // 🚀 Atomic Multi-Update
+    const operations = Object.entries(settings).map(([key, value]) => {
+      return prisma.systemSettings.upsert({
+        where: { key },
+        update: { value: String(value) },
+        create: { key, value: String(value) }
+      });
+    });
+
+    await prisma.$transaction(operations);
+
+    logger.info('System settings updated bulkly', { keys: Object.keys(settings), admin: req.user.id });
+    res.json({ success: true, message: 'تم تحديث الإعدادات بنجاح' });
+  } catch (error) {
+    logger.error('Update bulk settings error', { error: error.message });
+    res.status(500).json({ error: 'فشل في تحديث الإعدادات' });
+  }
+};

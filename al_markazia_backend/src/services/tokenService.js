@@ -121,6 +121,14 @@ class TokenService {
 
       if (!user) throw new Error('USER_NOT_FOUND');
 
+      // 🛡️ [CRITICAL] Active Status Guard
+      const isDisabled = (user.isActive === false) || (user.isBlacklisted === true);
+      if (isDisabled) {
+        logger.security('Rotation blocked: Account disabled/blacklisted', { userId });
+        await this.revokeAllSessions(userId);
+        throw new Error('ACCOUNT_DISABLED_OR_BLOCKED');
+      }
+
       // 4. ATOMIC ROTATION
       // Delete old session from Redis
       await redis.del(sessionKey);

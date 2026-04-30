@@ -1,6 +1,7 @@
 
 const prisma = require('../lib/prisma');
 const logger = require('../utils/logger');
+const TokenService = require('./tokenService');
 
 /**
  * Enterprise Customer Risk Intelligence System (Refined)
@@ -123,7 +124,6 @@ class CustomerRiskService {
           riskScoreUpdatedAt: new Date()
         }
       });
-
       // Forensic Audit Log
       await tx.customerAuditLog.create({
         data: {
@@ -144,6 +144,9 @@ class CustomerRiskService {
           requestSource
         }
       });
+
+      // 🛡️ [CRITICAL] Immediate Session Invalidation
+      await TokenService.revokeAllSessions(current.uuid);
 
       return updated;
     });

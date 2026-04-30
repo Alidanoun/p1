@@ -15,18 +15,22 @@ const globalLimiter = rateLimit({
   }
 });
 
-// تقييد المصادقة (Auth Limiter)
+// تقييد المصادقة (Auth Limiter) - Hardened: 5 attempts per 15 mins
 const authLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 50,
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5,
   keyGenerator: (req) => req.body?.email || req.body?.phone || req.ip,
   validate: false,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { success: false, message: 'Too many authentication attempts. Please try again later.' },
+  message: { 
+    success: false, 
+    message: 'تجاوزت الحد المسموح من المحاولات. يرجى المحاولة بعد 15 دقيقة.',
+    code: 'AUTH_RATE_LIMIT'
+  },
   handler: (req, res, next, options) => {
-    logger.warn(`Auth Rate Limit Exceeded: IP ${req.ip} | Route ${req.originalUrl}`);
-    res.status(options.statusCode).json(options.message);
+    logger.warn(`Auth Rate Limit Exceeded: IP ${req.ip} | Identifier ${req.body?.email || req.body?.phone}`);
+    res.status(429).json(options.message);
   }
 });
 

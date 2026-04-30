@@ -62,6 +62,7 @@ exports.getOrdersReport = async (req, res) => {
     res.json({
       success: true,
       data: result.orders,
+      summary: result.summary,
       pagination: result.page ? { total: result.total, page: result.page, limit: result.limit } : { total: result.total, limit: result.limit }
     });
   } catch (error) {
@@ -187,18 +188,22 @@ exports.submitOrderRating = async (req, res) => {
 exports.cancelOrder = async (req, res) => {
   try {
     const orderId = parseInt(req.params.id);
-    const { reason } = req.body;
+    const { reason, managerPassword } = req.body;
     
     if (reason && reason.length > 500) {
       return res.status(400).json({ error: 'سبب الإلغاء يتجاوز الحد المسموح (500 حرف)' });
     }
 
-    const updatedOrder = await orderService.cancelOrder(orderId, req.user, reason);
+    const updatedOrder = await orderService.cancelOrder(orderId, req.user, reason, managerPassword);
     res.json(updatedOrder);
   } catch (error) {
     logger.error('cancelOrder failed', { error: error.message });
-    if (error.message === 'ORDER_NOT_FOUND') return res.status(404).json({ error: 'Order not found' });
-    res.status(500).json({ error: 'Cancellation failed' });
+    
+    if (error.message === 'ORDER_NOT_FOUND') return res.status(404).json({ error: 'الطلب غير موجود' });
+    if (error.message === 'MANAGER_PASSWORD_REQUIRED') return res.status(400).json({ error: 'كلمة مرور المدير مطلوبة لإلغاء طلب نشط' });
+    if (error.message === 'INVALID_MANAGER_PASSWORD') return res.status(401).json({ error: 'كلمة مرور المدير غير صحيحة' });
+    
+    res.status(500).json({ error: 'فشل إلغاء الطلب' });
   }
 };
 

@@ -6,6 +6,7 @@
 const prisma = require('../lib/prisma');
 const redis = require('../lib/redis');
 const xss = require('xss');
+const bcrypt = require('bcrypt');
 const logger = require('../utils/logger');
 const AuditLogger = require('../utils/auditLogger');
 const analyticsService = require('./analyticsService');
@@ -36,21 +37,36 @@ class OrderService {
     const pageNum = page ? Math.max(1, parseInt(page)) : null;
     const limitNum = limit ? Math.min(1000, parseInt(limit)) : 500;
 
-    const [orders, total] = await Promise.all([
+    const [orders, total, aggregates, completedAggregates] = await Promise.all([
       prisma.order.findMany({
         where,
         include: ORDER_INCLUDE_FULL,
         orderBy: { createdAt: 'desc' },
         ...(pageNum ? { skip: (pageNum - 1) * limitNum, take: limitNum } : { take: limitNum })
       }),
-      prisma.order.count({ where })
+      prisma.order.count({ where }),
+      prisma.order.aggregate({
+        where,
+        _sum: { total: true },
+        _count: { id: true },
+        _avg: { total: true }
+      }),
+      prisma.order.count({
+        where: { ...where, status: 'delivered' }
+      })
     ]);
 
     return {
       orders: orders.map(mapOrderResponse),
       total,
       page: pageNum,
-      limit: limitNum
+      limit: limitNum,
+      summary: {
+        totalSales: toNumber(aggregates._sum.total || 0),
+        orderCount: aggregates._count.id,
+        avgValue: toMoney(aggregates._avg.total || 0),
+        completedCount: completedAggregates
+      }
     };
   }
 
@@ -175,9 +191,12 @@ class OrderService {
     const date = new Date(estimatedReadyAt);
     if (isNaN(date.getTime())) throw new Error('INVALID_DATE');
 
+    const currentOrder = await prisma.order.findUnique({ where: { id: orderId } });
+    if (!currentOrder) throw new Error('ORDER_NOT_FOUND');
+
     const order = await prisma.order.update({
-      where: { id: orderId },
-      data: { estimatedReadyAt: date },
+      where: { id: orderId, version: currentOrder.version },
+      data: { estimatedReadyAt: date, version: { increment: 1 } },
       include: ORDER_INCLUDE_FULL
     });
 
@@ -198,11 +217,12 @@ class OrderService {
     const newArrivalAt = new Date(order.createdAt.getTime() + (prepMinutes + delMinutes) * 60000);
 
     const updated = await prisma.order.update({
-      where: { id: orderId },
+      where: { id: orderId, version: order.version },
       data: {
         preparationTimeMinutes: prepMinutes,
         estimatedReadyAt: newReadyAt,
-        estimatedArrivalAt: newArrivalAt
+        estimatedArrivalAt: newArrivalAt,
+        version: { increment: 1 }
       },
       include: ORDER_INCLUDE_FULL
     });
@@ -318,7 +338,7 @@ class OrderService {
   /**
    * 🛑 Cancel Order with Multi-tier Validation
    */
-  async cancelOrder(orderId, user, reason) {
+  async cancelOrder(orderId, user, reason, managerPassword) {
     const order = await prisma.order.findUnique({
       where: { id: orderId },
       include: { customer: true }
@@ -327,6 +347,24 @@ class OrderService {
     if (!order) throw new Error('ORDER_NOT_FOUND');
 
     const isOrderManager = user?.role === 'admin';
+    
+    // 🛡️ [CRITICAL] Manager Password Validation for advanced-stage orders
+    if (isOrderManager && order.status !== 'pending') {
+      if (!managerPassword) {
+        throw new Error('MANAGER_PASSWORD_REQUIRED');
+      }
+
+      const admin = await prisma.user.findUnique({ where: { uuid: user.id } });
+      if (!admin) throw new Error('ADMIN_NOT_FOUND');
+
+      const isPasswordValid = await bcrypt.compare(managerPassword, admin.password);
+      if (!isPasswordValid) {
+        throw new Error('INVALID_MANAGER_PASSWORD');
+      }
+      
+      logger.info(`[OrderService] Manager password verified for cancellation of order #${order.orderNumber} by ${user.email}`);
+    }
+
     const canCancelDirectly = isOrderManager || order.status === 'pending';
     
     const targetStatus = canCancelDirectly ? 'cancelled' : 'waiting_cancellation';
@@ -370,6 +408,13 @@ class OrderService {
       payload: { previousStatus, newStatus: targetStatus, order: mapped },
       version: updatedOrder.version
     });
+
+    // 🎁 Loyalty Compensation Hook
+    if (targetStatus === 'cancelled' && reason && (reason.includes('تأخر') || reason.toLowerCase().includes('delay'))) {
+      loyaltyService.compensatePointsForCancellation(updatedOrder.id, reason).catch(err => {
+        logger.error('[Loyalty] Auto-compensation failed', { orderId: updatedOrder.id, error: err.message });
+      });
+    }
 
     return mapped;
   }
@@ -601,6 +646,7 @@ class OrderService {
       });
 
       if (!dbItem) throw new Error(`ITEM_NOT_FOUND:${item.id}`);
+      if (!dbItem.isAvailable) throw new Error(`ITEM_UNAVAILABLE:${dbItem.title}`);
 
       let unitPrice = toNumber(dbItem.basePrice);
       const optionIds = item.optionIds || [];
@@ -613,11 +659,14 @@ class OrderService {
 
         for (const opt of dbOptions) {
           if (opt.group.itemId !== dbItem.id) throw new Error('DATA_INTEGRITY_VIOLATION');
+          if (!opt.isAvailable) throw new Error(`OPTION_UNAVAILABLE:${opt.name}`);
           unitPrice += toNumber(opt.price);
         }
       }
 
-      const qty = parseInt(item.quantity || 1);
+      const qty = parseInt(item.quantity);
+      if (isNaN(qty) || qty <= 0) throw new Error(`INVALID_QUANTITY:${dbItem.title}`);
+      
       const lineTotal = toMoney(unitPrice * qty);
       subtotal += lineTotal;
 

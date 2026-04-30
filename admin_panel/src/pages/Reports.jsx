@@ -11,6 +11,7 @@ import 'jspdf-autotable';
 
 const Reports = () => {
   const [data, setData] = useState([]);
+  const [summary, setSummary] = useState({ totalSales: 0, orderCount: 0, avgValue: 0, completedCount: 0 });
   const [loading, setLoading] = useState(true);
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
@@ -22,8 +23,11 @@ const Reports = () => {
   const fetchReportData = async () => {
     setLoading(true);
     try {
-      const reportList = unwrap(await api.get(`/orders/report?startDate=${startDate}&endDate=${endDate}`)) || [];
+      const response = await api.get(`/orders/report?startDate=${startDate}&endDate=${endDate}`);
+      const { data: reportList, summary: reportSummary } = response.data;
+      
       setData(Array.isArray(reportList) ? reportList : []);
+      if (reportSummary) setSummary(reportSummary);
     } catch (error) {
        toast.error('فشل في تحميل بيانات التقارير');
        console.error('Fetch reports error:', error);
@@ -56,15 +60,6 @@ const Reports = () => {
   };
 
   const topItems = getTopItemsForPeriod();
-
-  const summary = {
-    totalSales: data.reduce((acc, curr) => acc + (Number(curr.totalPrice) || 0), 0),
-    orderCount: data.length,
-    avgValue: data.length > 0
-      ? (data.reduce((acc, curr) => acc + (Number(curr.totalPrice) || 0), 0) / data.length)
-      : 0,
-    completedCount: data.filter(o => o.status === 'delivered').length
-  };
 
   const exportToExcel = () => {
     const ws = XLSX.utils.json_to_sheet(data.map(order => ({
