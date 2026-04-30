@@ -3,146 +3,106 @@ const eventBus = require('../events/eventBus');
 const logger = require('../utils/logger');
 
 /**
- * 📮 Transactional Outbox Service (Raw SQL Implementation)
- * Features Auto-Table-Creation to handle schema drift without migrations.
+ * 📮 Transactional Outbox Service
+ * Ensures reliable event delivery using the outbox pattern.
+ * Uses Prisma Client for type-safe database operations.
  */
 class OutboxService {
-  constructor() {
-    this.tableInitialized = false;
-  }
-
   /**
-   * 🏗️ Ensure table exists in DB
-   */
-  async _ensureTable() {
-    if (this.tableInitialized) return;
-    try {
-      await prisma.$executeRawUnsafe(`
-        CREATE TABLE IF NOT EXISTS "OutboxEvent" (
-          id UUID PRIMARY KEY,
-          type TEXT NOT NULL,
-          payload JSONB NOT NULL,
-          status TEXT DEFAULT 'PENDING',
-          error TEXT,
-          retries INTEGER DEFAULT 0,
-          "processedAt" TIMESTAMP,
-          "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-      `);
-      this.tableInitialized = true;
-      logger.info('[Outbox] ✅ Database table verified/created.');
-    } catch (err) {
-      // If UUID fails (some environments), fallback to TEXT
-      try {
-        await prisma.$executeRawUnsafe(`
-          CREATE TABLE IF NOT EXISTS "OutboxEvent" (
-            id TEXT PRIMARY KEY,
-            type TEXT NOT NULL,
-            payload JSONB NOT NULL,
-            status TEXT DEFAULT 'PENDING',
-            error TEXT,
-            retries INTEGER DEFAULT 0,
-            "processedAt" TIMESTAMP,
-            "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-          );
-        `);
-        this.tableInitialized = true;
-      } catch (inner) {
-        logger.error('[Outbox] ❌ Critical: Failed to ensure table exists', { error: inner.message });
-      }
-    }
-  }
-
-  /**
-   * 📥 Enqueue an event (Raw SQL)
+   * 📥 Enqueue an event within a transaction
    */
   async enqueue(type, payload, tx) {
     if (!tx) throw new Error('OUTBOX_REQUIRES_TRANSACTION');
     
-    // Ensure table exists (Fire and forget, it will succeed eventually)
-    this._ensureTable();
-
-    const id = require('uuid').v4();
-    const payloadStr = JSON.stringify(payload);
-
-    await tx.$executeRawUnsafe(
-      'INSERT INTO "OutboxEvent" (id, type, payload, status, "createdAt") VALUES ($1, $2, $3, $4, $5)',
-      id, type, payloadStr, 'PENDING', new Date()
-    );
-
-    return { id };
+    return await tx.outboxEvent.create({
+      data: {
+        type,
+        payload: payload,
+        status: 'PENDING'
+      }
+    });
   }
 
   /**
-   * 📤 Process Pending Events (Raw SQL)
+   * 📤 Process Pending Events
    */
   async processPending() {
     try {
-      await this._ensureTable();
-
-      // 1. 🔍 Backlog Health Check (Raw)
-      const countResult = await prisma.$queryRawUnsafe('SELECT COUNT(*) as "count" FROM "OutboxEvent" WHERE status = \'PENDING\'');
-      const pendingCount = Number(countResult[0]?.count || 0);
+      // 1. 🔍 Backlog Health Check
+      const pendingCount = await prisma.outboxEvent.count({
+        where: { status: 'PENDING' }
+      });
 
       if (pendingCount > 500) {
         const controlPlane = require('./systemControlPlane');
         await controlPlane.raiseAlert('OUTBOX_JAM', { pendingCount });
       }
 
-      // 2. Fetch Events (Raw)
-      const events = await prisma.$queryRawUnsafe(
-        'SELECT * FROM "OutboxEvent" WHERE status = \'PENDING\' ORDER BY "createdAt" ASC LIMIT 20'
-      );
+      // 2. Fetch Events
+      const events = await prisma.outboxEvent.findMany({
+        where: { status: 'PENDING' },
+        orderBy: { createdAt: 'asc' },
+        take: 20
+      });
 
       for (const event of events) {
         try {
           // 3. Mark as DISPATCHED
-          await prisma.$executeRawUnsafe(
-            'UPDATE "OutboxEvent" SET status = \'DISPATCHED\', "processedAt" = $1 WHERE id = $2',
-            new Date(), event.id
-          );
+          await prisma.outboxEvent.update({
+            where: { id: event.id },
+            data: { 
+              status: 'DISPATCHED', 
+              processedAt: new Date() 
+            }
+          });
 
           // 4. Publish to EventBus
           eventBus.publish({
             type: event.type,
-            payload: typeof event.payload === 'string' ? JSON.parse(event.payload) : event.payload,
+            payload: event.payload,
             metadata: { outboxId: event.id }
           });
 
           logger.debug(`[Outbox] Event ${event.id} dispatched successfully.`);
         } catch (err) {
           logger.error(`[Outbox] Dispatch error for ${event.id}`, { error: err.message });
-          await prisma.$executeRawUnsafe(
-            'UPDATE "OutboxEvent" SET status = \'FAILED\', error = $1, retries = retries + 1 WHERE id = $2',
-            err.message, event.id
-          );
+          await prisma.outboxEvent.update({
+            where: { id: event.id },
+            data: { 
+              status: 'FAILED', 
+              error: err.message, 
+              retries: { increment: 1 } 
+            }
+          });
         }
       }
     } catch (err) {
-      if (!err.message.includes('relation "OutboxEvent" does not exist')) {
-        logger.error('[Outbox] Background dispatch failed', { error: err.message });
-      }
+      logger.error('[Outbox] Background dispatch failed', { error: err.message });
     }
   }
 
   /**
-   * ⚡ Immediate Dispatch (Raw SQL)
+   * ⚡ Immediate Dispatch
    */
   async immediateDispatch(eventId) {
     try {
-      const results = await prisma.$queryRawUnsafe('SELECT * FROM "OutboxEvent" WHERE id = $1 AND status = \'PENDING\'', eventId);
-      const event = results[0];
+      const event = await prisma.outboxEvent.findUnique({
+        where: { id: eventId }
+      });
 
-      if (!event) return;
+      if (!event || event.status !== 'PENDING') return;
 
-      await prisma.$executeRawUnsafe(
-        'UPDATE "OutboxEvent" SET status = \'DISPATCHED\', "processedAt" = $1 WHERE id = $2',
-        new Date(), event.id
-      );
+      await prisma.outboxEvent.update({
+        where: { id: eventId },
+        data: { 
+          status: 'DISPATCHED', 
+          processedAt: new Date() 
+        }
+      });
 
       eventBus.publish({
         type: event.type,
-        payload: typeof event.payload === 'string' ? JSON.parse(event.payload) : event.payload,
+        payload: event.payload,
         metadata: { outboxId: event.id, sync: true }
       });
 
@@ -153,15 +113,19 @@ class OutboxService {
   }
 
   /**
-   * ♻️ Retry Failed Events (Raw SQL)
+   * ♻️ Retry Failed Events
    */
   async retryFailed() {
     try {
-      await prisma.$executeRawUnsafe(
-        'UPDATE "OutboxEvent" SET status = \'PENDING\' WHERE status = \'FAILED\' AND retries < 5'
-      );
+      await prisma.outboxEvent.updateMany({
+        where: { 
+          status: 'FAILED', 
+          retries: { lt: 5 } 
+        },
+        data: { status: 'PENDING' }
+      });
     } catch (err) {
-      // Silence if table not yet ready
+      logger.error('[Outbox] Failed to retry events', { error: err.message });
     }
   }
 }

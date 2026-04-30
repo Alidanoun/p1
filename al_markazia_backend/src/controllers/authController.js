@@ -9,13 +9,17 @@ const response = require('../utils/response');
 const passwordRegex = /^(?=.*[a-zA-Z])(?=.*[\d!@#$%^&*]).{8,}$/;
 
 // ── Helper: Secure Cookie Config ──────────────────────
-const refreshCookieOptions = (req) => ({
-  httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',  // HTTPS only in production
-  sameSite: 'lax',                                 // Better compatibility for local dev/cross-origin
-  path: '/',                                       // Global scope for easier cross-origin handshake
-  maxAge: REFRESH_TOKEN_EXPIRY_MS
-});
+const refreshCookieOptions = (req) => {
+  const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https';
+  
+  return {
+    httpOnly: true,
+    secure: isSecure,                                // Auto-detect HTTPS
+    sameSite: isSecure ? 'none' : 'lax',             // 'none' for cross-site HTTPS, 'lax' for local/HTTP
+    path: '/',
+    maxAge: REFRESH_TOKEN_EXPIRY_MS
+  };
+};
 
 /**
  * 🔄 Refresh Token Rotation (Hardened)

@@ -96,26 +96,43 @@ exports.getOrderById = async (req, res) => {
 
 exports.createOrder = async (req, res) => {
   const idempotencyKey = req.headers['idempotency-key'];
+  
   if (idempotencyKey) {
-    const lock = await IdempotencyService.startRequest(idempotencyKey);
-    if (lock.status === 'completed') return res.status(lock.result.code).json(lock.result.body);
-    if (lock.status === 'processing') return res.status(425).json({ success: false, message: 'طلب مكرر قيد المعالجة' });
+    try {
+      const cached = await IdempotencyService.getResult(idempotencyKey);
+      if (cached) return res.status(cached.code).json(cached.body);
+
+      const canProceed = await IdempotencyService.start(idempotencyKey);
+      if (!canProceed) {
+        // Fallback for race condition: try getting result again
+        const retryCached = await IdempotencyService.getResult(idempotencyKey);
+        if (retryCached) return res.status(retryCached.code).json(retryCached.body);
+        return res.status(425).json({ success: false, message: 'Conflict' });
+      }
+    } catch (error) {
+      if (error.message.includes('LOCKED')) {
+        return res.status(425).json({ success: false, message: 'طلب مكرر قيد المعالجة' });
+      }
+      logger.error('Idempotency Guard Error', { error: error.message });
+      return res.status(500).json({ success: false, error: 'Internal Server Error' });
+    }
   }
 
   try {
     const authUser = req.user;
     if (!authUser && !req.body.phone) {
       const response = { success: false, error: 'رقم الهاتف مطلوب لإتمام الطلب كضيف' };
-      if (idempotencyKey) await IdempotencyService.resolveRequest(idempotencyKey, 400, response);
+      if (idempotencyKey) await IdempotencyService.commit(idempotencyKey, { code: 400, body: response });
       return res.status(400).json(response);
     }
 
     const newOrder = await orderService.createOrder(req.body, authUser);
     const response = { success: true, data: newOrder };
-    if (idempotencyKey) await IdempotencyService.resolveRequest(idempotencyKey, 201, response);
+    if (idempotencyKey) await IdempotencyService.commit(idempotencyKey, { code: 201, body: response });
     res.status(201).json(response);
   } catch (error) {
     logger.error('Order Creation Error', { error: error.message });
+    if (idempotencyKey) await IdempotencyService.rollback(idempotencyKey);
     res.status(500).json({ success: false, error: 'فشل إنشاء الطلب' });
   }
 };

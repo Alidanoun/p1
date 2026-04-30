@@ -61,6 +61,20 @@ class IdempotencyService {
     if (!key) return;
     await redis.del(`idempotency:${key}`);
   }
+
+  /**
+   * 🛡️ HTTP Middleware Guard
+   * Extracts idempotency key from headers for use in downstream logic.
+   */
+  guard() {
+    return (req, res, next) => {
+      const key = req.headers['x-idempotency-key'];
+      if (key) {
+        req.idempotencyKey = key;
+      }
+      next();
+    };
+  }
 }
 
 module.exports = new IdempotencyService();

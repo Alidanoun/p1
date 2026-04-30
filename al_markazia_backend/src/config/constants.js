@@ -7,6 +7,9 @@ const OTP_EXPIRY = {
   LOGIN: 5 * 60 * 1000             // 5 minutes
 };
 
+const DEFAULT_TIMEZONE = 'Asia/Amman';
+
 module.exports = {
-  OTP_EXPIRY
+  OTP_EXPIRY,
+  DEFAULT_TIMEZONE
 };
