@@ -28,14 +28,20 @@ class IntelligenceEngine {
       await this.activatePredictiveThrottling();
     }
 
-    // 3. Canary Rollout Decision
+    // 3. Canary Rollout Decision (Throttled)
+    const now = Date.now();
+    const lastCanary = this.decisions.get('last_canary_emit') || 0;
+
     if (status === 'HEALTHY' && score > 95) {
-      eventBus.emitSafe('CANARY_PROMOTION_ALLOWED');
+      if (now - lastCanary > 30000) { // 30s throttle
+        eventBus.emitSafe('CANARY_PROMOTION_ALLOWED');
+        this.decisions.set('last_canary_emit', now);
+      }
     } else {
       eventBus.emitSafe('CANARY_PROMOTION_BLOCKED', { reason: status });
     }
 
-    this.decisions.set('last_orchestration', { timestamp: Date.now(), score, status });
+    this.decisions.set('last_orchestration', { timestamp: now, score, status });
   }
 
   async triggerEmergencyKillSwitch(reason) {

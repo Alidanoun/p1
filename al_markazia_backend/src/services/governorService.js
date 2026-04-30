@@ -1,14 +1,9 @@
-const observability = require('./observabilityService');
-const arbitrator = require('./arbitratorService');
-const { DEGRADATION_MODES } = require('./arbitratorService');
 const logger = require('../utils/logger');
 const redis = require('../lib/redis');
 
 /**
  * 🚦 System Load Governor
- * Implements "Load Shedding" to protect the system under stress.
- * Drops Auxiliary services first, then Business Essential, 
- * to save Mission Critical operations.
+ * Protects the system under stress by shedding lower-priority traffic.
  */
 class GovernorService {
   constructor() {
@@ -20,6 +15,10 @@ class GovernorService {
   }
 
   async shouldShed(priority = this.PRIORITIES.MISSION_CRITICAL) {
+    const observability = require('./observabilityService');
+    const arbitrator = require('./arbitratorService');
+    const { DEGRADATION_MODES } = arbitrator;
+
     const health = await observability.getLiveStatus();
     const mode = await arbitrator.getCurrentMode();
     const { score, errorBudgetRemaining, business } = health;
@@ -28,28 +27,23 @@ class GovernorService {
     // 🛡️ High-Level Mode Gating
     if (mode === DEGRADATION_MODES.EMERGENCY) return true;
 
-    // 🏆 Tiered Adaptive Shedding (Big Tech Logic)
-    
-    // Tier 3: AUXILIARY (Analytics, Reviews)
+    // 🏆 Tiered Adaptive Shedding
     if (priority === this.PRIORITIES.AUXILIARY) {
       if (score < 80 || errorBudgetRemaining < 800 || p95 > 300) return true;
     }
 
-    // Tier 2: BUSINESS_ESSENTIAL (Menu, Cart)
     if (priority === this.PRIORITIES.BUSINESS_ESSENTIAL) {
       if (score < 60 || errorBudgetRemaining < 400 || p95 > 800) return true;
     }
 
-    // Tier 1: MISSION_CRITICAL (Orders, Auth)
-    // Only shed if score is below absolute basement or emergency mode
     if (priority === this.PRIORITIES.MISSION_CRITICAL) {
       if (score < 30 || errorBudgetRemaining < 100) return true;
     }
 
-    // 🚀 Global RPS Limit (Hard Cap)
+    // 🚀 Global RPS Limit
     const rps = await this.getCurrentRPS();
-    if (rps > 500) { // Increased from 150 for Scale Readiness
-      logger.warn(`[Governor] 🚨 Hard RPS Cap Breached: ${rps} RPS. Throttling all non-critical.`);
+    if (rps > 500) {
+      logger.warn(`[Governor] 🚨 Hard RPS Cap Breached: ${rps} RPS.`);
       if (priority > this.PRIORITIES.MISSION_CRITICAL) return true;
     }
 
