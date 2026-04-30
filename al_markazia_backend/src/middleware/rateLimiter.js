@@ -18,7 +18,7 @@ const globalLimiter = rateLimit({
 // تقييد المصادقة (Auth Limiter)
 const authLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 10,
+  max: 50,
   keyGenerator: (req) => req.body?.email || req.body?.phone || req.ip,
   validate: false,
   standardHeaders: true,

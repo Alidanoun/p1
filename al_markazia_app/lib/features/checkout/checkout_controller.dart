@@ -42,6 +42,8 @@ class CheckoutController extends ChangeNotifier {
   bool isLoading = false;
   String? errorMessage;
 
+  Map<String, dynamic>? loyaltyConfig;
+
   // ❄️ Initialize Snapshot (The Golden Rule)
   void initialize(CartController cartController) {
     // Take a frozen copy
@@ -58,8 +60,9 @@ class CheckoutController extends ChangeNotifier {
     errorMessage = null;
     isLoading = false;
     
-    // Fetch fresh zones in background
+    // Fetch fresh zones and loyalty config in background
     fetchZones();
+    fetchLoyaltyConfig();
     
     notifyListeners();
   }
@@ -70,6 +73,15 @@ class CheckoutController extends ChangeNotifier {
       notifyListeners();
     } catch (e) {
       print('Error fetching zones: $e');
+    }
+  }
+
+  Future<void> fetchLoyaltyConfig() async {
+    try {
+      loyaltyConfig = await _api.fetchLoyaltyStatus();
+      notifyListeners();
+    } catch (e) {
+      print('Error fetching loyalty config: $e');
     }
   }
 
@@ -105,6 +117,29 @@ class CheckoutController extends ChangeNotifier {
   }
 
   double get total => _subtotal + (orderType == 'delivery' ? deliveryFee : 0.0);
+
+  int get estimatedPoints {
+    if (loyaltyConfig == null) return 0;
+    
+    final pointsPerJod = (loyaltyConfig!['pointsPerJod'] as num?)?.toDouble() ?? 10.0;
+    final happyMultiplier = (loyaltyConfig!['happyHourMultiplier'] as num?)?.toDouble() ?? 1.0;
+    final isHappyHour = loyaltyConfig!['isHappyHourEnabled'] == true && 
+                        loyaltyConfig!['happyHourStatus']?['isActive'] == true;
+
+    double multiplier = 1.0;
+    final tier = _storage.userTier;
+    if (tier == 'GOLD') {
+      multiplier = (loyaltyConfig!['pointsMultiplierGold'] as num?)?.toDouble() ?? 1.5;
+    } else if (tier == 'PLATINUM') {
+      multiplier = (loyaltyConfig!['pointsMultiplierPlatinum'] as num?)?.toDouble() ?? 2.0;
+    }
+
+    if (isHappyHour) {
+      multiplier *= happyMultiplier;
+    }
+
+    return (_subtotal * pointsPerJod * multiplier).floor();
+  }
 
   bool get isMinOrderSatisfied {
     if (orderType != 'delivery' || selectedZone == null) return true;

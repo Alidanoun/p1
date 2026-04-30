@@ -400,6 +400,8 @@ class OrderService {
 
     // 1. 🆔 Identity & Blacklist Resolution
     const resolvedCustomer = await this._resolveAndValidateCustomer(phoneInput, authUser);
+    
+    logger.info(`[OrderService] Creating Order. AuthUser: ${authUser?.id}, InputPhone: ${phoneInput}, ResolvedCustomer: ${resolvedCustomer.id}`);
 
     // 2. 🛡️ Spam Protection (Multi-factor)
     await this._validateSpamLimits(resolvedCustomer.phone);
@@ -545,11 +547,27 @@ class OrderService {
 
     if (authUser) {
       customer = await prisma.customer.findUnique({ where: { uuid: authUser.id } });
-      if (customer) resolvedPhone = customer.phone;
+      if (customer) {
+        resolvedPhone = customer.phone;
+        logger.debug(`[OrderService] Found customer by UUID ${authUser.id}: ID ${customer.id}`);
+      } else {
+        logger.debug(`[OrderService] No customer found for UUID ${authUser.id}. User role: ${authUser.role}`);
+        // If it's an admin, we allow fallback to phone (for manual orders)
+        // If it's a customer but UUID not found (stale token), we should NOT fallback to another customer's phone
+        if (authUser.role !== 'admin' && authUser.role !== 'super_admin') {
+          logger.warn(`[OrderService] Authenticated customer UUID not found. Blocking fallback to prevent misattribution.`);
+          return { id: null, phone: phone }; // Treat as Guest instead of linking to wrong ID
+        }
+      }
     }
 
     if (!customer) {
       customer = await prisma.customer.findUnique({ where: { phone: resolvedPhone } });
+      if (customer) {
+        logger.debug(`[OrderService] Found customer by Phone ${resolvedPhone}: ID ${customer.id}`);
+      } else {
+        logger.debug(`[OrderService] No customer found for Phone ${resolvedPhone}`);
+      }
     }
 
     if (customer?.isBlacklisted) {
@@ -745,7 +763,17 @@ class OrderService {
 
     const mappedOrder = mapOrderResponse(updatedOrder);
 
-    // 📦 Dual-Write: Publish Event to Store (Deduplicated via EventBus)
+    // 🎁 Loyalty Reward Hook (Inline for synchronous points in notification)
+    let pointsEarned = 0;
+    if (newStatus === 'delivered') {
+      try {
+        pointsEarned = await loyaltyService.awardPointsForOrder(updatedOrder);
+      } catch (err) {
+        logger.error('[Loyalty] Failed to award points on status update', { orderId: updatedOrder.id, error: err.message });
+      }
+    }
+
+    // 📣 Publish Status Event
     await publishEvent({
       type: eventTypes.ORDER_STATUS_CHANGED,
       aggregateId: updatedOrder.id,
@@ -757,7 +785,8 @@ class OrderService {
           id: updatedOrder.id,
           customerId: updatedOrder.customerId,
           customerPhone: updatedOrder.customer?.phone || null,
-          customer: updatedOrder.customer
+          customer: updatedOrder.customer,
+          pointsEarned // 🎁 Inject points for notification content
         } 
       },
       version: updatedOrder.version
@@ -771,11 +800,6 @@ class OrderService {
       previousStatus,
       orderNumber: updatedOrder.orderNumber
     });
-    
-    // 🎁 Loyalty Reward Hook
-    if (newStatus === 'delivered') {
-      this._onOrderCompleted(updatedOrder.id);
-    }
 
     return mappedOrder;
   }

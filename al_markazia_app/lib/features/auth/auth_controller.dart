@@ -1,21 +1,25 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import '../../services/api/auth_api.dart';
 import '../../services/session_service.dart';
 import '../../services/storage_service.dart';
 import '../../services/notification_service.dart';
 import '../../services/biometric_service.dart';
 import '../../services/api_service.dart';
+import '../../services/app_events.dart';
 
 enum AuthStatus { loading, authenticated, unauthenticated, biometricRequired, sessionExpired }
 
 class AuthController extends ChangeNotifier {
   final AuthApi _api = AuthApi();
+  StreamSubscription? _eventSubscription;
 
   AuthStatus _status = AuthStatus.loading;
   AuthStatus get status => _status;
 
   bool isLoading = false;
   String? errorMessage;
+  bool _initialized = false;
 
   /// 🛡️ Identity property (Derived from StorageService)
   Map<String, dynamic>? get user => StorageService.instance.getCurrentUser();
@@ -28,13 +32,36 @@ class AuthController extends ChangeNotifier {
   bool get isBiometricEnabled => _biometricEnabled;
 
   AuthController() {
+    _setupEventListeners();
     initialize();
+  }
+
+  void _setupEventListeners() {
+    _eventSubscription = AppEvents.stream.listen((event) {
+      if (event is SessionExpiredEvent) {
+        debugPrint('🔔 [Auth] Global Session Expiry Event Detected.');
+        _handleSessionExpiry();
+      } else if (event is IdentityRefreshEvent) {
+        debugPrint('🔔 [Auth] Identity Refresh Event Detected.');
+        refreshProfile();
+      }
+    });
+  }
+
+  void _handleSessionExpiry() {
+    _status = AuthStatus.sessionExpired;
+    notifyListeners();
+    // We don't force logout here to give user a chance to see the message
+    // or we can call logout() if we want it to be immediate.
   }
 
   bool get isAuthenticated => status == AuthStatus.authenticated;
 
   /// 🧠 SYSTEM INITIALIZE (The Core Boot Logic)
   Future<void> initialize() async {
+    if (_initialized) return;
+    _initialized = true;
+
     _status = AuthStatus.loading;
     notifyListeners();
 
@@ -42,15 +69,14 @@ class AuthController extends ChangeNotifier {
       final session = SessionService.instance;
       final storage = StorageService.instance;
 
-      // 1. Check if we have active tokens
       if (await session.hasSession) {
         _status = AuthStatus.authenticated;
+        _prefetchData(); // Proactive prefetch
       } else {
-        // 2. No session — check if biometrics are enabled and we have a user identity
-        final hasIdentity = storage.userId != null;
+        final hasEmail = storage.userEmail != null;
         final biometricActive = storage.isBiometricEnabled;
         
-        if (hasIdentity && biometricActive) {
+        if (hasEmail && biometricActive) {
           _status = AuthStatus.biometricRequired;
         } else {
           _status = AuthStatus.unauthenticated;
@@ -77,6 +103,29 @@ class AuthController extends ChangeNotifier {
     return user;
   }
 
+  void _prefetchData() {
+    if (_status != AuthStatus.authenticated) return;
+    debugPrint('⚡ [Auth] Starting Smart Prefetch for User...');
+    Future.wait([
+      ApiService.instance.fetchCategories(),
+      ApiService.instance.fetchMenuItems(),
+      ApiService.instance.fetchDeliveryZones(),
+    ]).then((_) => debugPrint('✅ [Auth] Prefetch Complete. UI ready.'));
+  }
+
+  /// 🔄 Refresh User Identity (Points, Tier, etc.)
+  Future<void> refreshProfile() async {
+    if (_status != AuthStatus.authenticated) return;
+    try {
+      final freshUser = await ApiService.instance.getMe();
+      await StorageService.instance.setCurrentUser(freshUser);
+      notifyListeners();
+      debugPrint('✅ [Auth] Profile refreshed successfully.');
+    } catch (e) {
+      debugPrint('⚠️ [Auth] Failed to refresh profile: $e');
+    }
+  }
+
   // ════════════════════════════════════════════════════════
   //  🔐 LOGIN (Email + Password)
   // ════════════════════════════════════════════════════════
@@ -85,13 +134,13 @@ class AuthController extends ChangeNotifier {
     try {
       final authResponse = await ApiService.instance.loginCustomer(email, password);
       
-      // 🛡️ Auto-update Biometric Token if enabled
       if (_biometricEnabled) {
         final rt = await SessionService.instance.refreshToken;
         if (rt != null) await SessionService.instance.saveBiometricToken(rt);
       }
 
       _status = AuthStatus.authenticated;
+      _prefetchData();
       NotificationService().reinitialize();
       _setLoading(false);
       return true;
@@ -128,6 +177,7 @@ class AuthController extends ChangeNotifier {
       }
 
       _status = AuthStatus.authenticated;
+      _prefetchData();
       NotificationService().reinitialize();
       _setLoading(false);
       return BiometricLoginResult(status: BiometricLoginStatus.success);
@@ -145,7 +195,6 @@ class AuthController extends ChangeNotifier {
     final result = await BiometricService.instance.authenticate(reason: reason);
     if (!result.success) return false;
 
-    // 🛡️ Save the 'Hint' for future logins: current refreshToken
     final currentRefresh = await SessionService.instance.refreshToken;
     if (currentRefresh != null) {
       await SessionService.instance.saveBiometricToken(currentRefresh);
@@ -194,20 +243,19 @@ class AuthController extends ChangeNotifier {
     _setLoading(true);
     try {
       final authResponse = await _api.verifyRegistration(email, code);
-      // Update session & identity
       await SessionService.instance.saveTokens(
         accessToken: authResponse['accessToken'],
         refreshToken: authResponse['refreshToken'],
       );
       await StorageService.instance.setCurrentUser(authResponse['user']);
       
-      // 🛡️ Auto-update Biometric Token if enabled
       if (_biometricEnabled) {
         final rt = await SessionService.instance.refreshToken;
         if (rt != null) await SessionService.instance.saveBiometricToken(rt);
       }
 
       _status = AuthStatus.authenticated;
+      _prefetchData();
       NotificationService().reinitialize();
       _setLoading(false);
       return true;
@@ -246,20 +294,19 @@ class AuthController extends ChangeNotifier {
         code: code,
         newPassword: newPassword,
       );
-      // Update session & identity
       await SessionService.instance.saveTokens(
         accessToken: authResponse['accessToken'],
         refreshToken: authResponse['refreshToken'],
       );
       await StorageService.instance.setCurrentUser(authResponse['user']);
       
-      // 🛡️ Auto-update Biometric Token if enabled
       if (_biometricEnabled) {
         final rt = await SessionService.instance.refreshToken;
         if (rt != null) await SessionService.instance.saveBiometricToken(rt);
       }
 
       _status = AuthStatus.authenticated;
+      _prefetchData();
       _setLoading(false);
       return true;
     } catch (e) {
@@ -274,17 +321,13 @@ class AuthController extends ChangeNotifier {
   // ════════════════════════════════════════════════════════
   Future<void> logout() async {
     await BiometricService.instance.cancelAuthentication();
-    
-    // 🛡️ SECURITY UPGRADE:
-    // We clear the session tokens (Security)
     await SessionService.instance.clearTokens();
-    
-    // We clear user-specific UI data (Identity Profile)
     await StorageService.instance.clearIdentityOnLogout();
     
-    // ⚠️ WE KEEP: biometricsEnabled and user_email for next login!
+    // 🔄 FORCE RE-INIT: Reset flag so initialize can run again correctly
+    _initialized = false;
+    await initialize();
     
-    _status = AuthStatus.unauthenticated;
     await NotificationService().reset(); 
     notifyListeners();
   }
@@ -303,6 +346,12 @@ class AuthController extends ChangeNotifier {
     if (e.contains('timeout')) return 'استغرق الوقت طويل، حاول لاحقاً';
     return e.replaceAll('Exception: ', '');
   }
+
+  @override
+  void dispose() {
+    _eventSubscription?.cancel();
+    super.dispose();
+  }
 }
 
 enum BiometricLoginStatus { success, failed, cancelled, lockedOut, sessionExpired }
@@ -313,3 +362,4 @@ class BiometricLoginResult {
   const BiometricLoginResult({required this.status, this.message});
   bool get isSuccess => status == BiometricLoginStatus.success;
 }
+

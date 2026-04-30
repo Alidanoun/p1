@@ -3,6 +3,7 @@ const MaintenanceService = require('../services/maintenanceService');
 const logger = require('../utils/logger');
 const otpService = require('../services/otpService');
 const redis = require('../lib/redis');
+const loyaltyService = require('../services/loyaltyService');
 
 /**
  * Automated Maintenance Jobs - Granite Architecture
@@ -114,6 +115,23 @@ function initCronJobs(io = null) {
       logger.error('Startup Cleanup Failed', { error: err.message });
     }
   }, 5000);
+
+  // 5. 🎁 Happy Hour Monitoring - Every Minute
+  // Automatically disables Happy Hour when the time window passes
+  cron.schedule('* * * * *', async () => {
+    try {
+      const result = await loyaltyService.checkAndAutoDisable();
+      if (result && result.disabled) {
+        logger.info(`[Cron] Happy Hour automatically disabled for config ID: ${result.id}`);
+        // Notify all clients (Admin + App) to refresh their state
+        if (io) {
+          io.emit('loyalty:configUpdated', { refreshNeeded: true });
+        }
+      }
+    } catch (err) {
+      logger.error('Cron Job Failed: Happy Hour Monitoring', { error: err.message });
+    }
+  });
 
   logger.info('🚀 Automated Maintenance Jobs (Archiving & Cleanup) Initialized.');
 }

@@ -8,7 +8,10 @@ const { authenticateToken: authMiddleware, isAdmin: adminMiddleware } = require(
  * Secured for Admin use only.
  */
 
+router.get('/status', loyaltyController.getStatus);
 router.get('/settings', authMiddleware, adminMiddleware, loyaltyController.getSettings);
+router.post('/start-now', authMiddleware, adminMiddleware, loyaltyController.startNow);
+router.post('/stop-now', authMiddleware, adminMiddleware, loyaltyController.stopNow);
 router.patch('/settings', authMiddleware, adminMiddleware, loyaltyController.updateSettings);
 
 module.exports = router;

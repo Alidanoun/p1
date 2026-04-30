@@ -282,7 +282,27 @@ exports.updateItem = async (req, res) => {
         isFeatured: isFeatured === 'true' || isFeatured === true,
         excludeFromStats: excludeFromStats === 'true' || excludeFromStats === true,
         preparationTime: preparationTime ? parseInt(preparationTime) : null,
-        image: imageUrl
+        image: imageUrl,
+        optionGroups: req.body.optionGroups ? {
+          deleteMany: {},
+          create: (typeof req.body.optionGroups === 'string' ? JSON.parse(req.body.optionGroups) : req.body.optionGroups).map(group => ({
+            groupName: group.groupName,
+            groupNameEn: group.groupNameEn,
+            type: group.type || 'SINGLE',
+            isRequired: group.isRequired || false,
+            minSelect: parseInt(group.minSelect) || 0,
+            maxSelect: parseInt(group.maxSelect) || 1,
+            options: {
+              create: group.options.map(opt => ({
+                name: opt.name,
+                nameEn: opt.nameEn,
+                price: parseFloat(opt.price) || 0,
+                isDefault: opt.isDefault || false,
+                isAvailable: opt.isAvailable !== false
+              }))
+            }
+          }))
+        } : undefined
       },
       include: {
         category: { select: { id: true, name: true, nameEn: true } },

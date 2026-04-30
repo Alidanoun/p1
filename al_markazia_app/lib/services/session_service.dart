@@ -1,5 +1,6 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'storage_service.dart';
 
 /// Clean Architecture Session Management (Enterprise Upgrade)
 /// Handles both SharedPreferences (for UI states) and FlutterSecureStorage (for encrypted tokens).
@@ -66,4 +67,12 @@ class SessionService {
     final token = await accessToken;
     return token != null && token.isNotEmpty;
   }
+
+  // --- 👤 Identity Bridge (UI Convenience) ---
+  
+  bool get isAdmin => StorageService.instance.userRole == 'admin' || StorageService.instance.userRole == 'super_admin';
+  String? get uuid => StorageService.instance.userId;
+  String? get phone => StorageService.instance.userPhone;
+  String? get name => StorageService.instance.userName;
+  String? get email => StorageService.instance.userEmail;
 }

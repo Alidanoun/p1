@@ -6,10 +6,15 @@ const prisma = new PrismaClient();
 async function seedAdmin() {
   const email = 'admin@almarkazia.com';
   const password = await bcrypt.hash('admin123', 10);
+  console.log('Generated hash for admin123:', password);
   
   const existingAdmin = await prisma.user.findUnique({ where: { email } });
   if (existingAdmin) {
-    console.log('Admin already exists.');
+    await prisma.user.update({
+      where: { email },
+      data: { password }
+    });
+    console.log('Admin password updated.');
     return;
   }
 

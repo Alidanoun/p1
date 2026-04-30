@@ -104,11 +104,15 @@ const initOrderWorker = (io) => {
 
 // 3. Define the UI Dashboard
 const setupQueueDashboard = () => {
+  const { emailQueue } = require('./emailQueue');
   const serverAdapter = new ExpressAdapter();
   serverAdapter.setBasePath('/admin/queues');
 
   createBullBoard({
-    queues: [new BullMQAdapter(orderQueue)],
+    queues: [
+      new BullMQAdapter(orderQueue),
+      new BullMQAdapter(emailQueue)
+    ],
     serverAdapter: serverAdapter,
   });
 

@@ -186,155 +186,159 @@ class _AccountScreenState extends State<AccountScreen> {
         backgroundColor: bgColor,
         title: Text(l10n.settings, style: const TextStyle(fontWeight: FontWeight.w900)),
       ),
-      body: ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-        physics: const BouncingScrollPhysics(),
-        children: [
-          Row(
-            children: [
-              CircleAvatar(
-                radius: 36,
-                backgroundColor: primaryColor.withOpacity(0.1),
-                child: Icon(Icons.person_rounded, size: 40, color: primaryColor),
+      body: RefreshIndicator(
+        onRefresh: () => auth.refreshProfile(),
+        color: primaryColor,
+        child: ListView(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+          physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 36,
+                  backgroundColor: primaryColor.withOpacity(0.1),
+                  child: Icon(Icons.person_rounded, size: 40, color: primaryColor),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(user?['name'] ?? l10n.guest, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 4),
+                      Text(user?['phone'] ?? l10n.phoneNotAvailable, style: const TextStyle(color: Colors.grey, fontSize: 14)),
+                    ],
+                  ),
+                )
+              ],
+            ),
+            const SizedBox(height: 32),
+  
+            _buildSettingsCard(
+              context: context,
+              title: l10n.loyaltyPoints,
+              icon: Icons.stars_rounded,
+              cardColor: cardColor,
+              trailing: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: primaryColor.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '${user?['points'] ?? 0} ${l10n.points}',
+                  style: TextStyle(color: primaryColor, fontWeight: FontWeight.bold),
+                ),
               ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+            ),
+            
+            const SizedBox(height: 16),
+  
+            GestureDetector(
+              onTap: _changeLanguage,
+              child: _buildSettingsCard(
+                context: context,
+                title: l10n.language,
+                icon: Icons.language_rounded,
+                cardColor: cardColor,
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(user?['name'] ?? l10n.guest, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 4),
-                    Text(user?['phone'] ?? l10n.phoneNotAvailable, style: const TextStyle(color: Colors.grey, fontSize: 14)),
+                    Text(
+                      currentLang == 'ar' ? 'العربية' : 'English',
+                      style: TextStyle(color: primaryColor, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(width: 8),
+                    const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
                   ],
                 ),
-              )
-            ],
-          ),
-          const SizedBox(height: 32),
-
-          _buildSettingsCard(
-            context: context,
-            title: l10n.loyaltyPoints,
-            icon: Icons.stars_rounded,
-            cardColor: cardColor,
-            trailing: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: primaryColor.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                '${user?['points'] ?? 0} ${l10n.points}',
-                style: TextStyle(color: primaryColor, fontWeight: FontWeight.bold),
               ),
             ),
-          ),
-          
-          const SizedBox(height: 16),
-
-          GestureDetector(
-            onTap: _changeLanguage,
-            child: _buildSettingsCard(
+  
+            const SizedBox(height: 16),
+  
+            _buildSettingsCard(
               context: context,
-              title: l10n.language,
-              icon: Icons.language_rounded,
+              title: l10n.darkMode,
+              icon: Icons.dark_mode_rounded,
               cardColor: cardColor,
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    currentLang == 'ar' ? 'العربية' : 'English',
-                    style: TextStyle(color: primaryColor, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(width: 8),
-                  const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
-                ],
+              trailing: CupertinoSwitch(
+                value: StorageService.instance.getDarkMode(),
+                activeColor: primaryColor,
+                onChanged: (val) {
+                  StorageService.instance.setDarkMode(val);
+                },
               ),
             ),
-          ),
-
-          const SizedBox(height: 16),
-
-          _buildSettingsCard(
-            context: context,
-            title: l10n.darkMode,
-            icon: Icons.dark_mode_rounded,
-            cardColor: cardColor,
-            trailing: CupertinoSwitch(
-              value: StorageService.instance.getDarkMode(),
-              activeColor: primaryColor,
-              onChanged: (val) {
-                StorageService.instance.setDarkMode(val);
-              },
+  
+            // 🆕 Biometric Toggle Tile
+            _buildBiometricTile(),
+  
+            const SizedBox(height: 16),
+  
+            _buildSettingsCard(
+              context: context,
+              title: l10n.notifications,
+              icon: Icons.notifications_rounded,
+              cardColor: cardColor,
+              trailing: CupertinoSwitch(
+                value: _notificationsEnabled,
+                activeColor: primaryColor,
+                onChanged: (val) {
+                  setState(() => _notificationsEnabled = val);
+                },
+              ),
             ),
-          ),
-
-          // 🆕 Biometric Toggle Tile
-          _buildBiometricTile(),
-
-          const SizedBox(height: 16),
-
-          _buildSettingsCard(
-            context: context,
-            title: l10n.notifications,
-            icon: Icons.notifications_rounded,
-            cardColor: cardColor,
-            trailing: CupertinoSwitch(
-              value: _notificationsEnabled,
-              activeColor: primaryColor,
-              onChanged: (val) {
-                setState(() => _notificationsEnabled = val);
-              },
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          Row(
-            children: [
-              Expanded(
-                child: GestureDetector(
-                  onTap: _launchWhatsApp,
-                  child: _buildSettingsCard(
-                    context: context,
-                    title: l10n.whatsapp,
-                    icon: Icons.chat_rounded,
-                    iconColor: Colors.green,
-                    cardColor: cardColor,
-                    isDense: true,
+  
+            const SizedBox(height: 16),
+  
+            Row(
+              children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: _launchWhatsApp,
+                    child: _buildSettingsCard(
+                      context: context,
+                      title: l10n.whatsapp,
+                      icon: Icons.chat_rounded,
+                      iconColor: Colors.green,
+                      cardColor: cardColor,
+                      isDense: true,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: GestureDetector(
-                  onTap: _launchPhone,
-                  child: _buildSettingsCard(
-                    context: context,
-                    title: l10n.support,
-                    icon: Icons.headset_mic_rounded,
-                    cardColor: cardColor,
-                    isDense: true,
+                const SizedBox(width: 16),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: _launchPhone,
+                    child: _buildSettingsCard(
+                      context: context,
+                      title: l10n.support,
+                      icon: Icons.headset_mic_rounded,
+                      cardColor: cardColor,
+                      isDense: true,
+                    ),
                   ),
                 ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 16),
-
-          GestureDetector(
-            onTap: _logout,
-            child: _buildSettingsCard(
-              context: context,
-              title: l10n.logout,
-              icon: Icons.logout_rounded,
-              cardColor: cardColor,
+              ],
             ),
-          ),
-          
-          const SizedBox(height: 100),
-        ],
+  
+            const SizedBox(height: 16),
+  
+            GestureDetector(
+              onTap: _logout,
+              child: _buildSettingsCard(
+                context: context,
+                title: l10n.logout,
+                icon: Icons.logout_rounded,
+                cardColor: cardColor,
+              ),
+            ),
+            
+            const SizedBox(height: 100),
+          ],
+        ),
       ),
     );
   }

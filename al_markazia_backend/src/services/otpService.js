@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const prisma = require('../lib/prisma');
 const logger = require('../utils/logger');
-const { sendOtpEmail } = require('./emailService');
+const { addOtpToQueue } = require('../queues/emailQueue');
 
 const OTP_LENGTH = 6;
 const OTP_TTL_MINUTES = 5;
@@ -88,7 +88,7 @@ class OtpService {
     if (process.env.NODE_ENV === 'development' && !process.env.GMAIL_USER) {
       logger.info(`[EMAIL SIMULATOR] OTP for ${cleanEmail}: ${code}`);
     } else {
-      await sendOtpEmail(cleanEmail, code, purpose);
+      await addOtpToQueue(cleanEmail, code, purpose);
     }
 
     return {
