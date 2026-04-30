@@ -153,7 +153,7 @@ const toggleEmergencyClose = async (req, res) => {
 const subscribeToReopen = async (req, res) => {
   try {
     const { fcmToken, nextOpenAt } = req.body;
-    const customerId = req.customer?.id;
+    const userId = req.user?.id;
 
     if (!fcmToken || !nextOpenAt) {
       return res.status(400).json({ success: false, error: 'MISSING_DATA' });
@@ -167,7 +167,7 @@ const subscribeToReopen = async (req, res) => {
 
     await prisma.restaurantSubscription.create({
       data: {
-        userId: customerId,
+        userId,
         fcmToken,
         targetTime: new Date(nextOpenAt),
       }

@@ -166,7 +166,7 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onC
               <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                 {order.status === 'pending' && (
                   <button
-                    onClick={() => onUpdateStatus(order.id, 'preparing')}
+                    onClick={() => onUpdateStatus(order.id, 'preparing', order.version)}
                     className="p-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 rounded-md text-emerald-500 transition-all flex items-center gap-1"
                     title="قبول الطلب"
                   >
@@ -176,7 +176,7 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onC
                 )}
                 {order.status === 'preparing' && (
                   <button
-                    onClick={() => onUpdateStatus(order.id, 'ready')}
+                    onClick={() => onUpdateStatus(order.id, 'ready', order.version)}
                     className="p-1.5 bg-green-500/20 hover:bg-green-500/40 rounded-md text-green-500 transition-all flex items-center gap-1"
                     title="الطلب جاهز"
                   >
@@ -186,7 +186,7 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onC
                 )}
                 {order.status === 'ready' && (
                   <button
-                    onClick={() => onUpdateStatus(order.id, 'delivered')}
+                    onClick={() => onUpdateStatus(order.id, 'delivered', order.version)}
                     className="p-1.5 bg-emerald-500/20 hover:bg-emerald-500/40 rounded-md text-emerald-500 transition-all flex items-center gap-1"
                     title="تم التسليم"
                   >
@@ -438,13 +438,18 @@ const LiveOrders = () => {
     }
   };
 
-  const onUpdateStatus = async (id, status) => {
+  const onUpdateStatus = async (id, status, version) => {
     try {
-      const { data } = await api.patch(`/orders/${id}/status`, { status });
-      setOrders(prev => prev.map(o => o.id === id ? { ...o, status: data.status } : o));
+      const { data } = await api.patch(`/orders/${id}/status`, { status, version });
+      setOrders(prev => prev.map(o => o.id === id ? { ...o, status: data.status, version: data.version } : o));
       toast.success('تم تحديث الحالة');
-    } catch {
-      toast.error('فشل تحديث الحالة');
+    } catch (err) {
+      if (err.response?.status === 409) {
+        toast.error('⚠️ تضارب في البيانات: تم تحديث هذا الطلب مسبقاً من قبل موظف آخر. جاري التحديث...');
+        fetchOrders();
+      } else {
+        toast.error('فشل تحديث الحالة');
+      }
     }
   };
 
@@ -502,11 +507,17 @@ const LiveOrders = () => {
     setOrders(updatedOrders);
 
     try {
-      await api.patch(`/orders/${draggableId}/status`, { status: newStatus });
+      const { data } = await api.patch(`/orders/${draggableId}/status`, { status: newStatus, version: orderToUpdate.version });
+      setOrders(prev => prev.map(o => o.id === draggableId ? { ...o, status: data.status, version: data.version } : o));
       toast.info(`تم تحديث حالة الطلب إلى: ${COLUMNS.find(c => c.id === destination.droppableId).title}`);
-    } catch {
-      toast.error('فشل في تحديث حالة الطلب');
-      setOrders(orders); // Revert
+    } catch (err) {
+      if (err.response?.status === 409) {
+        toast.error('⚠️ تضارب: تم تغيير حالة الطلب بالفعل. جاري إعادة المزامنة...');
+        fetchOrders();
+      } else {
+        toast.error('فشل في تحديث حالة الطلب');
+        setOrders(orders); // Revert
+      }
     }
   };
 

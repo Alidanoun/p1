@@ -22,8 +22,8 @@ const dashboardRoutes = require('./routes/dashboard');
 const healthRoutes = require('./routes/health');
 const restaurantRoutes = require('./routes/restaurant');
 const loyaltyRoutes = require('./routes/loyalty');
-const analyticsProjection = require('./projections/analyticsProjection');
-const orderProjection = require('./projections/orderProjection');
+const orderModificationRoutes = require('./routes/orderModifications');
+
 const http = require('http');
 const { initCronJobs } = require('./jobs/cronJobs');
 const { initOrderWorker, setupQueueDashboard } = require('./queues/orderQueue');
@@ -35,270 +35,119 @@ const IdempotencyService = require('./services/idempotencyService');
 const externalProbeController = require('./controllers/externalProbeController');
 const warmupService = require('./services/warmupService');
 const prisma = require('./lib/prisma');
-
-// 🧹 DETOX: Temporarily Disabled Intelligence & Alerting Layer
-// require('./services/alertService');
+const logger = require('./utils/logger');
+const socketModule = require('./socket');
 
 const app = express();
 const server = http.createServer(app);
-const io = require('./socket').init(server);
 
-// 🚀 Initialize Event-Driven Architecture (Event Sourcing)
-// We await this to ensure all handlers are ready before server accepts traffic
-const eventSystem = require('./events/init');
-eventSystem.init();
+async function startServer() {
+  try {
+    // 1. Initialize Socket.IO
+    const io = socketModule.init(server);
 
-// Start Automated Maintenance (Archiving & Cleanup)
-initCronJobs(io);
+    // 2. 🚀 Initialize Event-Driven Architecture (AWAITED)
+    const eventSystem = require('./events/init');
+    await eventSystem.init();
 
-// Start Persistent Order Worker
-initOrderWorker(io);
+    // 3. Start Background Workers
+    initCronJobs(io);
+    initOrderWorker(io);
+    initHealthWorker().catch(err => logger.error('[Startup] Health Worker failed', { error: err.message }));
 
-// Start Resilient Health Monitoring Worker
-initHealthWorker();
+    // 4. Register Middleware
+    app.use(requestTracing);
+    app.use(shadowMirrorMiddleware);
+    app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
+    
+    const { globalLimiter } = require('./middleware/rateLimiter');
+    app.use(globalLimiter);
+    app.use(cookieParser());
+    
+    // CORS Setup
+    const allowedOrigins = (process.env.CORS_ORIGIN || '').split(',').map(o => o.trim()).filter(Boolean);
+    app.use(cors({
+      origin: (origin, callback) => {
+        if (!origin) return callback(null, true);
+        
+        // Auto-allow Localhost/127.0.0.1 for development comfort
+        const isLocal = origin.includes('localhost') || origin.includes('127.0.0.1') || origin.includes('192.168.');
+        if (isLocal || allowedOrigins.includes(origin)) {
+          callback(null, true);
+        } else {
+          callback(null, false);
+        }
+      },
+      credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+    }));
 
-// CRM Tracing & Architecture Layers
-app.use(requestTracing);
-app.use(shadowMirrorMiddleware); // 🪞 Big Tech Traffic Mirroring
+    app.use(express.json({ limit: '50kb' }));
+    app.use(express.urlencoded({ extended: true, limit: '50kb' }));
 
-const PORT = process.env.PORT || 5000;
+    // HTTP Logging
+    morgan.token('client-ip', (req) => req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress);
+    
+    app.use(morgan(':client-ip - :method :url :status - :response-time ms', {
+      stream: { write: (message) => logger.http(message.trim()) },
+      skip: (req, res) => req.originalUrl === '/health' || (process.env.NODE_ENV === 'production' && res.statusCode < 400)
+    }));
 
-// 0️⃣ Security Headers (Hardened)
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" }
-}));
+    // Routes
+    app.use('/auth', governorGuard('MISSION_CRITICAL'), IdempotencyService.guard(), authRoutes);
+    app.use('/items', itemRoutes);
+    app.use('/orders', governorGuard('MISSION_CRITICAL'), IdempotencyService.guard(), orderRoutes);
+    app.use('/categories', categoryRoutes);
+    app.use('/notifications', notificationRoutes);
+    app.use('/customers', customerRoutes);
+    app.use('/reviews', governorGuard('AUXILIARY'), reviewRoutes);
+    app.use('/settings', settingsRoutes);
+    app.use('/metrics', metricsRoutes);
+    app.use('/analytics', governorGuard('AUXILIARY'), analyticsRoutes);
+    app.use('/system', systemRoutes);
+    app.use('/delivery-zones', deliveryZoneRoutes);
+    app.use('/dashboard', dashboardRoutes);
+    app.use('/health', healthRoutes);
+    app.use('/restaurant', restaurantRoutes);
+    app.use('/loyalty', loyaltyRoutes);
+    app.use('/order-modifications', governorGuard('MISSION_CRITICAL'), IdempotencyService.guard(), orderModificationRoutes);
+    app.get('/health/external', externalProbeController.pings);
 
-// 1️⃣ Rate Limiter (First line of defense)
-const { globalLimiter, authLimiter, orderLimiter } = require('./middleware/rateLimiter');
-app.use(globalLimiter);
+    // Global Error Handler
+    app.use((err, req, res, next) => {
+      logger.error(err.message, { method: req.method, endpoint: req.originalUrl, stack: err.stack });
+      res.status(500).json({ error: 'حدث خطأ غير متوقع، يرجى المحاولة لاحقاً' });
+    });
 
-app.use(cookieParser());
+    const PORT = process.env.PORT || 5000;
+    server.listen(PORT, '0.0.0.0', async () => {
+      logger.info(`🚀 Backend Server is running on port ${PORT}`);
+      
+      // Post-startup Warmup
+      warmupService.run().catch(e => logger.error('Warmup Error', { error: e.message }));
+      
+      const analyticsProjection = require('./projections/analyticsProjection');
+      const orderProjection = require('./projections/orderProjection');
+      await Promise.all([analyticsProjection.replay(), orderProjection.replay()])
+        .catch(e => logger.error('Rehydration Failed', { error: e.message }));
+    });
 
-// 2️⃣ CORS & Body Parsers
-const allowedOrigins = (process.env.CORS_ORIGIN || '')
-  .split(',')
-  .map(o => o.trim())
-  .filter(Boolean);
-
-app.use(cors({
-  origin: (origin, callback) => {
-    // 🛡️ Explicit Origins for Credentials-based Auth
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      // 🚀 Improvement: Return false instead of Error to avoid 500 crashes
-      callback(null, false);
-    }
-  },
-  credentials: true, // ✅ Required for HttpOnly Cookies
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
-}));
-app.use(express.json({ limit: '50kb' }));
-app.use(express.urlencoded({ extended: true, limit: '50kb' }));
-const logger = require('./utils/logger');
-
-// Morgan Integration (HTTP Request Logging)
-// Skip logging for health status
-const skipFormats = (req, res) => {
-  if (req.originalUrl === '/health') return true;
-  if (process.env.NODE_ENV === 'production') {
-    return res.statusCode < 400; // Only log 4xx and 5xx in prod
+  } catch (err) {
+    logger.error('❌ CRITICAL STARTUP FAILURE', { error: err.message, stack: err.stack });
+    process.exit(1);
   }
-  return false; // Log all in dev
-};
+}
 
-// Custom format to include useful data
-morgan.token('client-ip', (req) => req.ip || req.connection.remoteAddress);
-
-app.use(morgan(
-  ':client-ip - :method :url :status - :response-time ms',
-  {
-    stream: {
-      write: (message) => logger.http(message.trim())
-    },
-    skip: skipFormats
-  }
-));
-
-// 🛡️ Secure Static File Serving (V21 Hardened)
-app.use('/uploads', express.static('uploads', {
-  maxAge: '7d',
-  immutable: true,
-  index: false,
-  dotfiles: 'deny',
-  setHeaders: (res) => {
-    // Prevent MIME-sniffing
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    // Ensure inline display instead of forced download
-    res.setHeader('Content-Disposition', 'inline');
-    // Basic CSP for assets
-    res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'");
-  }
-}));
-
-// BullMQ Monitoring Dashboard (Secured with Admin Key)
-app.use('/admin/queues', (req, res, next) => {
-  const adminKey = req.headers['x-admin-key'] || req.query.key;
-  if (!process.env.ADMIN_KEY || adminKey !== process.env.ADMIN_KEY) {
-    logger.warn('Unauthorized access attempt to Bull Board', { ip: req.ip });
-    return res.status(403).send('Forbidden: Admin Key Required');
-  }
-  next();
-}, setupQueueDashboard());
-
-// 🌟 Swagger API Documentation
-const swaggerUi = require('swagger-ui-express');
-const swaggerJsdoc = require('swagger-jsdoc');
-const swaggerOptions = {
-  definition: {
-    openapi: '3.0.0',
-    info: { title: 'Al-Markazia API', version: '1.0.0' },
-  },
-  apis: ['./src/routes/*.js'],
-};
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerJsdoc(swaggerOptions)));
-
-// 4️⃣ API Routes
-app.use('/auth', governorGuard('MISSION_CRITICAL'), IdempotencyService.guard(), authRoutes);
-app.use('/items', itemRoutes);
-app.use('/orders', governorGuard('MISSION_CRITICAL'), IdempotencyService.guard(), orderRoutes);
-app.use('/categories', categoryRoutes);
-app.use('/notifications', notificationRoutes);
-app.use('/customers', customerRoutes);
-app.use('/reviews', governorGuard('AUXILIARY'), reviewRoutes);
-app.use('/settings', settingsRoutes);
-app.use('/metrics', metricsRoutes);
-app.use('/analytics', governorGuard('AUXILIARY'), analyticsRoutes);
-app.use('/system', systemRoutes);
-app.use('/delivery-zones', deliveryZoneRoutes);
-app.use('/dashboard', dashboardRoutes);
-app.use('/health', healthRoutes);
-app.use('/restaurant', restaurantRoutes);
-app.use('/loyalty', loyaltyRoutes);
-const orderModificationRoutes = require('./routes/orderModifications');
-app.use('/order-modifications', governorGuard('MISSION_CRITICAL'), IdempotencyService.guard(), orderModificationRoutes);
-app.get('/health/external', externalProbeController.pings);
-
-// Global Error Handler
-app.use((err, req, res, next) => {
-  logger.error(err.message, { 
-    method: req.method, 
-    endpoint: req.originalUrl, 
-    stack: err.stack 
-  });
-  res.status(500).json({ error: 'حدث خطأ غير متوقع، يرجى المحاولة لاحقاً' });
-});
-
-// Process Level Interceptors
+// Global Process Handlers
 process.on('uncaughtException', (err) => {
   logger.error(`UNCAUGHT EXCEPTION: ${err.message}`, { stack: err.stack });
-  // Graceful shutdown strategy
   setTimeout(() => process.exit(1), 1000);
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-  logger.error(`UNHANDLED REJECTION: ${reason}`, { reason });
+process.on('unhandledRejection', (reason) => {
+  logger.error(`UNHANDLED REJECTION: ${reason}`);
   setTimeout(() => process.exit(1), 1000);
 });
 
-// --- Graceful Shutdown ---
-const gracefulShutdown = async (signal) => {
-  logger.info(`${signal} received. Starting graceful shutdown...`);
-  
-  // Close Socket.io
-  if (io) {
-    io.close();
-    logger.info('Socket.io server closed.');
-  }
-
-  // Close Server
-  server.close(async () => {
-    logger.info('HTTP server closed.');
-    
-    try {
-      // Disconnect Prisma
-      const prisma = require('./lib/prisma');
-      await prisma.$disconnect();
-      logger.info('Prisma disconnected.');
-
-      // Close BullMQ Queues/Workers
-      const { orderQueue } = require('./queues/orderQueue');
-      const { emailQueue } = require('./queues/emailQueue');
-      
-      await Promise.all([
-        orderQueue.close(),
-        emailQueue.close()
-      ]);
-      
-      logger.info('All background queues closed.');
-
-      process.exit(0);
-    } catch (err) {
-      logger.error('Error during shutdown', { error: err.message });
-      process.exit(1);
-    }
-  });
-
-  // Force exit after 10s if shutdown hangs
-  setTimeout(() => {
-    logger.error('Shutdown timed out, forcing exit.');
-    process.exit(1);
-  }, 10000);
-};
-
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-
-io.on('connection', (socket) => {
-  const { SOCKET_ROOMS, ROLES } = require('./shared/socketEvents');
-  
-  // --- 📡 DETERMINISTIC ROOM MANAGEMENT ---
-  // Every socket MUST join its primary identity room immediately
-  
-  // 1. Identity Routing
-  if (socket.user.role === ROLES.ADMIN || socket.user.role === ROLES.SUPER_ADMIN) {
-    socket.join(SOCKET_ROOMS.ADMIN);
-    socket.join(SOCKET_ROOMS.DASHBOARD); // Admins also see metrics
-    logger.info('Admin routed to core rooms', { userId: socket.user.id });
-  } else {
-    const customerRoom = SOCKET_ROOMS.CUSTOMER(socket.user.id);
-    socket.join(customerRoom);
-    logger.info('Customer routed to private room', { userId: socket.user.id, room: customerRoom });
-  }
-
-  // 2. Client-Requested Join Handlers (Redundant but kept for manual UI transitions)
-  socket.on('join:admin', () => {
-    if ([ROLES.ADMIN, ROLES.SUPER_ADMIN].includes(socket.user.role)) {
-      socket.join(SOCKET_ROOMS.ADMIN);
-    }
-  });
-
-  socket.on('join:dashboard', () => {
-    if ([ROLES.ADMIN, ROLES.SUPER_ADMIN].includes(socket.user.role)) {
-      socket.join(SOCKET_ROOMS.DASHBOARD);
-    }
-  });
-
-  socket.on('disconnect', () => {
-    if (socket.user) {
-      logger.info('Socket session ended', { userId: socket.user.id });
-    }
-  });
-});
-
-server.listen(PORT, '0.0.0.0', () => {
-  const host = process.env.HOST_IP || 'localhost';
-  logger.info(`🚀 Backend Server is running on http://${host}:${PORT}`);
-  logger.info(`📡 Socket.io initialized and listening for events`);
-  
-  // ⚡ Big Tech Predictive Warmup
-  warmupService.run().catch(e => logger.error('Warmup Background Error', { error: e.message }));
-  
-  // 📊 Rehydrate Dashboard Projections (Memory Re-sync)
-  Promise.all([
-    analyticsProjection.replay(),
-    orderProjection.replay()
-  ]).then(() => logger.info('📊 Dashboard Projections rehydrated from database'))
-    .catch(e => logger.error('Dashboard Rehydration Failed', { error: e.message }));
-});
+startServer();

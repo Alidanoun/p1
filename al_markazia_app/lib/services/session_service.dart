@@ -50,6 +50,7 @@ class SessionService {
   Future<void> clearTokens() async {
     await _secureStorage.delete(key: _accessTokenKey);
     await _secureStorage.delete(key: _refreshTokenKey);
+    await _secureStorage.delete(key: _biometricTokenKey);
   }
 
   /// Explicitly clear biometric token (if user disables it)

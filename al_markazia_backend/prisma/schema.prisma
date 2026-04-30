@@ -553,3 +553,13 @@ model OutboxEvent {
   @@index([status, createdAt])
 }
 
+model RestaurantSubscription {
+  id         Int      @id @default(autoincrement())
+  userId     String?
+  fcmToken   String
+  targetTime DateTime
+  notified   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([notified, targetTime])
+}

@@ -34,11 +34,12 @@ class LoyaltyService {
       return { isActive: false, status: 'DISABLED', remainingSeconds: 0 };
     }
 
-    const now = DateTime.now().setZone('Asia/Amman'); // Jordan Time
+    const { DEFAULT_TIMEZONE } = require('../config/constants');
+    const now = DateTime.now().setZone(DEFAULT_TIMEZONE); // Jordan Time
     const today = now.toISODate();
 
-    const start = DateTime.fromISO(`${today}T${config.happyHourStart}`, { zone: 'Asia/Amman' });
-    const end = DateTime.fromISO(`${today}T${config.happyHourEnd}`, { zone: 'Asia/Amman' });
+    const start = DateTime.fromISO(`${today}T${config.happyHourStart}`, { zone: DEFAULT_TIMEZONE });
+    const end = DateTime.fromISO(`${today}T${config.happyHourEnd}`, { zone: DEFAULT_TIMEZONE });
 
     if (now >= start && now <= end) {
       return {
@@ -199,13 +200,14 @@ class LoyaltyService {
   /**
    * Award Points for Order Completion
    */
-  async awardPointsForOrder(orderIdOrOrder) {
+  async awardPointsForOrder(orderIdOrOrder, tx = null) {
+    const db = tx || prisma;
     try {
       let order;
       if (typeof orderIdOrOrder === 'object') {
         order = orderIdOrOrder;
       } else {
-        order = await prisma.order.findUnique({
+        order = await db.order.findUnique({
           where: { id: orderIdOrOrder },
           include: { customer: true }
         });
@@ -228,7 +230,8 @@ class LoyaltyService {
 
       // 2. Apply Happy Hour Multiplier if active
       if (config.isHappyHourEnabled) {
-        const now = DateTime.now().setZone('Asia/Amman');
+        const { DEFAULT_TIMEZONE } = require('../config/constants');
+        const now = DateTime.now().setZone(DEFAULT_TIMEZONE);
         const currentTime = now.hour * 60 + now.minute;
         
         const [startH, startM] = config.happyHourStart.split(':').map(Number);
@@ -258,18 +261,18 @@ class LoyaltyService {
       }
 
       // 3. Update Customer Points & Total Orders
-      const updatedCustomer = await prisma.customer.update({
+      const updatedCustomer = await db.customer.update({
         where: { id: order.customerId },
         data: {
           points: { increment: pointsEarned },
           totalOrders: { increment: 1 }
         }
       });
-
+      
       logger.info(`[Loyalty] DB Update Success. Customer ${updatedCustomer.id} (UUID: ${updatedCustomer.uuid}) new balance: ${updatedCustomer.points}`);
 
       // 4. Evaluate Tier Upgrade
-      await this.evaluateTierUpgrade(updatedCustomer.id, config);
+      await this.evaluateTierUpgrade(updatedCustomer.id, config, db);
 
       logger.info(`[Loyalty] Awarded ${pointsEarned} points to customer ${customer.uuid} for order #${order.orderNumber}`);
       return pointsEarned;
@@ -282,8 +285,9 @@ class LoyaltyService {
   /**
    * Evaluate and Upgrade Customer Tier
    */
-  async evaluateTierUpgrade(customerId, config) {
-    const customer = await prisma.customer.findUnique({ where: { id: customerId } });
+  async evaluateTierUpgrade(customerId, config, tx = null) {
+    const db = tx || prisma;
+    const customer = await db.customer.findUnique({ where: { id: customerId } });
     if (!customer) return;
 
     let newTier = 'SILVER';
@@ -294,7 +298,7 @@ class LoyaltyService {
     }
 
     if (newTier !== customer.tier) {
-      await prisma.customer.update({
+      await db.customer.update({
         where: { id: customerId },
         data: { tier: newTier }
       });
