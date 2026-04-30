@@ -26,6 +26,7 @@ class NotificationService {
     eventBus.subscribe(eventTypes.ORDER_STATUS_CHANGED, (event) => this.processEvent(event, 'status_change'));
     eventBus.subscribe(eventTypes.ORDER_CANCELLED, (event) => this.processEvent(event, 'order_cancelled'));
     eventBus.subscribe('system.broadcast', (event) => this.processBroadcast(event));
+    eventBus.subscribe('loyalty.happy_hour_activated', (event) => this.processBroadcast(event));
     eventBus.subscribe('RESTAURANT_OPENED', () => this.notifySubscribersOfReopening(true));
 
     // 2. Start Reconciliation Worker (The Self-Healer)
@@ -203,7 +204,7 @@ class NotificationService {
       };
 
       if (target.isBroadcast) {
-        this.io.emit(SOCKET_EVENTS.ORDER_UPDATED, payload);
+        this.io.emit(SOCKET_EVENTS.NOTIFICATION_NEW, payload);
       }
       
       if (target.isToAdmin) {

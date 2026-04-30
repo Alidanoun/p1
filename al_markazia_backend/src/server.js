@@ -176,6 +176,8 @@ app.use('/dashboard', dashboardRoutes);
 app.use('/health', healthRoutes);
 app.use('/restaurant', restaurantRoutes);
 app.use('/loyalty', loyaltyRoutes);
+const orderModificationRoutes = require('./routes/orderModifications');
+app.use('/order-modifications', governorGuard('MISSION_CRITICAL'), IdempotencyService.guard(), orderModificationRoutes);
 app.get('/health/external', externalProbeController.pings);
 
 // Global Error Handler

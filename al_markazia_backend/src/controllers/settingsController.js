@@ -2,12 +2,18 @@
 const prisma = require('../lib/prisma');
 const logger = require('../utils/logger');
 
+const BOOLEAN_KEYS = ['notificationsEnabled', 'autoAcceptOrders'];
+
 exports.getSettings = async (req, res) => {
   try {
     const settings = await prisma.systemSettings.findMany();
     // Convert array to object for easier use on frontend
     const settingsObj = settings.reduce((acc, curr) => {
-      acc[curr.key] = curr.value;
+      let val = curr.value;
+      if (BOOLEAN_KEYS.includes(curr.key)) {
+        val = val === 'true';
+      }
+      acc[curr.key] = val;
       return acc;
     }, {});
     
@@ -40,20 +46,21 @@ exports.updateSetting = async (req, res) => {
 exports.updateBulkSettings = async (req, res) => {
   try {
     const settings = req.body;
+    const priceRegex = /^\d+(\.\d{1,2})?$/;
     
-    // 🛡️ [CRITICAL] Business Rule Validation
-    if (settings.deliveryFee !== undefined) {
-      const fee = parseFloat(settings.deliveryFee);
-      if (isNaN(fee) || fee < 0) {
-        return res.status(400).json({ error: 'رسوم التوصيل يجب أن تكون رقماً صالحاً وغير سالب' });
-      }
+    // 🛡️ [CRITICAL] Strict Validation Phase
+    const validationErrors = [];
+    
+    if (settings.deliveryFee !== undefined && !priceRegex.test(String(settings.deliveryFee))) {
+      validationErrors.push('رسوم التوصيل يجب أن تكون رقماً صالحاً (مثلاً: 2.50)');
     }
 
-    if (settings.minOrderValue !== undefined) {
-      const minVal = parseFloat(settings.minOrderValue);
-      if (isNaN(minVal) || minVal < 0) {
-        return res.status(400).json({ error: 'الحد الأدنى للطلب يجب أن يكون رقماً صالحاً' });
-      }
+    if (settings.minOrderValue !== undefined && !priceRegex.test(String(settings.minOrderValue))) {
+      validationErrors.push('الحد الأدنى للطلب يجب أن يكون رقماً صالحاً');
+    }
+
+    if (validationErrors.length > 0) {
+      return res.status(400).json({ error: validationErrors[0], details: validationErrors });
     }
 
     // 🚀 Atomic Multi-Update

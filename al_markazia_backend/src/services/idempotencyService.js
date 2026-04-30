@@ -1,72 +1,66 @@
+/**
+ * 🛡️ Infrastructure Idempotency Service
+ * Prevents duplicate request processing at the infrastructure level.
+ * Uses Redis as a high-speed lock and result cache.
+ */
+
 const redis = require('../lib/redis');
-const crypto = require('crypto');
 const logger = require('../utils/logger');
 
-/**
- * 🔐 Idempotency Service (Autonomous Level 7+)
- * Implements "High-Speed Guard" pattern using Redis to prevent race 
- * conditions and duplicate processing across distributed instances.
- */
 class IdempotencyService {
-  
-  /**
-   * Generates a unique signature for the request context.
-   */
-  static generateSignature(key, payload) {
-    const data = typeof payload === 'string' ? payload : JSON.stringify(payload);
-    return crypto.createHash('sha256').update(`${key}:${data}`).digest('hex');
+  constructor() {
+    this.TTL = 3600; // 1 hour default
   }
 
   /**
-   * Fast Redis-based lock.
-   * @returns {boolean} True if the lock was acquired (First time).
+   * 🔒 Start processing a request
+   * Returns true if request is unique and can proceed.
    */
-  static async acquireLock(signature, ttlSec = 3600) {
-    const redisKey = `idempotency:lock:${signature}`;
-    try {
-      const result = await redis.set(redisKey, 'LOCKED', 'NX', 'EX', ttlSec);
-      return result === 'OK';
-    } catch (err) {
-      logger.error('[Idempotency] Redis lock failed', { error: err.message });
-      throw new Error('REDIS_DOWN');
-    }
-  }
+  async start(key) {
+    if (!key) return true; // Bypass if no key provided
 
-  /**
-   * Middleware for Express routes.
-   * Usage: app.post('/xxx', IdempotencyService.guard('MISSION_CRITICAL'), ...)
-   */
-  static guard() {
-    return async (req, res, next) => {
-      try {
-        const idKey = req.headers['x-idempotency-key'] || req.headers['idempotency-key'];
-        
-        if (!idKey) {
-          return next();
-        }
-
-        const signature = this.generateSignature(req.path, idKey);
-        const isNew = await this.acquireLock(signature);
-
-        if (!isNew) {
-          logger.warn(`[Idempotency] 🛡️ Duplicate Request Blocked`, { 
-            path: req.path, 
-            key: idKey 
-          });
-          
-          return res.status(409).json({
-            error: 'طلب مكرر',
-            message: 'نحن نعالج هذا الطلب بالفعل. يرجى مراجعة سجل الطلبات الخاص بك.'
-          });
-        }
-
-        next();
-      } catch (err) {
-        logger.error('[Idempotency] Error in guard', { error: err.message });
-        return res.status(503).json({ error: 'الخدمة غير متوفرة حاليا' });
+    const fullKey = `idempotency:${key}`;
+    
+    // Attempt to set 'processing' status with NX (Only if not exists)
+    const acquired = await redis.set(fullKey, 'processing', 'NX', 'EX', 300); // 5 min lock
+    
+    if (!acquired) {
+      const status = await redis.get(fullKey);
+      if (status === 'processing') {
+        throw new Error('IDEMPOTENCY_LOCKED: Request already in progress.');
       }
-    };
+      return false; // Already completed (will be handled by getResult)
+    }
+
+    return true;
+  }
+
+  /**
+   * 💾 Save final result of a request
+   */
+  async commit(key, result) {
+    if (!key) return;
+    const fullKey = `idempotency:${key}`;
+    await redis.set(fullKey, JSON.stringify(result), 'EX', this.TTL);
+    logger.debug(`[Idempotency] Result committed for key: ${key}`);
+  }
+
+  /**
+   * 🔍 Get cached result for a key
+   */
+  async getResult(key) {
+    if (!key) return null;
+    const result = await redis.get(`idempotency:${key}`);
+    return result && result !== 'processing' ? JSON.parse(result) : null;
+  }
+
+  /**
+   * ❌ Rollback in case of failure
+   */
+  async rollback(key) {
+    if (!key) return;
+    await redis.del(`idempotency:${key}`);
   }
 }
 
-module.exports = IdempotencyService;
+module.exports = new IdempotencyService();

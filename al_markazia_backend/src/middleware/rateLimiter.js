@@ -15,17 +15,17 @@ const globalLimiter = rateLimit({
   }
 });
 
-// تقييد المصادقة (Auth Limiter) - Hardened: 5 attempts per 15 mins
+// تقييد المصادقة (Auth Limiter) - Hardened: 8 attempts per 10 mins
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5,
+  windowMs: 10 * 60 * 1000, // 10 minutes
+  max: 8,
   keyGenerator: (req) => req.body?.email || req.body?.phone || req.ip,
   validate: false,
   standardHeaders: true,
   legacyHeaders: false,
   message: { 
     success: false, 
-    message: 'تجاوزت الحد المسموح من المحاولات. يرجى المحاولة بعد 15 دقيقة.',
+    message: 'تجاوزت الحد المسموح من المحاولات. يرجى المحاولة بعد 10 دقائق.',
     code: 'AUTH_RATE_LIMIT'
   },
   handler: (req, res, next, options) => {

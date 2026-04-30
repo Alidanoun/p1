@@ -258,22 +258,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                     ),
                   ],
                 ),
-                if (order.status == 'pending' || order.status == 'confirmed' || order.status == 'preparing')
-                  Padding(
-                    padding: const EdgeInsets.only(top: 15),
-                    child: SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: () => _navigateToCancel(order),
-                        icon: const Icon(Icons.cancel_outlined, size: 18, color: Colors.red),
-                        label: Text(l10n.cancelOrder, style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-                        style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: Colors.red),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                        ),
-                      ),
-                    ),
-                  ),
+
 
                 if (order.cancellationStatus == 'rejected' && order.rejectionReason != null)
                   Container(
@@ -309,6 +294,24 @@ class _OrdersScreenState extends State<OrdersScreen> {
               ],
             ),
           ),
+          
+          // 🛑 Small Discreet Cancellation Button in Corner
+          if (order.status == 'pending' || order.status == 'confirmed' || order.status == 'preparing')
+            Positioned(
+              top: 15,
+              right: 10,
+              child: InkWell(
+                onTap: () => _navigateToCancel(order),
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.close_rounded, size: 14, color: Colors.red),
+                ),
+              ),
+            ),
           
           // ✨ Status Changed Badge (UX Polish)
           if (isRecentlyUpdated)

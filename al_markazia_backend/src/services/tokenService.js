@@ -162,16 +162,24 @@ class TokenService {
    * Panic Revocation (Security Breach / Reset Password)
    */
   static async revokeAllSessions(userId) {
-    // 1. Clear Redis (Pattern matching)
-    const keys = await redis.keys(`session:${userId}:*`);
-    if (keys.length > 0) {
-      await redis.del(...keys);
-    }
+    // 1. Clear Redis (Safe SCAN pattern matching)
+    const pattern = `session:${userId}:*`;
+    let cursor = '0';
+    let totalKeysFound = 0;
+
+    do {
+      const [newCursor, keys] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+      cursor = newCursor;
+      if (keys.length > 0) {
+        await redis.del(...keys);
+        totalKeysFound += keys.length;
+      }
+    } while (cursor !== '0');
 
     // 2. Clear DB Backup
     await prisma.refreshToken.deleteMany({ where: { userId } }).catch(() => {});
     
-    logger.info('Panic: All sessions revoked for user', { userId, sessionCount: keys.length });
+    logger.info('Panic: All sessions revoked for user', { userId, totalKeysFound });
   }
 }
 

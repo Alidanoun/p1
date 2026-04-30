@@ -188,6 +188,18 @@ exports.createItem = async (req, res) => {
       parsedGroups = typeof optionGroups === 'string' ? JSON.parse(optionGroups) : optionGroups;
     }
 
+    // 🛡️ [SEC-FIX] Pre-validate option prices before transaction
+    if (parsedGroups.length > 0) {
+      for (const group of parsedGroups) {
+        for (const opt of group.options) {
+          const optPrice = parseFloat(opt.price);
+          if (isNaN(optPrice) || optPrice < 0) {
+            return res.status(400).json({ error: `سعر الإضافة "${opt.name}" غير صحيح، يرجى إدخال رقم موجب` });
+          }
+        }
+      }
+    }
+
     const item = await prisma.item.create({
       data: {
         title,
@@ -273,6 +285,21 @@ exports.updateItem = async (req, res) => {
       imageUrl = null;
     }
 
+    let parsedGroups = [];
+    if (req.body.optionGroups) {
+      parsedGroups = typeof req.body.optionGroups === 'string' ? JSON.parse(req.body.optionGroups) : req.body.optionGroups;
+
+      // 🛡️ [SEC-FIX] Pre-validate option prices
+      for (const group of parsedGroups) {
+        for (const opt of group.options) {
+          const optPrice = parseFloat(opt.price);
+          if (isNaN(optPrice) || optPrice < 0) {
+            return res.status(400).json({ error: `سعر الإضافة "${opt.name}" غير صحيح، يرجى إدخال رقم موجب` });
+          }
+        }
+      }
+    }
+
     const parsedPrice = toNumber(basePrice, -1);
 
     const updatedItem = await prisma.item.update({
@@ -291,7 +318,7 @@ exports.updateItem = async (req, res) => {
         image: imageUrl,
         optionGroups: req.body.optionGroups ? {
           deleteMany: {},
-          create: (typeof req.body.optionGroups === 'string' ? JSON.parse(req.body.optionGroups) : req.body.optionGroups).map(group => ({
+          create: parsedGroups.map(group => ({
             groupName: group.groupName,
             groupNameEn: group.groupNameEn,
             type: group.type || 'SINGLE',
@@ -299,19 +326,13 @@ exports.updateItem = async (req, res) => {
             minSelect: parseInt(group.minSelect) || 0,
             maxSelect: parseInt(group.maxSelect) || 1,
             options: {
-              create: group.options.map(opt => {
-                const optPrice = parseFloat(opt.price);
-                if (isNaN(optPrice) || optPrice < 0) {
-                  throw new Error(`INVALID_OPTION_PRICE:${opt.name}`);
-                }
-                return {
-                  name: opt.name,
-                  nameEn: opt.nameEn,
-                  price: optPrice,
-                  isDefault: opt.isDefault || false,
-                  isAvailable: opt.isAvailable !== false
-                };
-              })
+              create: group.options.map(opt => ({
+                name: opt.name,
+                nameEn: opt.nameEn,
+                price: parseFloat(opt.price),
+                isDefault: opt.isDefault || false,
+                isAvailable: opt.isAvailable !== false
+              }))
             }
           }))
         } : undefined

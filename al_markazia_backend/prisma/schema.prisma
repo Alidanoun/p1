@@ -100,6 +100,8 @@ model Order {
   discount         Decimal            @default(0) @db.Decimal(10, 2)
   tax              Decimal            @default(0) @db.Decimal(10, 2)
   total            Decimal            @default(0) @db.Decimal(10, 2)
+  modificationStatus String           @default("NONE") // NONE, PENDING_CUSTOMER, MODIFIED
+  cancellationFee    Decimal          @default(0) @db.Decimal(10, 2)
   address                String?
   notes                  String?
   estimatedReadyAt       DateTime?
@@ -126,6 +128,7 @@ model Order {
   reviews          Review[]
 
   @@index([status, createdAt(sort: Desc)])
+  @@index([createdAt, status])
   @@index([customerId, createdAt(sort: Desc)])
   @@index([orderNumber])
   @@index([createdAt])
@@ -165,6 +168,12 @@ model OrderItem {
   rejectionReason   String?
   item              Item?           @relation(fields: [itemId], references: [id])
   order             Order           @relation(fields: [orderId], references: [id])
+  
+  // Replacement Logic
+  replacedFromId    Int?
+  replacedFrom      OrderItem?      @relation("ItemReplacement", fields: [replacedFromId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  replacements      OrderItem[]     @relation("ItemReplacement")
+  originalPriceAtOrder Decimal?     @db.Decimal(10, 2)
 
   @@index([orderId])
   @@index([itemId])
@@ -179,6 +188,7 @@ model Customer {
   address             String?
   fcmToken            String?
   points              Int                @default(0)
+  walletBalance       Decimal            @default(0) @db.Decimal(10, 2)
   totalOrders         Int                @default(0)
   tier                String             @default("SILVER") // SILVER, GOLD, PLATINUM
   cancellationCount   Int                @default(0)
@@ -491,16 +501,55 @@ model LoyaltyConfig {
   happyHourStart          String   @default("16:00")
   happyHourEnd            String   @default("18:00")
   isHappyHourEnabled      Boolean  @default(false)
+  cancellationCompensationRate Float @default(0.05)
   updatedAt               DateTime @updatedAt
 }
 
-model RestaurantSubscription {
-  id          Int      @id @default(autoincrement())
-  userId      String?
-  fcmToken    String
-  targetTime  DateTime
-  notified    Boolean  @default(false)
+model FinancialLedger {
+  id              Int      @id @default(autoincrement())
+  customerId      Int?
+  orderId         Int?
+  type            String   // DEBIT, CREDIT
+  category        String   // ORDER_PAYMENT, REFUND, WALLET_TOPUP, COMPENSATION, CANCELLATION_FEE
+  amount          Decimal  @db.Decimal(10, 2)
+  balanceBefore   Decimal  @db.Decimal(10, 2)
+  balanceAfter    Decimal  @db.Decimal(10, 2)
+  method          String   // CASH, WALLET, CARD, POINTS
+  referenceId     String?  // External transaction ID or Order Number
+  description     String?
+  metadata        Json?
+  createdAt       DateTime @default(now())
+
+  @@index([customerId])
+  @@index([orderId])
+  @@index([createdAt])
+}
+
+model OrderModificationEvent {
+  id              String   @id @default(uuid())
+  orderId         Int
+  type            String   // REPLACEMENT_REQUESTED, REPLACEMENT_CONFIRMED, REPLACEMENT_REJECTED, PARTIAL_CANCEL
+  status          String   @default("PENDING") // PENDING, COMPLETED, EXPIRED
+  payload         Json     // Stores delta: { removedItems: [], addedItems: [], priceDiff: 0 }
+  adminId         Int?
+  expiresAt       DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([orderId])
+  @@index([status])
+}
+
+model OutboxEvent {
+  id          String   @id @default(uuid())
+  type        String
+  payload     Json
+  status      String   @default("PENDING") // PENDING, DISPATCHED, FAILED
+  error       String?
+  retries     Int      @default(0)
+  processedAt DateTime?
   createdAt   DateTime @default(now())
 
-  @@index([notified, targetTime])
+  @@index([status, createdAt])
 }
+

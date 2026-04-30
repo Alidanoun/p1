@@ -175,7 +175,10 @@ const Settings = () => {
                               <p className="font-bold text-white text-sm">قبول الطلبات تلقائياً</p>
                               <p className="text-text-muted text-[10px]">تفعيل هذه الميزة سيجعل جميع الطلبات الجدد تنتقل مباشرة لقيد التجهيز</p>
                            </div>
-                           <Switch checked={settings.autoAcceptOrders === 'true' || settings.autoAcceptOrders === true} onChange={val => setSettings({...settings, autoAcceptOrders: val})} />
+                           <Switch 
+                              checked={!!settings.autoAcceptOrders} 
+                              onChange={val => setSettings({...settings, autoAcceptOrders: val})} 
+                           />
                         </div>
                      </div>
                   </div>
@@ -187,21 +190,35 @@ const Settings = () => {
                         <label className="text-xs font-bold text-text-muted pr-1">رقم الهاتف الأساسي</label>
                         <div className="relative">
                            <Phone className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-primary" />
-                           <input type="text" className="glass-input pr-11 text-right" value={settings.phone} />
+                           <input 
+                              type="text" 
+                              className="glass-input pr-11 text-right" 
+                              value={settings.phone || ''} 
+                              onChange={e => setSettings({...settings, phone: e.target.value})}
+                           />
                         </div>
                      </div>
                      <div className="space-y-2">
                         <label className="text-xs font-bold text-text-muted pr-1">واتساب المبيعات</label>
                         <div className="relative">
                            <MessageCircle className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-500" />
-                           <input type="text" className="glass-input pr-11 text-right" value={settings.whatsapp} />
+                           <input 
+                              type="text" 
+                              className="glass-input pr-11 text-right" 
+                              value={settings.whatsapp || ''} 
+                              onChange={e => setSettings({...settings, whatsapp: e.target.value})}
+                           />
                         </div>
                      </div>
                      <div className="md:col-span-2 space-y-2">
                         <label className="text-xs font-bold text-text-muted pr-1">العنوان بالتفصيل</label>
                         <div className="relative">
-                           <MapPin className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-primary" />
-                           <textarea className="glass-input pr-11 min-h-[100px] resize-none pt-7 text-right" value={settings.address} />
+                           <MapPin className="absolute right-4 top-4 w-4 h-4 text-rose-500" />
+                           <textarea 
+                              className="glass-input pr-11 text-right min-h-[100px] py-4" 
+                              value={settings.address || ''} 
+                              onChange={e => setSettings({...settings, address: e.target.value})}
+                           />
                         </div>
                      </div>
                   </div>
