@@ -1,10 +1,9 @@
 const express = require('express');
-const { getDashboardStats } = require('../controllers/analyticsController');
-const { authenticateToken, requireRoles } = require('../middleware/auth');
-
 const router = express.Router();
+const analyticsController = require('../controllers/analyticsController');
+const { authenticateToken, isAdmin } = require('../middleware/auth');
 
-// 🛡️ Only Admins can see analytics
-router.get('/dashboard', authenticateToken, requireRoles(['admin', 'manager']), getDashboardStats);
+// 📊 Operational Reporting
+router.get('/branch/report/today', authenticateToken, analyticsController.getBranchDailyReport);
 
 module.exports = router;

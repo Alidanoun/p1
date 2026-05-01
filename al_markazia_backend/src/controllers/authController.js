@@ -251,7 +251,8 @@ const login = async (req, res) => {
         email: account.email, 
         name: account.name,
         phone: account.phone,
-        role: account.role || 'customer'
+        role: account.role || 'customer',
+        branchId: account.branchId || null
       } 
     });
   } catch (error) {
@@ -298,6 +299,7 @@ const getMe = async (req, res) => {
         phone: user.phone || null,
         name: user.name || null,
         role: user.role || 'customer',
+        branchId: user.branchId || null,
         points: user.points ?? 0,
         tier: user.tier || 'SILVER'
       } 

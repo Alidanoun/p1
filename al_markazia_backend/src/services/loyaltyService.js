@@ -568,7 +568,7 @@ class LoyaltyService {
           customerId: customerId,
           rewardItemId: reward.id,
           code: code,
-          expiresAt: new Date(Date.now() + config.rewardExpiryDays * 24 * 60 * 60 * 1000) // Dynamic validity from config
+          expiresAt: new Date(Date.now() + (await this.getConfig()).rewardExpiryDays * 24 * 60 * 60 * 1000) 
         },
         include: { rewardItem: true }
       });

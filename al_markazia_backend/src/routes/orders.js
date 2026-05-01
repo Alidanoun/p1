@@ -53,8 +53,9 @@ router.patch('/:id/timer', authMiddleware, adminMiddleware, validateId(), update
 router.patch('/:id/prep-time', authMiddleware, adminMiddleware, validateId(), updatePreparationTime);
 router.patch('/:id/rate', authMiddleware, validateId(), submitOrderRating);
 
-// Full Cancellation
-router.post('/:id/cancel', authMiddleware, healthGuard('db'), validateId(), validateCancelOrder, cancelOrder);
+router.post('/:id/cancel', authenticateToken, IdempotencyService.guard(), orderController.cancelOrder);
+router.post('/:id/approve-cancel', authenticateToken, isAdmin, IdempotencyService.guard(), orderController.approveCancellation);
+router.post('/:id/reject-cancel', authenticateToken, isAdmin, IdempotencyService.guard(), orderController.rejectCancellation);
 
 router.post('/:id/handle-cancellation', authMiddleware, adminMiddleware, validateId(), handleCancellationRequest);
 

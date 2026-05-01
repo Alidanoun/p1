@@ -64,8 +64,8 @@ class EventBus {
 const eventBusInstance = new EventBus();
 
 // Global Logger (Smart Tracing)
-eventBusInstance.onAny((event) => {
-  console.log('[EVENT TRACE] ⚡', event.type);
-});
+// eventBusInstance.onAny((event) => {
+//   console.log('[EVENT TRACE] ⚡', event.type);
+// });
 
 module.exports = eventBusInstance;

@@ -66,6 +66,8 @@ class ContractGateway {
           case 'REQUEST':
           case 'APPLY':
           case 'CANCEL':
+          case 'APPROVE_CANCEL':
+          case 'REJECT_CANCEL':
           case 'UPDATE_STATUS':
             // 🛡️ Safe Write Mode Protection
             const isWriteEnabled = process.env.ENABLE_ORDER_MODIFICATION_WRITE === 'true';
@@ -88,10 +90,14 @@ class ContractGateway {
               return await orderService.cancelOrder(
                 orderId, 
                 actor, 
-                context.reason, 
-                context.managerPassword, 
-                context.isRestaurantFault
+                context.reason
               );
+            } else if (action === 'APPROVE_CANCEL') {
+              const orderService = require('./orderService');
+              return await orderService.approveCancellation(orderId, actor);
+            } else if (action === 'REJECT_CANCEL') {
+              const orderService = require('./orderService');
+              return await orderService.rejectCancellation(orderId, actor, context.rejectionReason);
             } else if (action === 'UPDATE_STATUS') {
               const orderService = require('./orderService');
               return await orderService.updateOrderStatus(orderId, context.status, context.version);

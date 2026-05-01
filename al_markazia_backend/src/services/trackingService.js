@@ -54,10 +54,7 @@ class TrackingService {
       });
 
       if (!order) return false;
-
-      // Logic: User must be the owner of the order or an Admin
-      // (Simplified for now, assuming userId matches customerId or admin check happens in socket)
-      return true; 
+      return order.customerId === userId; // Sockets already filter for 'admin' role in socket.js
     } catch (err) {
       return false;
     }

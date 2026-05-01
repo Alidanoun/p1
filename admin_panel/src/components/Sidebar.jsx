@@ -6,24 +6,28 @@ import { cn } from '../lib/utils';
 import { motion } from 'framer-motion';
 
 const Sidebar = () => {
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
 
+  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+  const isBranchManager = user?.role === 'BRANCH_MANAGER';
+
   const navItems = [
-    { name: 'مركز العمليات', icon: LayoutDashboard, path: '/', isLive: true },
-    { name: 'الطلبات الحية', icon: ListOrdered, path: '/orders' },
-    { name: 'إدارة القائمة', icon: MenuSquare, path: '/menu' },
-    { name: 'بث الإشعارات', icon: Send, path: '/broadcast' },
-    { name: 'إدارة التقييمات', icon: Star, path: '/reviews' },
-    { name: 'إدارة الولاء', icon: Stars, path: '/loyalty' },
-    { name: 'متجر المكافآت', icon: Gift, path: '/rewards-store' },
-    { name: 'الطلبات الملغاة', icon: XCircle, path: '/cancelled-orders' },
-    { name: 'الإحصائيات المتقدمة', icon: TrendingUp, path: '/analytics' },
-    { name: 'المالية والتقارير', icon: BarChart2, path: '/reports' },
-    { name: 'مناطق التوصيل', icon: MapPin, path: '/delivery-zones' },
-    { name: 'سجل التدقيق', icon: ShieldCheck, path: '/audit' },
-    { name: 'الإعدادات', icon: Settings, path: '/settings' },
-  ];
+    { name: 'مركز العمليات', icon: LayoutDashboard, path: '/', isLive: true, show: true },
+    { name: 'الطلبات الحية', icon: ListOrdered, path: '/orders', show: true },
+    { name: 'إدارة القائمة', icon: MenuSquare, path: '/menu', show: isAdmin },
+    { name: 'منيو الفرع', icon: Utensils, path: '/branch-menu', show: isBranchManager },
+    { name: 'بث الإشعارات', icon: Send, path: '/broadcast', show: isAdmin },
+    { name: 'إدارة التقييمات', icon: Star, path: '/reviews', show: isAdmin },
+    { name: 'إدارة الولاء', icon: Stars, path: '/loyalty', show: isAdmin },
+    { name: 'متجر المكافآت', icon: Gift, path: '/rewards-store', show: isAdmin },
+    { name: 'الطلبات الملغاة', icon: XCircle, path: '/cancelled-orders', show: true },
+    { name: 'الإحصائيات المتقدمة', icon: TrendingUp, path: '/analytics', show: isAdmin },
+    { name: 'المالية والتقارير', icon: BarChart2, path: '/reports', show: isAdmin },
+    { name: 'مناطق التوصيل', icon: MapPin, path: '/delivery-zones', show: isAdmin },
+    { name: 'سجل التدقيق', icon: ShieldCheck, path: '/audit', show: isAdmin },
+    { name: 'الإعدادات', icon: Settings, path: '/settings', show: isAdmin },
+  ].filter(item => item.show);
 
   return (
     <aside className="w-[280px] h-full flex flex-col bg-card/80 backdrop-blur-xl border-l border-border-subtle py-6 shrink-0 relative z-20 shadow-2xl">

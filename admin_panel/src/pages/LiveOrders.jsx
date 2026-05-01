@@ -13,9 +13,11 @@ import { ar } from 'date-fns/locale';
 import { formatCurrencyArabic } from '../lib/formatters';
 import { useSocket } from '../contexts/SocketContext';
 import InvoiceModal from '../components/InvoiceModal';
+import BranchStats from '../components/BranchStats';
 
 // Use a public notification sound or provide a placeholder
 const NEW_ORDER_SOUND = 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3';
+const CANCEL_REQUEST_SOUND = 'https://assets.mixkit.co/active_storage/sfx/2190/2190-preview.mp3';
 
 const COLUMNS = [
   { id: 'new', title: 'طلبات جديدة', color: 'bg-amber-500', icon: Clock, statuses: ['pending'] },
@@ -133,104 +135,72 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onC
               )}
             </div>
 
-            <div className="flex items-center justify-between border-t border-white/5 pt-3">
-              <div className="flex flex-col">
-                <div className="flex items-center gap-1 text-primary font-bold">
+            <div className="flex flex-col gap-2 border-t border-white/5 pt-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1 text-primary font-black">
                   <DollarSign className="w-3 h-3" />
                   <span className="text-sm">{formatCurrencyArabic(order.total || order.totalPrice)}</span>
                 </div>
-                {order.estimatedReadyAt && order.status === 'preparing' && (
-                  <div className="mt-2 text-[10px] text-blue-400 flex flex-col gap-1">
-                    <div className="flex items-center gap-1">
-                      <Timer className="w-3 h-3" />
-                      <span>جاهز خلال: {new Date(order.estimatedReadyAt).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</span>
-                    </div>
-                    <div className="flex gap-1 mt-1">
-                      <button
-                        onClick={() => onAdjustTimer(order.id, 5)}
-                        className="px-1.5 py-0.5 bg-blue-500/20 hover:bg-blue-500/40 rounded text-blue-400 transition-colors"
-                      >
-                        +5د
-                      </button>
-                      <button
-                        onClick={() => onAdjustTimer(order.id, -5)}
-                        className="px-1.5 py-0.5 bg-red-500/20 hover:bg-red-500/40 rounded text-red-400 transition-colors"
-                      >
-                        -5د
-                      </button>
-                    </div>
-                  </div>
-                )}
+                
+                <div className="flex gap-1.5">
+                  <button
+                    onClick={() => setShowInvoice(true)}
+                    className="p-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-text-muted transition-all"
+                    title="الفاتورة"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
 
-              <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+              {/* ⚡ One-Tap Workflow Buttons */}
+              <div className="grid grid-cols-2 gap-2 mt-2">
                 {order.status === 'pending' && (
                   <button
                     onClick={() => onUpdateStatus(order.id, 'preparing', order.version)}
-                    className="p-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 rounded-md text-emerald-500 transition-all flex items-center gap-1"
-                    title="قبول الطلب"
+                    className="col-span-2 py-2.5 bg-emerald-500 hover:bg-emerald-600 rounded-xl text-white font-black text-xs shadow-lg shadow-emerald-500/20 transition-all active:scale-95 flex items-center justify-center gap-2"
                   >
-                    <CheckCircle className="w-3.5 h-3.5" />
-                    <span className="text-[10px] font-bold">قبول</span>
+                    <CheckCircle className="w-4 h-4" />
+                    قبول الطلب
                   </button>
                 )}
+                
                 {order.status === 'preparing' && (
                   <button
                     onClick={() => onUpdateStatus(order.id, 'ready', order.version)}
-                    className="p-1.5 bg-green-500/20 hover:bg-green-500/40 rounded-md text-green-500 transition-all flex items-center gap-1"
-                    title="الطلب جاهز"
+                    className="col-span-2 py-2.5 bg-indigo-500 hover:bg-indigo-600 rounded-xl text-white font-black text-xs shadow-lg shadow-indigo-500/20 transition-all active:scale-95 flex items-center justify-center gap-2"
                   >
-                    <CheckCircle className="w-3.5 h-3.5" />
-                    <span className="text-[10px] font-bold">جاهز</span>
+                    <Package className="w-4 h-4" />
+                    تجهيز الطلب
                   </button>
                 )}
+
                 {order.status === 'ready' && (
                   <button
                     onClick={() => onUpdateStatus(order.id, 'delivered', order.version)}
-                    className="p-1.5 bg-emerald-500/20 hover:bg-emerald-500/40 rounded-md text-emerald-500 transition-all flex items-center gap-1"
-                    title="تم التسليم"
+                    className="col-span-2 py-2.5 bg-emerald-500 hover:bg-emerald-600 rounded-xl text-white font-black text-xs shadow-lg shadow-emerald-500/20 transition-all active:scale-95 flex items-center justify-center gap-2"
                   >
-                    <Package className="w-3.5 h-3.5" />
-                    <span className="text-[10px] font-bold">تسليم</span>
+                    <Truck className="w-4 h-4" />
+                    تسليم الطلب
                   </button>
                 )}
-                {(order.status === 'ready' || order.status === 'preparing' || order.status === 'pending') && (
-                  <button
-                    onClick={() => onCancelOrder(order)}
-                    className="p-1.5 bg-red-500/10 hover:bg-red-500/20 rounded-md text-red-500 transition-all flex items-center gap-1"
-                    title="إلغاء الطلب"
-                  >
-                    <XCircle className="w-3.5 h-3.5" />
-                    <span className="text-[10px] font-bold">إلغاء</span>
-                  </button>
-                )}
-                {order.status === 'waiting_cancellation' && (
-                  <div className="flex gap-1">
+
+                {(order.status === 'waiting_cancellation' || order.status === 'waiting_cancellation_admin') && (
+                  <>
                     <button
                       onClick={() => onHandleRequest(order, 'approve')}
-                      className="p-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 rounded-md text-emerald-500 transition-all"
-                      title="قبول الإلغاء"
+                      className="py-2 bg-red-500 hover:bg-red-600 rounded-xl text-white font-black text-[10px] transition-all flex items-center justify-center gap-1"
                     >
-                      <CheckCircle className="w-3.5 h-3.5" />
-                      <span className="text-[10px] font-bold">قبول</span>
+                      موافقة الإلغاء
                     </button>
                     <button
                       onClick={() => onHandleRequest(order, 'reject')}
-                      className="p-1.5 bg-red-500/10 hover:bg-red-500/20 rounded-md text-red-500 transition-all"
-                      title="رفض الإلغاء"
+                      className="py-2 bg-white/10 hover:bg-white/20 rounded-xl text-white font-black text-[10px] transition-all flex items-center justify-center gap-1"
                     >
-                      <XCircle className="w-3.5 h-3.5" />
-                      <span className="text-[10px] font-bold">رفض</span>
+                      رفض الإلغاء
                     </button>
-                  </div>
+                  </>
                 )}
-                <button
-                  onClick={() => setShowInvoice(true)}
-                  className="p-1.5 bg-white/5 hover:bg-white/10 rounded-md text-text-muted hover:text-white transition-all"
-                  title="طباعة الفاتورة"
-                >
-                  <Printer className="w-3.5 h-3.5" />
-                </button>
               </div>
             </div>
           </div>
@@ -270,6 +240,7 @@ const LiveOrders = () => {
   const [emergencyType, setEmergencyType] = useState('timed'); // 'timed' or 'day'
   const [emergencyPassword, setEmergencyPassword] = useState('');
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const cancelAudioRef = useRef(null);
 
   const [timeLeft, setTimeLeft] = useState('');
 
@@ -349,31 +320,24 @@ const LiveOrders = () => {
 
     // 🔄 Standardized Status Updates
     const handleStatusUpdate = (updatedOrder) => {
-      console.log('Received order update:', updatedOrder);
       setOrders(prev => {
         const index = prev.findIndex(o => o.id === updatedOrder.id || o.id === updatedOrder.orderId);
         if (index === -1) {
-          // If it's not in our list (maybe it was archived but just updated?), fetch again
           fetchOrders();
           return prev;
         }
 
-        // 🛡️ RACE SAFETY: Only update if the incoming data is NEWER than what we have
         const currentOrder = prev[index];
         const incomingTime = new Date(updatedOrder.updatedAt || new Date()).getTime();
         const currentTime = new Date(currentOrder.updatedAt || currentOrder.createdAt).getTime();
 
-        if (incomingTime < currentTime) {
-          console.warn('🕒 Stale socket update ignored for order', updatedOrder.id);
-          return prev;
-        }
+        if (incomingTime < currentTime) return prev;
 
         const newOrders = [...prev];
         newOrders[index] = { ...newOrders[index], ...updatedOrder };
         return newOrders;
       });
 
-      // Visual feedback
       const element = document.getElementById(`order-${updatedOrder.id || updatedOrder.orderId}`);
       if (element) {
         element.classList.add('ring-2', 'ring-primary', 'scale-[1.02]');
@@ -381,12 +345,31 @@ const LiveOrders = () => {
       }
     };
 
+    // 🛑 Cancellation Request Alert
+    const handleCancellationRequest = ({ order: updatedOrder, level }) => {
+      setOrders(prev => {
+        const index = prev.findIndex(o => o.id === updatedOrder.id);
+        if (index === -1) return [updatedOrder, ...prev];
+        const newOrders = [...prev];
+        newOrders[index] = { ...newOrders[index], ...updatedOrder };
+        return newOrders;
+      });
+
+      if (cancelAudioRef.current) cancelAudioRef.current.play();
+      toast.warning(`طلب إلغاء جديد! 🛑 [${level}]`, {
+        description: `الطلب #${updatedOrder.orderNumber} يحتاج معالجة فورية`,
+        duration: 10000
+      });
+    };
+
     socket.on('order:created', handleNewOrder);
     socket.on('order:updated', handleStatusUpdate);
+    socket.on('order:cancellation_requested', handleCancellationRequest);
 
     return () => {
       socket.off('order:created', handleNewOrder);
       socket.off('order:updated', handleStatusUpdate);
+      socket.off('order:cancellation_requested', handleCancellationRequest);
     };
   }, [socket]);
 
@@ -563,6 +546,12 @@ const LiveOrders = () => {
           </button>
         }
       />
+
+      {/* 📊 Light Operational Reporting */}
+      <BranchStats />
+      
+      <audio ref={audioRef} src={NEW_ORDER_SOUND} preload="auto" />
+      <audio ref={cancelAudioRef} src={CANCEL_REQUEST_SOUND} preload="auto" />
 
       {loading ? (
         <div className="flex-1 flex items-center justify-center">

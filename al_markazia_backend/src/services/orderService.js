@@ -35,6 +35,11 @@ class OrderService {
     }
     if (status) where.status = status;
 
+    // 🏢 Multi-Branch Isolation
+    if (query.userRole === 'BRANCH_MANAGER' && query.branchId) {
+      where.branchId = query.branchId;
+    }
+
     const pageNum = page ? Math.max(1, parseInt(page)) : null;
     const limitNum = limit ? Math.min(1000, parseInt(limit)) : 500;
 
@@ -104,6 +109,11 @@ class OrderService {
         { customerName: { contains: search, mode: 'insensitive' } },
         { customerPhone: { contains: search } }
       ];
+    }
+
+    // 🏢 Multi-Branch Isolation
+    if (query.userRole === 'BRANCH_MANAGER' && query.branchId) {
+      where.branchId = query.branchId;
     }
 
     const [orders, total, statusCounts] = await Promise.all([
@@ -395,120 +405,199 @@ class OrderService {
       }
     }
 
+    // 🏢 Multi-Branch Isolation
+    if (user && user.role === 'BRANCH_MANAGER') {
+      if (order.branchId !== user.branchId) {
+        throw new Error('ORDER_FORBIDDEN');
+      }
+    }
+
     return mapOrderResponse(order);
   }
 
   /**
-   * 🛑 Cancel Order with Multi-tier Validation
+   * 🛑 Cancel Order with Multi-tier Validation (Cancellation Engine v2)
    */
-  async cancelOrder(orderId, user, reason, managerPassword, isRestaurantFault = false) {
+  async cancelOrder(orderId, user, reason) {
     const order = await prisma.order.findUnique({
       where: { id: orderId },
-      include: { customer: true }
+      include: { customer: true, cancellation: true }
     });
 
     if (!order) throw new Error('ORDER_NOT_FOUND');
+    if (order.status === 'cancelled') throw new Error('ORDER_ALREADY_CANCELLED');
+    if (order.cancellation && order.cancellation.status === 'pending') throw new Error('CANCELLATION_ALREADY_REQUESTED');
 
-    const isOrderManager = user?.role === 'admin';
+    // 1. Role Identification
+    const isAdmin = user?.role === 'super_admin' || user?.role === 'admin';
+    const isManager = user?.role === 'BRANCH_MANAGER';
+    const isCustomer = user?.role === 'customer';
 
-    // 🛡️ [CRITICAL] Manager Password Validation for advanced-stage orders
-    if (isOrderManager && order.status !== 'pending') {
-      if (!managerPassword) {
-        throw new Error('MANAGER_PASSWORD_REQUIRED');
-      }
-
-      const admin = await prisma.user.findUnique({ where: { uuid: user.id } });
-      if (!admin) throw new Error('ADMIN_NOT_FOUND');
-
-      const startTime = Date.now();
-      const isPasswordValid = await bcrypt.compare(managerPassword, admin.password);
-
-      // 🛡️ Timing Attack Protection: Ensure comparison takes at least 250ms
-      const duration = Date.now() - startTime;
-      if (duration < 250) {
-        await new Promise(resolve => setTimeout(resolve, 250 - duration));
-      }
-
-      if (!isPasswordValid) {
-        throw new Error('INVALID_MANAGER_PASSWORD');
-      }
-
-      logger.info(`[OrderService] Manager password verified for cancellation of order #${order.orderNumber} by ${user.email}`);
+    // 2. 🏢 Branch Isolation
+    if (isManager && order.branchId !== user.branchId) {
+      throw new Error('ORDER_FORBIDDEN');
     }
 
-    const canCancelDirectly = isOrderManager || order.status === 'pending';
+    // 3. 🧠 Risk Assessment (3-Level Logic)
+    const timeDiff = (Date.now() - new Date(order.createdAt).getTime()) / 60000;
+    let level = 'LOW';
+    
+    if (order.status === 'pending' && timeDiff < 2) {
+      level = 'LOW';
+    } else if (order.status === 'preparing' || (order.status === 'pending' && timeDiff >= 2)) {
+      level = 'MEDIUM';
+    } else {
+      level = 'HIGH';
+    }
 
-    const targetStatus = canCancelDirectly ? 'cancelled' : 'waiting_cancellation';
-    const cancellationStatus = canCancelDirectly ? 'approved' : 'pending';
+    // Financial Risk Spike
+    if (toNumber(order.total) > 50) level = 'HIGH';
+
+    // 4. 🎯 Decision Engine Execution
+    let canCancelDirectly = false;
+    if (isAdmin) canCancelDirectly = true;
+    else if (isManager && (level === 'LOW' || level === 'MEDIUM')) canCancelDirectly = true;
+    else if (isCustomer && level === 'LOW') canCancelDirectly = true;
+
+    if (canCancelDirectly) {
+      return await this._executeFinalCancellation(order, user, reason);
+    } else {
+      return await this._executeCancellationRequest(order, user, reason, level);
+    }
+  }
+
+  /**
+   * 🛠️ Internal: Immediate Cancellation Workflow
+   */
+  async _executeFinalCancellation(order, user, reason) {
     const previousStatus = order.status;
-
     const updatedOrder = await prisma.$transaction(async (tx) => {
-      // 📊 [REVENUE-FIX] Set total to 0 if cancelled directly
       const updated = await tx.order.update({
-        where: { id: orderId, version: order.version },
+        where: { id: order.id, version: order.version },
         data: {
-          status: targetStatus,
-          total: targetStatus === 'cancelled' ? 0 : order.total,
-          subtotal: targetStatus === 'cancelled' ? 0 : order.subtotal,
+          status: 'cancelled',
+          total: 0,
+          subtotal: 0,
           version: { increment: 1 }
         },
         include: ORDER_INCLUDE_FULL
       });
 
-      // 💰 [FINANCIAL-FIX] Automated Refund for Wallet Payments
-      if (targetStatus === 'cancelled' && order.paymentMethod === 'wallet' && order.customerId) {
+      if (order.paymentMethod === 'wallet' && order.customerId) {
         const walletService = require('./walletService');
-        await walletService.credit(
-          order.customerId,
-          toNumber(order.total),
-          'REFUND',
-          order.orderNumber,
-          `استرداد كامل المبلغ بسبب إلغاء الطلب #${order.orderNumber}`,
-          `cancel_${order.id}`, // Idempotency
-          tx
-        );
+        await walletService.credit(order.customerId, toNumber(order.total), 'REFUND', order.orderNumber, `Refund for cancellation #${order.orderNumber}`, `cancel_${order.id}`, tx);
       }
 
-      await tx.orderCancellation.create({
-        data: {
-          orderId,
-          reason: reason || (targetStatus === 'waiting_cancellation' ? 'طلب إلغاء من الزبون' : 'No reason provided'),
-          cancelledBy: isOrderManager ? 'admin' : 'customer',
-          previousStatus,
-          status: cancellationStatus,
-          adminName: isOrderManager ? (user?.email || 'Admin') : null
+      await tx.orderCancellation.upsert({
+        where: { orderId: order.id },
+        update: { status: 'approved', reason: reason || 'Approved', cancelledBy: user?.role || 'system', adminName: user?.email || 'Admin' },
+        create: { orderId: order.id, reason: reason || 'Approved', cancelledBy: user?.role || 'system', previousStatus, status: 'approved', adminName: user?.email || 'Admin' }
+      });
+      return updated;
+    });
+
+    const EventBus = require('../events/eventBus');
+    EventBus.publish({ type: 'order.cancelled', payload: { order: updatedOrder, user } });
+    return mapOrderResponse(updatedOrder);
+  }
+
+  /**
+   * 🛠️ Internal: Cancellation Request Workflow
+   */
+  async _executeCancellationRequest(order, user, reason, level) {
+    const previousStatus = order.status;
+    const targetStatus = level === 'HIGH' ? 'waiting_cancellation_admin' : 'waiting_cancellation';
+
+    const updatedOrder = await prisma.$transaction(async (tx) => {
+      const updated = await tx.order.update({
+        where: { id: order.id, version: order.version },
+        data: { status: targetStatus, version: { increment: 1 } },
+        include: ORDER_INCLUDE_FULL
+      });
+
+      await tx.orderCancellation.upsert({
+        where: { orderId: order.id },
+        update: { status: 'pending', reason: reason || 'Customer requested', cancelledBy: user?.role || 'customer' },
+        create: { orderId: order.id, reason: reason || 'Customer requested', cancelledBy: user?.role || 'customer', previousStatus, status: 'pending' }
+      });
+      return updated;
+    });
+
+    const EventBus = require('../events/eventBus');
+    EventBus.publish({ type: 'order.cancellation_requested', payload: { order: updatedOrder, user, level } });
+    return mapOrderResponse(updatedOrder);
+  }
+
+  /**
+   * ✅ Approve a pending cancellation request
+   */
+  async approveCancellation(orderId, user) {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { cancellation: true }
+    });
+
+    if (!order || !order.cancellation) throw new Error('CANCELLATION_NOT_FOUND');
+    if (order.cancellation.status !== 'pending') throw new Error('CANCELLATION_ALREADY_PROCESSED');
+
+    // 🔐 Permission Check
+    const isAdmin = user?.role === 'super_admin' || user?.role === 'admin';
+    const isManager = user?.role === 'BRANCH_MANAGER';
+
+    if (isManager) {
+      if (order.branchId !== user.branchId) throw new Error('ORDER_FORBIDDEN');
+      if (order.status === 'waiting_cancellation_admin') throw new Error('ADMIN_APPROVAL_REQUIRED');
+    }
+
+    if (!isAdmin && !isManager) throw new Error('UNAUTHORIZED');
+
+    return await this._executeFinalCancellation(order, user, order.cancellation.reason);
+  }
+
+  /**
+   * ❌ Reject a pending cancellation request
+   */
+  async rejectCancellation(orderId, user, rejectionReason) {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { cancellation: true }
+    });
+
+    if (!order || !order.cancellation) throw new Error('CANCELLATION_NOT_FOUND');
+    
+    // Role & Branch Check
+    if (user.role === 'BRANCH_MANAGER' && order.branchId !== user.branchId) {
+      throw new Error('ORDER_FORBIDDEN');
+    }
+
+    const previousStatus = order.cancellation.previousStatus || 'pending';
+
+    const updatedOrder = await prisma.$transaction(async (tx) => {
+      const updated = await tx.order.update({
+        where: { id: order.id, version: order.version },
+        data: { 
+          status: previousStatus,
+          version: { increment: 1 } 
+        },
+        include: ORDER_INCLUDE_FULL
+      });
+
+      await tx.orderCancellation.update({
+        where: { id: order.cancellation.id },
+        data: { 
+          status: 'rejected', 
+          rejectionReason, 
+          adminName: user?.email || 'Admin' 
         }
       });
 
       return updated;
     });
 
-    const mapped = mapOrderResponse(updatedOrder);
+    const EventBus = require('../events/eventBus');
+    EventBus.publish({ type: 'order.cancellation_rejected', payload: { order: updatedOrder, user, rejectionReason } });
 
-    // 🚀 Side Effects
-    analyticsService.updateCacheIncrementally({
-      type: 'ORDER_STATUS_CHANGE',
-      amount: toNumber(updatedOrder.total),
-      status: targetStatus,
-      previousStatus
-    });
-
-    await publishEvent({
-      type: targetStatus === 'cancelled' ? eventTypes.ORDER_CANCELLED : eventTypes.ORDER_CANCELLATION_REQUESTED,
-      aggregateId: updatedOrder.id,
-      payload: { previousStatus, newStatus: targetStatus, order: mapped },
-      version: updatedOrder.version
-    });
-
-    // 🎁 Loyalty Compensation Hook
-    // 🛡️ [SEC-FIX]: Use explicit flag instead of string matching to prevent abuse
-    if (targetStatus === 'cancelled' && isRestaurantFault === true) {
-      loyaltyService.compensatePointsForCancellation(updatedOrder.id, reason).catch(err => {
-        logger.error('[Loyalty] Auto-compensation failed', { orderId: updatedOrder.id, error: err.message });
-      });
-    }
-
-    return mapped;
+    return mapOrderResponse(updatedOrder);
   }
 
   /**
@@ -575,6 +664,9 @@ class OrderService {
     const tax = 0;
     const total = Math.max(0, toMoney(subtotal + deliveryDetails.fee - pointsDiscount));
 
+    // 5.5.5 🏢 Resolve Branch (Multi-Branch Ready)
+    const targetBranchId = await this._resolveBranchId(data.branchId || data.branch);
+
     // 🚀 Auto Accept Orders Logic
     let sysSettings = memoryCache.get('system:settings');
     if (!sysSettings) {
@@ -603,7 +695,7 @@ class OrderService {
           source: (authUser && authUser.role === 'admin') ? 'manual' : 'app',
           address: address ? xss(address) : address,
           notes: notes ? xss(notes) : notes,
-          branch,
+          branchId: targetBranchId,
           deliveryZoneId: deliveryDetails.zoneId,
           deliveryZoneName: deliveryDetails.zoneName,
           deliveryMinOrder: deliveryDetails.minOrder,
@@ -786,6 +878,31 @@ class OrderService {
       id: customer?.id || null,
       phone: resolvedPhone
     };
+  }
+
+  /**
+   * 🏢 Helper: Resolves a branch ID from various inputs (ID, code, or fallback to default)
+   */
+  async _resolveBranchId(input) {
+    // 1. If it's already a valid UUID of an existing branch
+    if (input && input.length > 30) {
+      const branch = await prisma.branch.findUnique({ where: { id: input }, select: { id: true } });
+      if (branch) return branch.id;
+    }
+
+    // 2. If it's a code (e.g. 'MAIN_BRANCH' or 'CITY_STREET')
+    if (input && typeof input === 'string') {
+      const branch = await prisma.branch.findUnique({ where: { code: input }, select: { id: true } });
+      if (branch) return branch.id;
+    }
+
+    // 3. Fallback to MAIN_BRANCH
+    const defaultBranch = await prisma.branch.findFirst({ 
+      where: { code: 'MAIN_BRANCH' }, 
+      select: { id: true } 
+    });
+
+    return defaultBranch?.id || null;
   }
 
   /**

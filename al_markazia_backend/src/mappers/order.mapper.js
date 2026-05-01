@@ -54,6 +54,7 @@ const mapOrderResponse = (order) => {
     // --- Meta ---
     address:          order.address,
     notes:            order.notes,
+    branchId:         order.branchId,
     branch:           order.branch,
     estimatedReadyAt: order.estimatedReadyAt,
     rating:           order.rating,

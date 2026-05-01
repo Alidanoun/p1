@@ -26,6 +26,7 @@ class TokenService {
         id: user.uuid, 
         phone: user.phone,
         role: user.role || 'customer',
+        branchId: user.branchId || null,
         jti: jti // Bind to session
       },
       ACCESS_TOKEN_SECRET,
@@ -55,6 +56,7 @@ class TokenService {
       jti,
       userId,
       role,
+      branchId: user.branchId || null,
       createdAt: new Date().toISOString()
     };
 
