@@ -11,6 +11,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../widgets/custom_snackbar.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/time_formatter.dart';
+// import 'package:share_plus/share_plus.dart';
+import '../features/auth/auth_controller.dart';
 
 class ItemDetailsSheet extends StatefulWidget {
   final MenuItem item;
@@ -272,6 +274,42 @@ class _ItemDetailsSheetState extends State<ItemDetailsSheet> {
                               );
                             }
                           ),
+                        ),
+                      ),
+                    ),
+                    // Share Button
+                    Positioned(
+                      top: 24,
+                      left: 72,
+                      child: GestureDetector(
+                        onTap: () async {
+                          // Allow share regardless of login, but only reward if logged in
+                          showCustomSnackbar(context, 'تم نسخ رابط الوجبة! شاركها مع أصدقائك للحصول على النقاط.', isSuccess: true);
+                          
+                          if (mounted) {
+                            final auth = context.read<AuthController>();
+                            if (auth.isAuthenticated) {
+                              try {
+                                final response = await ApiService.instance.triggerSocialShareReward();
+                                if (response != null && mounted) {
+                                  if (response['rewarded'] == true) {
+                                    showCustomSnackbar(context, response['message'] ?? 'تم إضافة نقاط المشاركة لمحفظتك!', isSuccess: true);
+                                    auth.refreshProfile(); // Update points display
+                                  }
+                                }
+                              } catch (e) {
+                                debugPrint('Share reward failed: $e');
+                              }
+                            }
+                          }
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.3),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.share_rounded, color: Colors.white, size: 24),
                         ),
                       ),
                     ),

@@ -17,6 +17,7 @@ const getBaseUrl = () => {
 export const BASE_URL = getBaseUrl();
 
 let isRefreshing = false;
+let refreshPromise = null; // 🥇 Singleton Promise to coordinate all refresh requests
 let failedQueue = [];
 
 const processQueue = (error, token = null) => {
@@ -68,44 +69,43 @@ api.interceptors.response.use(
     // If 401 and we haven't already retried this request
     if (error.response && error.response.status === 401 && !originalRequest._retry) {
 
-      if (isRefreshing) {
-        // Queue this request until refresh completes
+      if (refreshPromise) {
+        // 🛡️ Queue this request until the ongoing refresh completes
         return new Promise((resolve, reject) => {
           failedQueue.push({ resolve, reject });
         }).then(token => {
           originalRequest.headers['Authorization'] = `Bearer ${token}`;
           return api(originalRequest);
-        }).catch(err => Promise.reject(err));
+        });
       }
 
       originalRequest._retry = true;
-      isRefreshing = true;
+      
+      // 🥇 Atomic Refresh singleton
+      refreshPromise = (async () => {
+        try {
+          const response = await axios.post(`${BASE_URL}/auth/refresh`, {}, { withCredentials: true });
+          const refreshData = response.data.success ? response.data.data : response.data;
+          const { accessToken } = refreshData;
 
-      try {
-        // 🔄 Silent Refresh: No need to pass token in body, it's in the HttpOnly cookie
-        const response = await axios.post(`${BASE_URL}/auth/refresh`, {}, { withCredentials: true });
-        const refreshData = response.data.success ? response.data.data : response.data;
-        const { accessToken } = refreshData;
-
-        tokenStore.set(accessToken); // Save new short-lived token to memory
-
-        api.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
-        originalRequest.headers['Authorization'] = `Bearer ${accessToken}`;
-
-        processQueue(null, accessToken);
-
-        return api(originalRequest);
-      } catch (refreshError) {
-        processQueue(refreshError, null);
-        const status = refreshError.response?.status;
-        if (status === 401 || status === 403) {
-          tokenStore.clear();
-          forceLogout();
+          tokenStore.set(accessToken);
+          processQueue(null, accessToken);
+          return accessToken;
+        } catch (err) {
+          processQueue(err, null);
+          if (err.response?.status === 401 || err.response?.status === 403) {
+            tokenStore.clear();
+            forceLogout();
+          }
+          throw err;
+        } finally {
+          refreshPromise = null;
         }
-        return Promise.reject(refreshError);
-      } finally {
-        isRefreshing = false;
-      }
+      })();
+
+      const accessToken = await refreshPromise;
+      originalRequest.headers['Authorization'] = `Bearer ${accessToken}`;
+      return api(originalRequest);
     }
 
     // For 403 or other auth errors, check if it's a token issue
@@ -155,9 +155,26 @@ export const unwrap = (response) => {
 /**
  * 🔓 يجلب pagination metadata لو موجودة
  */
-export const getPagination = (response) => {
-  const body = response?.data;
-  return body?.pagination || null;
+/**
+ * 🔐 Centralized Bootstrap Refresh
+ * Used by AuthContext to restore session on page load.
+ */
+export const executeRefresh = async () => {
+  if (refreshPromise) return refreshPromise;
+  
+  refreshPromise = (async () => {
+    try {
+      const response = await axios.post(`${BASE_URL}/auth/refresh`, {}, { withCredentials: true });
+      const refreshData = response.data.success ? response.data.data : response.data;
+      const { accessToken } = refreshData;
+      tokenStore.set(accessToken);
+      return accessToken;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+  
+  return refreshPromise;
 };
 
 export default api;

@@ -95,7 +95,7 @@ async function startServer() {
     }));
 
     // Routes
-    app.use('/auth', governorGuard('MISSION_CRITICAL'), IdempotencyService.guard(), authRoutes);
+    app.use('/auth', governorGuard('MISSION_CRITICAL'), authRoutes);
     app.use('/items', itemRoutes);
     app.use('/orders', governorGuard('MISSION_CRITICAL'), IdempotencyService.guard(), orderRoutes);
     app.use('/categories', categoryRoutes);

@@ -46,11 +46,11 @@ class SessionService {
   Future<String?> get biometricToken async => await _secureStorage.read(key: _biometricTokenKey);
 
   /// Clears ONLY security tokens (used during logout)
-  /// 🛡️ Identity data (email/UID) and Biometric tokens are NOT cleared here.
+  /// 🛡️ Identity data (email/UID) and Biometric tokens are NOT cleared here 
+  /// to allow for biometric re-login.
   Future<void> clearTokens() async {
     await _secureStorage.delete(key: _accessTokenKey);
     await _secureStorage.delete(key: _refreshTokenKey);
-    await _secureStorage.delete(key: _biometricTokenKey);
   }
 
   /// Explicitly clear biometric token (if user disables it)

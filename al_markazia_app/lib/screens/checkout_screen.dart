@@ -610,7 +610,83 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                             ],
                           ),
                         ),
-                      const SizedBox(height: 12),
+                      if (checkout.pointsDiscount > 0)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8.0),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                Localizations.localeOf(context).languageCode == 'ar' ? 'خصم النقاط' : 'Points Discount',
+                                style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
+                              ),
+                              Text(
+                                '-${checkout.pointsDiscount.toStringAsFixed(2)} ${l10n.currency}',
+                                style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
+                              ),
+                            ],
+                          ),
+                        ),
+                      const SizedBox(height: 16),
+                      
+                      // 💳 Use Points to Pay Toggle
+                      if (checkout.availablePoints >= (checkout.loyaltyConfig?['minPointsToRedeem'] ?? 500))
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 16.0),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: checkout.usePoints ? Colors.green.withOpacity(0.1) : Colors.grey.withOpacity(0.05),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: checkout.usePoints ? Colors.green.withOpacity(0.3) : Colors.grey.withOpacity(0.2)),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.wallet_giftcard, color: checkout.usePoints ? Colors.green : Colors.grey, size: 24),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Text(
+                                        Localizations.localeOf(context).languageCode == 'ar' 
+                                          ? 'استخدم ${checkout.availablePoints} نقطة للخصم' 
+                                          : 'Use ${checkout.availablePoints} points for discount',
+                                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: checkout.usePoints ? Colors.green : Theme.of(context).textTheme.bodyLarge?.color),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Switch(
+                                  value: checkout.usePoints,
+                                  onChanged: (val) => checkout.toggleUsePoints(val),
+                                  activeColor: Colors.green,
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                      else if (checkout.loyaltyConfig != null && (checkout.loyaltyConfig!['minPointsToRedeem'] ?? 500) > 0 && checkout.availablePoints > 0)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 16.0),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.info_outline, size: 14, color: Colors.grey),
+                              const SizedBox(width: 4),
+                              Text(
+                                Localizations.localeOf(context).languageCode == 'ar' 
+                                  ? 'اجمع ${(checkout.loyaltyConfig!['minPointsToRedeem'] ?? 500) - checkout.availablePoints} نقطة إضافية لتتمكن من استخدامها كخصم نقدي!'
+                                  : 'Collect ${(checkout.loyaltyConfig!['minPointsToRedeem'] ?? 500) - checkout.availablePoints} more points to use as cash discount!',
+                                style: TextStyle(color: Colors.grey.shade500, fontSize: 11),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
+                        ),
+
+                      const SizedBox(height: 8),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [

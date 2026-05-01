@@ -15,6 +15,7 @@ import BroadcastNotifications from './pages/BroadcastNotifications';
 import ReviewsManager from './pages/ReviewsManager';
 import CancelledOrders from './pages/CancelledOrders';
 import LoyaltyManager from './pages/LoyaltyManager';
+import RewardStoreManager from './pages/RewardStoreManager';
 import DeliveryZonesManager from './pages/DeliveryZonesManager';
 
 import ErrorBoundary from './components/ErrorBoundary';
@@ -23,7 +24,12 @@ const ProtectedLayout = ({ children }) => {
   const { user, loading } = useAuth();
   const { theme } = useTheme();
   
-  if (loading) return null;
+  if (loading) return (
+    <div className="h-screen w-full flex flex-col items-center justify-center bg-background gap-4">
+      <div className="w-12 h-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+      <p className="text-text-muted text-sm font-medium animate-pulse">جاري استعادة الجلسة...</p>
+    </div>
+  );
   
   if (!user) {
     return <Navigate to="/login" replace />;
@@ -77,6 +83,7 @@ function App() {
           <Route path="/reviews" element={<ProtectedLayout><ReviewsManager /></ProtectedLayout>} />
           <Route path="/cancelled-orders" element={<ProtectedLayout><CancelledOrders /></ProtectedLayout>} />
           <Route path="/loyalty" element={<ProtectedLayout><LoyaltyManager /></ProtectedLayout>} />
+          <Route path="/rewards-store" element={<ProtectedLayout><RewardStoreManager /></ProtectedLayout>} />
           <Route path="/delivery-zones" element={<ProtectedLayout><DeliveryZonesManager /></ProtectedLayout>} />
           <Route path="/analytics" element={<ProtectedLayout><Analytics /></ProtectedLayout>} />
           <Route path="/reports" element={<ProtectedLayout><Reports /></ProtectedLayout>} />

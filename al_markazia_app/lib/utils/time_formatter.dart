@@ -20,7 +20,13 @@ class TimeFormatter {
         nextOpening.month == now.month &&
         nextOpening.year == now.year;
 
-    final timeStr = DateFormat.jm(locale).format(nextOpening);
+    // 🛡️ Timezone Fix: Ensure we show the time correctly. 
+    // If the device is in a different timezone (like UTC), DateFormat.jm() will shift the hour.
+    // For a local restaurant, we usually want to show the "Wall Clock" time of the restaurant.
+    // 🛡️ Timezone Fix: Restaurant is in Jordan (UTC+3). 
+    // We force the display to Amman time so it shows "9:00 AM" regardless of device timezone.
+    final ammanTime = nextOpening.toUtc().add(const Duration(hours: 3));
+    final timeStr = DateFormat.jm(locale).format(ammanTime);
 
     if (isToday) {
       if (locale == 'ar') {

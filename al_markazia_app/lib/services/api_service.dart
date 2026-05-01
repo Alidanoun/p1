@@ -21,7 +21,7 @@ class ApiService {
   Timer? _silentRefreshTimer;
 
   static String get baseUrl {
-    const ip = String.fromEnvironment('SERVER_IP', defaultValue: '192.168.1.117');
+    const ip = String.fromEnvironment('SERVER_IP', defaultValue: '192.168.3.179');
     const port = String.fromEnvironment('SERVER_PORT', defaultValue: '5000');
     final scheme = const bool.fromEnvironment('dart.vm.product') ? 'https' : 'http';
     return '$scheme://$ip:$port';
@@ -37,9 +37,11 @@ class ApiService {
         final decoded = json.decode(utf8.decode(response.bodyBytes));
         return RestaurantStatus.fromJson(decoded['data']);
       }
-      return RestaurantStatus(isOpen: true, isEmergency: false);
+      // 🛡️ Fail-Close: If status is uncertain, assume closed
+      return RestaurantStatus(isOpen: false, isEmergency: true, reason: 'عذراً، لا يمكن التحقق من حالة المطعم حالياً');
     } catch (e) {
-      return RestaurantStatus(isOpen: true, isEmergency: false); // Fail-safe
+      debugPrint('🚨 [Fail-Close] Restaurant status check failed: $e');
+      return RestaurantStatus(isOpen: false, isEmergency: true, reason: 'لا يوجد اتصال بالسيرفر');
     }
   }
 
@@ -456,6 +458,55 @@ class ApiService {
       }).toList();
     }
     throw Exception('Search failed');
+  }
+
+  // --- 🎁 REWARDS STORE ---
+
+  Future<List<dynamic>> fetchRewardsStore() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/loyalty/store'), 
+      headers: await _headers
+    ).timeout(const Duration(seconds: 10));
+    
+    if (response.statusCode == 200) {
+      final decoded = json.decode(utf8.decode(response.bodyBytes));
+      return decoded['data'] ?? [];
+    }
+    throw Exception('Failed to fetch rewards store');
+  }
+
+  Future<Map<String, dynamic>> claimReward(int rewardId) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/loyalty/store/claim'), 
+      headers: await _headers,
+      body: json.encode({'rewardId': rewardId})
+    ).timeout(const Duration(seconds: 10));
+    
+    if (response.statusCode == 200) {
+      final decoded = json.decode(utf8.decode(response.bodyBytes));
+      if (decoded['success'] == true) {
+        return decoded['data'];
+      }
+      throw Exception(decoded['error'] ?? 'فشل الاستبدال');
+    } else {
+      final decoded = json.decode(utf8.decode(response.bodyBytes));
+      throw Exception(decoded['error'] ?? 'حدث خطأ غير متوقع');
+    }
+  }
+
+  Future<Map<String, dynamic>?> triggerSocialShareReward() async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/loyalty/share-product'), 
+        headers: await _headers
+      ).timeout(const Duration(seconds: 10));
+      if (response.statusCode == 200) {
+        return json.decode(utf8.decode(response.bodyBytes));
+      }
+    } catch (e) {
+      debugPrint('Social share reward failed: $e');
+    }
+    return null;
   }
 
   // --- SINGLETON & TOKEN REFRESH ---

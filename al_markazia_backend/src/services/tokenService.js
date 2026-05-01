@@ -91,12 +91,18 @@ class TokenService {
 
   /**
    * Implements Secure Rotation & Abuse Detection with Redis Session Validation
+   * 🛡️ Enhanced with a 30s Idempotent Grace Period to handle race conditions.
    */
-  static async validateAndRotate(oldTokenString) {
+  static async validateAndRotate(oldTokenString, clientIp = 'unknown') {
     try {
+      // 🛡️ Pre-validation Sanitization
+      if (!oldTokenString || typeof oldTokenString !== 'string' || !oldTokenString.includes('.')) {
+        throw new Error('MALFORMED_TOKEN_FORMAT');
+      }
+
       // 1. JWT Standard Verification
       const decoded = jwt.verify(oldTokenString, REFRESH_TOKEN_SECRET);
-      const { id: userId, jti: oldJti } = decoded;
+      const { id: userId, jti: oldJti, role } = decoded;
 
       if (!oldJti) throw new Error('MALFORMED_TOKEN');
 
@@ -105,15 +111,33 @@ class TokenService {
       const sessionDataRaw = await redis.get(sessionKey);
 
       if (!sessionDataRaw) {
-        logger.security('REUSE_OR_REVOKED_SESSION_DETECTED', { userId, jti: oldJti });
-        // Panic: If a session is missing from Redis but token is valid, it's either revoked or replayed
+        logger.security('[REFRESH_REUSE_DETECTED] Critical: Token not in Redis.', { userId, oldJti });
         await this.revokeAllSessions(userId);
         throw new Error('SESSION_REVOKED_OR_EXPIRED');
       }
 
-      // 3. Resolve Identity
+      const sessionData = JSON.parse(sessionDataRaw);
+
+      // 🔄 [GRACE PERIOD LOGIC] Handle concurrent refresh requests (e.g. React StrictMode)
+      if (sessionData.status === 'ROTATED') {
+        // 🛡️ IP Check: Only allow grace period if the IP matches the one that rotated it
+        if (sessionData.rotatedIp !== clientIp) {
+          logger.security('[REFRESH_REUSE_DETECTED] Warning: Rotated token used from different IP.', { userId, oldJti, originalIp: sessionData.rotatedIp, newIp: clientIp });
+          await this.revokeAllSessions(userId);
+          throw new Error('SECURITY_BREACH');
+        }
+
+        logger.info('[REFRESH_GRACE_ACCEPTED] Race condition handled. Returning idempotent response.', { userId, oldJti });
+        return { 
+          accessToken: sessionData.idempotentResponse.accessToken, 
+          newRefreshToken: { token: sessionData.idempotentResponse.refreshToken },
+          user: { uuid: userId, role } // Basic user data for response
+        };
+      }
+
+      // 3. Resolve Identity (Only if not rotated)
       let user;
-      if (decoded.role === 'admin' || decoded.role === 'super_admin') {
+      if (role === 'admin' || role === 'super_admin') {
         user = await prisma.user.findFirst({ where: { uuid: userId } });
       } else {
         user = await prisma.customer.findFirst({ where: { uuid: userId } });
@@ -130,15 +154,32 @@ class TokenService {
       }
 
       // 4. ATOMIC ROTATION
-      // Delete old session from Redis
-      await redis.del(sessionKey);
-
       // Generate New Pair
-      const { token: newRefreshToken, jti: newJti } = await this.generateAndSaveRefreshToken(user);
+      const { token: newRefreshTokenString, jti: newJti } = await this.generateAndSaveRefreshToken(user);
       const accessToken = this.generateAccessToken(user, newJti);
 
-      return { accessToken, newRefreshToken, user };
+      // 🕒 MARK AS ROTATED (Grace Period: 30s)
+      // Instead of deleting, we keep it as a 'ghost' session to handle idempotent retries
+      const gracePeriodData = {
+        status: 'ROTATED',
+        rotatedAt: new Date().toISOString(),
+        rotatedIp: clientIp,
+        idempotentResponse: {
+          accessToken,
+          refreshToken: newRefreshTokenString
+        }
+      };
+      await redis.set(sessionKey, JSON.stringify(gracePeriodData), 'EX', 30);
+
+      logger.info('[REFRESH_ROTATION] Token successfully rotated.', { userId, oldJti, newJti });
+
+      return { 
+        accessToken, 
+        newRefreshToken: { token: newRefreshTokenString }, 
+        user 
+      };
     } catch (error) {
+      if (error.message === 'SECURITY_BREACH') throw error;
       logger.error('Token Rotation Failed', { error: error.message });
       throw new Error('REFRESH_TOKEN_INVALID');
     }

@@ -10,6 +10,7 @@ import 'auth_screen.dart';
 import 'package:provider/provider.dart';
 import '../services/biometric_service.dart';
 import '../widgets/custom_snackbar.dart';
+import 'loyalty_hub_screen.dart';
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({Key? key}) : super(key: key);
@@ -215,20 +216,32 @@ class _AccountScreenState extends State<AccountScreen> {
             ),
             const SizedBox(height: 32),
   
-            _buildSettingsCard(
-              context: context,
-              title: l10n.loyaltyPoints,
-              icon: Icons.stars_rounded,
-              cardColor: cardColor,
-              trailing: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: primaryColor.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  '${user?['points'] ?? 0} ${l10n.points}',
-                  style: TextStyle(color: primaryColor, fontWeight: FontWeight.bold),
+            GestureDetector(
+              onTap: () {
+                if (user != null) {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const LoyaltyHubScreen()),
+                  );
+                } else {
+                  showCustomSnackbar(context, l10n.loginRequired, isSuccess: false);
+                }
+              },
+              child: _buildSettingsCard(
+                context: context,
+                title: l10n.loyaltyPoints,
+                icon: Icons.stars_rounded,
+                cardColor: cardColor,
+                trailing: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: primaryColor.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    '${user?['points'] ?? 0} ${l10n.points}',
+                    style: TextStyle(color: primaryColor, fontWeight: FontWeight.bold),
+                  ),
                 ),
               ),
             ),

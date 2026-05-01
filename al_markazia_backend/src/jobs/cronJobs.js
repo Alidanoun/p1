@@ -151,7 +151,21 @@ function initCronJobs(io = null) {
     });
   }, 5000);
 
-  logger.info('🚀 Automated Maintenance Jobs (Archiving, Cleanup & Outbox) Initialized.');
+  // 8. 🎁 Loyalty Maintenance (Happy Hour Auto-Disable) - Every 1 minute
+  cron.schedule('* * * * *', async () => {
+    await withLock('loyalty_maintenance', 55, async () => {
+      try {
+        const result = await loyaltyService.checkAndAutoDisable();
+        if (result && result.disabled) {
+          logger.info(`[Loyalty] Happy Hour session ended automatically for config ${result.id}`);
+        }
+      } catch (err) {
+        logger.error('Cron Job Failed: Loyalty Maintenance', { error: err.message });
+      }
+    });
+  });
+
+  logger.info('🚀 Automated Maintenance Jobs (Archiving, Cleanup, Outbox & Loyalty) Initialized.');
 }
 
 module.exports = { initCronJobs };

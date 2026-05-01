@@ -69,18 +69,26 @@ class AuthController extends ChangeNotifier {
       final session = SessionService.instance;
       final storage = StorageService.instance;
 
+      // 1. Check for existing access token
       if (await session.hasSession) {
         _status = AuthStatus.authenticated;
-        _prefetchData(); // Proactive prefetch
-      } else {
-        final hasEmail = storage.userEmail != null;
-        final biometricActive = storage.isBiometricEnabled;
+        _prefetchData();
+      } 
+      // 2. 🔄 Silent Refresh Attempt: Try to restore session if we have a refresh token
+      else if (await session.refreshToken != null || (storage.isBiometricEnabled && await session.biometricToken != null)) {
+        debugPrint('🔄 [Auth] Access token missing. Attempting silent session restoration...');
+        final success = await ApiService.instance.refreshTokens() != null;
         
-        if (hasEmail && biometricActive) {
-          _status = AuthStatus.biometricRequired;
+        if (success) {
+          _status = AuthStatus.authenticated;
+          _prefetchData();
         } else {
-          _status = AuthStatus.unauthenticated;
+          _status = _getUnauthStatus(storage);
         }
+      }
+      // 3. Unauthenticated
+      else {
+        _status = _getUnauthStatus(storage);
       }
     } catch (e) {
       debugPrint('⚠️ Auth Init Error: $e');
@@ -155,12 +163,31 @@ class AuthController extends ChangeNotifier {
   //  🔐 LOGIN (Biometrics)
   // ════════════════════════════════════════════════════════
   Future<BiometricLoginResult> loginWithBiometrics({required String reason}) async {
-    final result = await BiometricService.instance.authenticate(reason: reason);
+    // 🛡️ Security Check: Biometric Token Expiry (14 Days)
+    final lastAuth = StorageService.instance.getString('biometric_token_created_at');
+    if (lastAuth != null) {
+      final createdAt = DateTime.parse(lastAuth);
+      if (DateTime.now().difference(createdAt).inDays > 14) {
+        debugPrint('🚨 [Auth] Biometric token expired (14 days). Requiring password.');
+        return BiometricLoginResult(
+          status: BiometricLoginStatus.sessionExpired,
+          message: 'انتهت صلاحية الدخول الحيوي، يرجى استخدام كلمة المرور',
+        );
+      }
+    }
 
+    final result = await BiometricService.instance.authenticate(reason: reason);
     if (!result.success) {
-      if (result.isLockedOut) return BiometricLoginResult(status: BiometricLoginStatus.lockedOut, message: result.message);
-      if (result.wasCancelled) return BiometricLoginResult(status: BiometricLoginStatus.cancelled);
-      return BiometricLoginResult(status: BiometricLoginStatus.failed, message: result.message);
+      if (result.isLockedOut) {
+        return BiometricLoginResult(
+          status: BiometricLoginStatus.lockedOut,
+          message: result.message,
+        );
+      }
+      return BiometricLoginResult(
+        status: BiometricLoginStatus.failed,
+        message: result.wasCancelled ? null : result.message,
+      );
     }
 
     _setLoading(true);
@@ -183,7 +210,10 @@ class AuthController extends ChangeNotifier {
       return BiometricLoginResult(status: BiometricLoginStatus.success);
     } catch (e) {
       _setLoading(false);
-      return BiometricLoginResult(status: BiometricLoginStatus.failed, message: 'فشل التحقق من الجلسة');
+      return BiometricLoginResult(
+        status: BiometricLoginStatus.failed, 
+        message: 'حدث خطأ أثناء محاولة الدخول، يرجى المحاولة لاحقاً'
+      );
     }
   }
 
@@ -201,6 +231,7 @@ class AuthController extends ChangeNotifier {
     }
 
     await StorageService.instance.setBiometricEnabled(true);
+    await StorageService.instance.setString('biometric_token_created_at', DateTime.now().toIso8601String());
     _biometricEnabled = true;
     notifyListeners();
     return true;
@@ -333,6 +364,16 @@ class AuthController extends ChangeNotifier {
   }
 
   // ── Private Helpers ──────────────────────────────────────
+
+  AuthStatus _getUnauthStatus(StorageService storage) {
+    final hasEmail = storage.userEmail != null;
+    final biometricActive = storage.isBiometricEnabled;
+    
+    if (hasEmail && biometricActive) {
+      return AuthStatus.biometricRequired;
+    }
+    return AuthStatus.unauthenticated;
+  }
 
   void _setLoading(bool val) {
     isLoading = val;
