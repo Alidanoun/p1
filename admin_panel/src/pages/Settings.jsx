@@ -43,13 +43,19 @@ const Settings = () => {
   });
   const [updatingCredentials, setUpdatingCredentials] = useState(false);
 
+  const [advancedConfig, setAdvancedConfig] = useState({
+    business: {},
+    security: {}
+  });
+
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [settingsData, scheduleData, logsData] = await Promise.all([
+        const [settingsData, scheduleData, logsData, sysConfigData] = await Promise.all([
           api.get('/settings').then(unwrap).catch(() => ({})),
           api.get('/restaurant/schedule').then(unwrap).catch(() => ({ schedule: [] })),
-          api.get('/settings/audit').then(unwrap).catch(() => [])
+          api.get('/settings/audit').then(unwrap).catch(() => []),
+          api.get('/system/config').then(unwrap).catch(() => null)
         ]);
         
         if (settingsData) {
@@ -57,7 +63,6 @@ const Settings = () => {
         }
         
         if (scheduleData && scheduleData.schedule) {
-          // Merge API schedule with full 7-day template to ensure no missing days
           const fullSchedule = DAYS.map(d => {
             const existing = scheduleData.schedule.find(s => s.dayOfWeek === d.id);
             return existing || { dayOfWeek: d.id, openTime: '09:00', closeTime: '23:00', isClosed: false };
@@ -67,6 +72,10 @@ const Settings = () => {
         
         if (logsData) {
           setAuditLogs(logsData);
+        }
+
+        if (sysConfigData) {
+          setAdvancedConfig(sysConfigData);
         }
       } catch (error) {
         toast.error('فشل في تحميل الإعدادات');
@@ -83,7 +92,6 @@ const Settings = () => {
     try {
       await api.put('/settings', settings);
       
-      // If saving schedule, we should also call the schedule endpoint
       if (activeTab === 'schedule') {
         await api.post('/restaurant/schedule', { schedule });
       }
@@ -92,6 +100,21 @@ const Settings = () => {
     } catch (error) {
       const message = error.response?.data?.error || 'فشل في الحفظ';
       toast.error(message);
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const handleSaveAdvancedConfig = async (type) => {
+    setUpdating(true);
+    try {
+      await api.patch('/settings/advanced', { 
+        type, 
+        data: advancedConfig[type] 
+      });
+      toast.success('تم تحديث الإعدادات المتقدمة بنجاح');
+    } catch (error) {
+      toast.error('فشل في تحديث الإعدادات المتقدمة');
     } finally {
       setUpdating(false);
     }
@@ -149,6 +172,7 @@ const Settings = () => {
     { id: 'schedule', title: 'أوقات العمل', icon: Clock },
     { id: 'contact', title: 'التواصل والإعلانات', icon: Bell },
     { id: 'security', title: 'الأمان والسجلات', icon: Shield },
+    { id: 'advanced', title: 'إعدادات النظام', icon: SettingsIcon },
   ];
 
   if (loading) {
@@ -521,6 +545,107 @@ const Settings = () => {
                       ) : (
                         <div className="p-8 text-center text-text-muted text-sm">لا توجد سجلات متاحة</div>
                       )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB: ADVANCED CONFIG (Dynamic Business Rules) */}
+              {activeTab === 'advanced' && (
+                <div className="space-y-6">
+                  {/* Security Policy Section */}
+                  <div className="p-6 rounded-2xl bg-white/5 border border-white/5 space-y-6">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                        <Shield className="w-5 h-5 text-red-500" /> سياسة الحماية والأمان
+                      </h3>
+                      <button 
+                        onClick={() => handleSaveAdvancedConfig('security')}
+                        className="text-xs bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white px-4 py-2 rounded-xl transition-all font-bold"
+                      >
+                        حفظ سياسة الأمان
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-text-muted">محاولات الدخول الفاشلة</label>
+                        <input 
+                          type="number" 
+                          className="glass-input text-center w-full" 
+                          value={advancedConfig.security?.maxLoginAttempts || 5} 
+                          onChange={e => setAdvancedConfig({
+                            ...advancedConfig, 
+                            security: { ...advancedConfig.security, maxLoginAttempts: parseInt(e.target.value) }
+                          })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-text-muted">مدة القفل (دقيقة)</label>
+                        <input 
+                          type="number" 
+                          className="glass-input text-center w-full" 
+                          value={advancedConfig.security?.lockDurationMinutes || 15} 
+                          onChange={e => setAdvancedConfig({
+                            ...advancedConfig, 
+                            security: { ...advancedConfig.security, lockDurationMinutes: parseInt(e.target.value) }
+                          })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-text-muted">تأخير الحماية (ms)</label>
+                        <input 
+                          type="number" 
+                          className="glass-input text-center w-full" 
+                          value={advancedConfig.security?.timingDelayMs || 300} 
+                          onChange={e => setAdvancedConfig({
+                            ...advancedConfig, 
+                            security: { ...advancedConfig.security, timingDelayMs: parseInt(e.target.value) }
+                          })}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Business Rules Section */}
+                  <div className="p-6 rounded-2xl bg-white/5 border border-white/5 space-y-6">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                        <SettingsIcon className="w-5 h-5 text-primary" /> قواعد العمل والقيود
+                      </h3>
+                      <button 
+                        onClick={() => handleSaveAdvancedConfig('business')}
+                        className="text-xs bg-primary/10 text-primary hover:bg-primary hover:text-white px-4 py-2 rounded-xl transition-all font-bold"
+                      >
+                        حفظ قواعد العمل
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-text-muted">أقصى طول لسبب الإلغاء (حرف)</label>
+                        <input 
+                          type="number" 
+                          className="glass-input text-center w-full" 
+                          value={advancedConfig.business?.maxCancellationReasonLength || 500} 
+                          onChange={e => setAdvancedConfig({
+                            ...advancedConfig, 
+                            business: { ...advancedConfig.business, maxCancellationReasonLength: parseInt(e.target.value) }
+                          })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-text-muted">الحد الأقصى للتقييم</label>
+                        <input 
+                          type="number" 
+                          className="glass-input text-center w-full" 
+                          value={advancedConfig.business?.maxRating || 5} 
+                          onChange={e => setAdvancedConfig({
+                            ...advancedConfig, 
+                            business: { ...advancedConfig.business, maxRating: parseInt(e.target.value) }
+                          })}
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>

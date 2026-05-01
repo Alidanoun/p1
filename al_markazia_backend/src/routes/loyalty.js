@@ -15,6 +15,7 @@ router.post('/stop-now', authMiddleware, adminMiddleware, loyaltyController.stop
 router.patch('/settings', authMiddleware, adminMiddleware, loyaltyController.updateSettings);
 
 // 📱 Mobile App Endpoints
+router.get('/profile', authMiddleware, loyaltyController.getMyLoyaltyProfile);
 router.post('/share-product', authMiddleware, loyaltyController.rewardSocialShare);
 
 // 🛒 Rewards Store (Admin)

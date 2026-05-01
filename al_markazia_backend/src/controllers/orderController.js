@@ -230,8 +230,12 @@ exports.cancelOrder = async (req, res) => {
     const { reason, managerPassword, isRestaurantFault } = req.body;
     const idempotencyKey = req.headers['idempotency-key'] || `cancel_manual_${orderId}_${Date.now()}`;
 
-    if (reason && reason.length > 500) {
-      return res.status(400).json({ error: 'سبب الإلغاء يتجاوز الحد المسموح (500 حرف)' });
+    const configService = require('../services/configService');
+    const systemConfig = await configService.getFullConfig();
+    const maxLen = systemConfig.business.maxCancellationReasonLength;
+
+    if (reason && reason.length > maxLen) {
+      return res.status(400).json({ error: `سبب الإلغاء يتجاوز الحد المسموح (${maxLen} حرف)` });
     }
 
     const contractGateway = require('../services/contractGateway');

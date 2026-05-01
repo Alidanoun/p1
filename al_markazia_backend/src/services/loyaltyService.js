@@ -336,8 +336,36 @@ class LoyaltyService {
         where: { id: customerId },
         data: { tier: newTier }
       });
-      logger.info(`Customer ${customerId} upgraded to ${newTier} tier`);
-      // TODO: Send notification to customer about tier upgrade
+      
+      logger.info(`🏆 Customer ${customerId} upgraded to ${newTier} tier`);
+      
+      // 📮 [WOW-FACTOR] Notify User via Sockets & Push
+      const notificationService = require('./notificationService');
+      const { SOCKET_EVENTS } = require('../shared/socketEvents');
+      const io = require('../socket').getIO();
+
+      const titles = { 'GOLD': '🟡 مبروك! وصلت للمستوى الذهبي', 'PLATINUM': '💎 مبروك! وصلت للمستوى البلاتيني' };
+      const msgs = { 
+        'GOLD': `لقد أصبحت الآن عضواً ذهبياً! ستصلك نقاط إضافية x${config.pointsMultiplierGold} على كل طلب.`, 
+        'PLATINUM': `لقد وصلت للقمة! أنت الآن عضو بلاتيني بمضاعف نقاط x${config.pointsMultiplierPlatinum}.` 
+      };
+
+      if (titles[newTier]) {
+        await notificationService.sendToCustomer(customer.phone, {
+          title: titles[newTier],
+          message: msgs[newTier],
+          type: 'TIER_UPGRADE',
+          metadata: { newTier }
+        });
+
+        // Live Socket Flash
+        io.to(`room:customer:${customerId}`).emit(SOCKET_EVENTS.SYSTEM_ALERT, {
+          type: 'TIER_UPGRADE',
+          title: titles[newTier],
+          message: msgs[newTier],
+          tier: newTier
+        });
+      }
     }
   }
 
@@ -414,7 +442,7 @@ class LoyaltyService {
 
       // Compensation is based on config rate (e.g. 5%) of order total or at least 50 points
       const config = await this.getConfig();
-      const amount = Math.max(50, Math.floor(Number(order.total) * config.cancellationCompensationRate * config.pointsPerJod));
+      const amount = Math.max(config.minCompensationPoints, Math.floor(Number(order.total) * config.cancellationCompensationRate * config.pointsPerJod));
 
       await prisma.customer.update({
         where: { id: order.customerId },
@@ -540,7 +568,7 @@ class LoyaltyService {
           customerId: customerId,
           rewardItemId: reward.id,
           code: code,
-          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days validity
+          expiresAt: new Date(Date.now() + config.rewardExpiryDays * 24 * 60 * 60 * 1000) // Dynamic validity from config
         },
         include: { rewardItem: true }
       });

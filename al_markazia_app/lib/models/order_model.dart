@@ -34,6 +34,8 @@ class OrderModel {
   final String? deliveryZoneId;
   final int version; // 🛡️ Sequence Version for ordering logic
   final bool usePoints;
+  final double? destLat;
+  final double? destLng;
 
   OrderModel({
     required this.orderId,
@@ -65,6 +67,8 @@ class OrderModel {
     this.deliveryZoneId,
     this.version = 1,
     this.usePoints = false,
+    this.destLat,
+    this.destLng,
   });
 
   String getDisplayStatus(AppLocalizations l10n) {
@@ -136,6 +140,8 @@ class OrderModel {
       deliveryZoneId: json['deliveryZoneId'],
       version: json['version'] ?? 1,
       usePoints: json['usePoints'] ?? false,
+      destLat: double.tryParse(json['destLat']?.toString() ?? ''),
+      destLng: double.tryParse(json['destLng']?.toString() ?? ''),
     );
   }
 

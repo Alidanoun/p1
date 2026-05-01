@@ -16,6 +16,8 @@ const SOCKET_EVENTS = {
   // --- Notifications & Alerts ---
   NOTIFICATION_NEW: 'notification:new',
   SYSTEM_ALERT: 'system:alert',
+  // --- Real-time Tracking ---
+  DRIVER_LOCATION_UPDATE: 'tracking:location_update',
 };
 
 const SOCKET_ROOMS = {
@@ -23,6 +25,7 @@ const SOCKET_ROOMS = {
   DASHBOARD: 'room:dashboard',
   // Helper to generate dynamic rooms
   CUSTOMER: (id) => `room:customer:${id}`,
+  ORDER_TRACKING: (id) => `room:tracking:order:${id}`,
 };
 
 const ROLES = {

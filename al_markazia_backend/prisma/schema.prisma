@@ -308,6 +308,8 @@ model SystemSettings {
   spamCancelLimit         Int      @default(3)
   spamTimeWindowMinutes   Int      @default(30)
   defaultDeliveryFee      Decimal  @default(1.00) @db.Decimal(10, 2)
+  businessConfig          Json?    // { maxCancellationReasonLength: 500, maxRating: 5 }
+  securityConfig          Json?    // { maxLoginAttempts: 5, lockDurationMinutes: 15, timingDelayMs: 300 }
 }
 
 model OrderAuditLog {
@@ -524,6 +526,8 @@ model LoyaltyConfig {
   cancellationCompensationRate Float @default(0.05)
   pointsToJodRate         Float    @default(100)
   minPointsToRedeem       Int      @default(500)
+  minCompensationPoints   Int      @default(50)
+  rewardExpiryDays        Int      @default(30)
   updatedAt               DateTime @updatedAt
 }
 
