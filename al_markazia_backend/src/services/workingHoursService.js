@@ -72,7 +72,7 @@ class WorkingHoursService {
         }
       }
 
-      const dayOfWeek = now.weekday === 7 ? 0 : now.weekday; // Luxon 1-7 (Mon-Sun) to Prisma 0-6 (Sun-Sat)
+      const dayOfWeek = now.weekday === 7 ? 0 : now.weekday; 
       const todaySchedule = schedule.find(s => s.dayOfWeek === dayOfWeek);
 
       if (!todaySchedule || todaySchedule.isClosed) {
@@ -81,36 +81,28 @@ class WorkingHoursService {
         return status;
       }
 
-      // 4. Calculate Opening/Closing Times
-      const [openH, openM] = todaySchedule.openTime.split(':').map(Number);
-      const [closeH, closeM] = todaySchedule.closeTime.split(':').map(Number);
+      // 4. Calculate Opening/Closing using MSM (Minutes Since Midnight)
+      const nowM = now.hour * 60 + now.minute;
+      const getM = (t) => {
+        const [h, m] = t.split(':').map(Number);
+        return h * 60 + m;
+      };
 
-      let openTime = now.set({ hour: openH, minute: openM, second: 0, millisecond: 0 });
-      let closeTime = now.set({ hour: closeH, minute: closeM, second: 0, millisecond: 0 });
+      const openM = getM(todaySchedule.openTime);
+      const closeM = getM(todaySchedule.closeTime);
+      const graceM = settings.lastOrderMinutesBeforeClose || 0;
 
-      if (closeTime < openTime) {
-        if (now < closeTime) {
-          openTime = openTime.minus({ days: 1 });
-        } else {
-          closeTime = closeTime.plus({ days: 1 });
-        }
-      }
-
-      const gracePeriodMs = settings.lastOrderMinutesBeforeClose * 60 * 1000;
-      const effectiveCloseTime = closeTime.minus({ milliseconds: gracePeriodMs });
-
-      const isOpen = now >= openTime && now < effectiveCloseTime;
-
-      let status;
-      if (isOpen) {
-        status = {
-          isOpen: true,
-          closingAt: closeTime.toISO(),
-          gracePeriodAt: effectiveCloseTime.toISO()
-        };
+      let isOpen = false;
+      if (openM > closeM) {
+        // Midnight crossing
+        isOpen = (nowM >= openM || nowM < (closeM - graceM));
       } else {
-        status = await this._getClosedStatus(now, schedule, settings);
+        isOpen = (nowM >= openM && nowM < (closeM - graceM));
       }
+
+      const status = isOpen 
+        ? { isOpen: true, closingAt: todaySchedule.closeTime }
+        : await this._getClosedStatus(now, schedule, settings);
 
       nodeCache.set(this.CACHE_KEY, status, this.CACHE_TTL);
       return status;

@@ -1,7 +1,9 @@
 const bcrypt = require('bcrypt');
 const prisma = require('../lib/prisma');
 const logger = require('../utils/logger');
+const { generateFingerprint } = require('../utils/security');
 const TokenService = require('../services/tokenService');
+const auditService = require('../services/auditService');
 const { REFRESH_TOKEN_EXPIRY_MS } = require('../config/secrets');
 const { OTP_EXPIRY } = require('../config/constants');
 const response = require('../utils/response');
@@ -76,22 +78,34 @@ const refreshToken = async (req, res) => {
   }
 
   try {
-    // 🛡️ Secure Rotation & Abuse Detection with IP Tracking
-    const { accessToken, newRefreshToken, user } = await TokenService.validateAndRotate(token, req.ip);
-    const refreshTokenString = newRefreshToken.token;
+    const oldRefreshToken = req.cookies.refreshToken;
+    if (!oldRefreshToken) throw new Error('MISSING_REFRESH_TOKEN');
 
-    // 🛡️ Security Guard: Prevent writing 'undefined' cookies
-    if (!refreshTokenString || typeof refreshTokenString !== 'string') {
-      throw new Error('[CRITICAL] Invalid refresh token generated during rotation');
-    }
+    const clientIp = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    const currentFingerprint = generateFingerprint(req);
     
-    // ✅ Set Secure Cookie
-    res.cookie('refreshToken', refreshTokenString, refreshCookieOptions(req));
+    const { accessToken, newRefreshToken, user } = await TokenService.validateAndRotate(oldRefreshToken, clientIp, currentFingerprint);
+
+    // 🛡️ Cookie Hardening
+    res.cookie('refreshToken', newRefreshToken.token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'Strict',
+      path: '/auth/refresh',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
+    await auditService.log({
+      userId: user.uuid,
+      userRole: user.role,
+      action: 'TOKEN_REFRESH',
+      req
+    });
 
     // ✅ Return both tokens (refreshToken is for mobile app storage)
     response.success(res, { 
       accessToken,
-      refreshToken: refreshTokenString
+      refreshToken: newRefreshToken.token
     });
   } catch (error) {
     if (error.message === 'TOKEN_REUSE_DETECTED') {
@@ -110,22 +124,76 @@ const refreshToken = async (req, res) => {
  */
 const login = async (req, res) => {
   const { email, password, fcmToken } = req.body;
+  const start = Date.now();
   try {
     const cleanEmail = email.toLowerCase().trim();
-    logger.debug('Login attempt detail', { email: cleanEmail, passLength: password?.length });
+    logger.debug('Login attempt initiated', { email: cleanEmail });
+    
+    // 🛡️ [SEC-FIX] Lockout Key: IP + Email to prevent global user DoS
+    const lockoutKey = `${req.ip}_${cleanEmail}`;
+    
     const user = await prisma.user.findUnique({ where: { email: cleanEmail } });
     const customer = !user ? await prisma.customer.findUnique({ where: { email: cleanEmail } }) : null;
     const account = user || customer;
 
+    // 🛡️ Account Lockout Check
+    if (account && account.lockUntil && account.lockUntil > new Date()) {
+      const remainingMinutes = Math.ceil((account.lockUntil - new Date()) / 60000);
+      return response.error(res, `الحساب مغلق مؤقتاً بكثرة المحاولات الخاطئة. حاول مجدداً بعد ${remainingMinutes} دقيقة.`, 'ACCOUNT_LOCKED', 403);
+    }
+
     if (!account || !account.password) {
-      logger.security('Invalid login attempt: Account not found or no password set', { identifier: cleanEmail, ip: req.ip });
+      await auditService.log({
+        action: 'LOGIN_FAIL',
+        status: 'FAIL',
+        severity: 'WARN',
+        metadata: { identifier: cleanEmail, reason: 'ACCOUNT_NOT_FOUND' },
+        req
+      });
       return response.error(res, 'بيانات الدخول غير صحيحة', 'INVALID_CREDENTIALS', 401);
     }
 
-    const match = await bcrypt.compare(password, account.password);
+    const match = account ? await bcrypt.compare(password, account.password) : false;
+    
     if (!match) {
-      logger.security('Invalid login attempt: Password mismatch', { identifier: cleanEmail, ip: req.ip });
+      if (account) {
+        // Increment failed attempts
+        const newAttempts = account.failedAttempts + 1;
+        const lockUntil = newAttempts >= 5 ? new Date(Date.now() + 15 * 60 * 1000) : null;
+        
+        if (user) {
+          await prisma.user.update({ where: { id: user.id }, data: { failedAttempts: newAttempts, lockUntil } });
+        } else {
+          await prisma.customer.update({ where: { id: customer.id }, data: { failedAttempts: newAttempts, lockUntil } });
+        }
+        
+        await auditService.log({
+          userId: account.uuid,
+          userRole: account.role || 'customer',
+          action: 'LOGIN_FAIL',
+          status: 'FAIL',
+          severity: newAttempts >= 5 ? 'CRITICAL' : 'WARN',
+          metadata: { failedAttempts: newAttempts, locked: !!lockUntil },
+          req
+        });
+      }
+
+      logger.security('Invalid login attempt: Password mismatch or no account', { identifier: cleanEmail, ip: req.ip });
+      
+      // ⏱️ Timing Attack Protection: Standardized delay
+      const elapsed = Date.now() - start;
+      if (elapsed < 300) await new Promise(r => setTimeout(r, 300 - elapsed));
+      
       return response.error(res, 'بيانات الدخول غير صحيحة', 'INVALID_CREDENTIALS', 401);
+    }
+
+    // Success: Reset failed attempts
+    if (account.failedAttempts > 0) {
+      if (user) {
+        await prisma.user.update({ where: { id: user.id }, data: { failedAttempts: 0, lockUntil: null } });
+      } else {
+        await prisma.customer.update({ where: { id: customer.id }, data: { failedAttempts: 0, lockUntil: null } });
+      }
     }
 
     // 🛡️ Account Status Security Check
@@ -145,27 +213,33 @@ const login = async (req, res) => {
       logger.info('FCM Token updated', { accountId: account.uuid });
     }
 
-    // --- Enterprise Identity Transition ---
-    const { token, jti } = await TokenService.generateAndSaveRefreshToken(account);
+    // 🛡️ [SEC-FIX] Device Fingerprinting
+    const fingerprint = generateFingerprint(req);
+
+    // 🔐 [SEC-FIX] JTI-based Session Logic moved to TokenService
+    const { token: refreshToken, jti } = await TokenService.generateAndSaveRefreshToken(account, null, fingerprint.hash);
     const accessToken = TokenService.generateAccessToken(account, jti);
 
-    // 🛡️ Security Guard: Prevent writing 'undefined' cookies
-    if (!token || typeof token !== 'string') {
-      throw new Error('[CRITICAL] Invalid refresh token generated during login');
-    }
-    
-    // ✅ Set Secure Cookie
-    res.cookie('refreshToken', token, refreshCookieOptions(req));
+    // 🛡️ Cookie Hardening (Level 5 Security)
+    res.cookie('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'Strict', // Standard Strict for same-domain SPAs
+      path: '/auth/refresh', // Restricted path
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    });
 
-    logger.security('Valid login', { 
-      role: account.role || 'customer',
-      uuid: account.uuid, 
-      ip: req.ip 
+    await auditService.log({
+      userId: account.uuid,
+      userRole: account.role || 'customer',
+      action: 'LOGIN_SUCCESS',
+      metadata: { device: req.headers['user-agent'] },
+      req
     });
 
     response.success(res, { 
       accessToken, 
-      refreshToken: token,
+      refreshToken: refreshToken,
       user: { 
         id: account.uuid,
         email: account.email, 
@@ -310,9 +384,8 @@ const verifyRegistration = async (req, res) => {
 
     // 2. Verify Code
     const isMatch = await bcrypt.compare(code, otpRecord.codeHash);
-    const isTestBypass = (process.env.NODE_ENV !== 'production' && code === '123456');
 
-    if (!isMatch && !isTestBypass) {
+    if (!isMatch) {
       return response.error(res, 'كود التحقق غير صحيح', 'INVALID_OTP', 400);
     }
 
@@ -521,4 +594,27 @@ const resetPassword = async (req, res) => {
   }
 };
 
-module.exports = { login, register, verifyRegistration, forgotPassword, resetPassword, refreshToken, logout, getMe };
+/**
+ * 🖥️ Get Active Sessions
+ */
+const getSessions = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const sessions = await TokenService.getActiveSessions(userId);
+    response.success(res, sessions);
+  } catch (err) {
+    response.error(res, 'Failed to fetch sessions', 'SESSIONS_ERROR');
+  }
+};
+
+module.exports = { 
+  login, 
+  register, 
+  verifyRegistration, 
+  forgotPassword, 
+  resetPassword, 
+  refreshToken, 
+  logout, 
+  getMe,
+  getSessions 
+};

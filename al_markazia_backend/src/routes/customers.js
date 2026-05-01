@@ -1,4 +1,6 @@
 const express = require('express');
+const { validateId } = require('../utils/security');
+
 const router = express.Router();
 const customerController = require('../controllers/customerController');
 const { authenticateToken, isAdmin, requireRoles } = require('../middleware/auth');
@@ -46,7 +48,7 @@ const CRM_ROLES = ['admin', 'super_admin'];
 
 router.get('/blacklisted', authenticateToken, requireRoles(CRM_ROLES), customerController.getBlacklistedCustomers);
 router.get('/blacklist/count', authenticateToken, requireRoles(CRM_ROLES), customerController.getBlacklistCount);
-router.patch('/:id/block', authenticateToken, requireRoles(CRM_ROLES), customerController.blockCustomer);
-router.patch('/:id/unblock', authenticateToken, requireRoles(CRM_ROLES), unblockRateLimit, customerController.unblockCustomer);
+router.patch('/:id/block', authenticateToken, requireRoles(CRM_ROLES), validateId(), customerController.blockCustomer);
+router.patch('/:id/unblock', authenticateToken, requireRoles(CRM_ROLES), validateId(), unblockRateLimit, customerController.unblockCustomer);
 
 module.exports = router;

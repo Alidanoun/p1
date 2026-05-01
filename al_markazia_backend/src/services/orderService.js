@@ -16,6 +16,7 @@ const memoryCache = require('../lib/memoryCache');
 const { publishEvent } = require('../events/eventPublisher');
 const eventTypes = require('../events/eventTypes');
 const { toNumber, toMoney } = require('../utils/number');
+const { safeJsonParse } = require('../utils/security');
 const { mapOrderResponse } = require('../mappers/order.mapper');
 const { ORDER_INCLUDE_FULL } = require('../shared/prismaConstants');
 
@@ -578,7 +579,7 @@ class OrderService {
     let sysSettings = memoryCache.get('system:settings');
     if (!sysSettings) {
       const redisSettings = await redis.get('system:settings');
-      if (redisSettings) sysSettings = JSON.parse(redisSettings);
+      if (redisSettings) sysSettings = safeJsonParse(redisSettings);
       else sysSettings = await prisma.systemSettings.findFirst();
     }
     const isAutoAccept = sysSettings?.autoAcceptOrders === 'true' || sysSettings?.autoAcceptOrders === true;
@@ -701,7 +702,7 @@ class OrderService {
     if (!settings) {
       const redisSettings = await redis.get('system:settings');
       if (redisSettings) {
-        settings = JSON.parse(redisSettings);
+        settings = safeJsonParse(redisSettings);
         memoryCache.set('system:settings', settings, 300); // 5 mins
       } else {
         settings = await prisma.systemSettings.findFirst();

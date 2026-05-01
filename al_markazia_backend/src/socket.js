@@ -17,6 +17,8 @@ module.exports = {
       }
     });
 
+    const connections = new Map();
+
     // --- 🛡️ SECURITY: JWT Handshake Middleware ---
     io.use((socket, next) => {
       try {
@@ -29,12 +31,35 @@ module.exports = {
         const decoded = jwt.verify(token, JWT_SECRET);
         const { ROLES } = require('./shared/socketEvents');
         const role = (decoded.role || ROLES.CUSTOMER).toLowerCase();
+        const userId = decoded.id;
 
-        socket.user = { id: decoded.id, phone: decoded.phone, role };
+        // 🛡️ [SEC-FIX] Concurrent Connection Limit
+        const userConnections = connections.get(userId) || 0;
+        if (userConnections >= 5) {
+          logger.security('🔌 [Socket] Connection rejected: Too many concurrent sessions', { userId });
+          return next(new Error('TOO_MANY_CONNECTIONS'));
+        }
+
+        connections.set(userId, userConnections + 1);
+        socket.user = { id: userId, phone: decoded.phone, role };
+
+        socket.on('disconnect', () => {
+          const current = connections.get(userId) || 1;
+          if (current <= 1) connections.delete(userId);
+          else connections.set(userId, current - 1);
+        });
+
         next();
       } catch (err) {
         logger.warn('🔌 [Socket V5] Connection rejected: Invalid JWT.', { error: err.message, ip: socket.handshake.address });
         next(new Error('Unauthorized'));
+      }
+    });
+
+    io.on('connection', (socket) => {
+      if (socket.user?.role === 'admin') {
+        socket.join(['admins', 'system-logs']);
+        logger.debug('🛡️ Admin joined monitoring channels', { socketId: socket.id });
       }
     });
 

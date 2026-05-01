@@ -42,10 +42,19 @@ const maskPhone = (phone) => {
 
 const { getRequestId } = require('../utils/context');
 
+const SENSITIVE_KEYS = ['otp', 'code', 'password', 'token', 'refreshToken', 'codeHash'];
+
 const sanitizeMetadata = winston.format((info) => {
   if (info.phone) info.phone = maskPhone(info.phone);
   if (info.customerPhone) info.customerPhone = maskPhone(info.customerPhone);
   
+  // 🛡️ Redact sensitive keys
+  Object.keys(info).forEach(key => {
+    if (SENSITIVE_KEYS.some(sk => key.toLowerCase().includes(sk.toLowerCase()))) {
+      info[key] = '[REDACTED]';
+    }
+  });
+
   // 🔍 Trace Integration: Automatically attach RequestID if in context
   const requestId = getRequestId();
   if (requestId) {

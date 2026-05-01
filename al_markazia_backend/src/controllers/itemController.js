@@ -3,6 +3,7 @@ const { deleteFile, formatImageUrl } = require('../utils/fileUploadHelper');
 const logger = require('../utils/logger');
 const itemFilters = require('../utils/itemFilters');
 const { toNumber } = require('../utils/number');
+const { safeJsonParse } = require('../utils/security');
 
 exports.getAllItems = async (req, res) => {
   try {
@@ -185,7 +186,7 @@ exports.createItem = async (req, res) => {
 
     let parsedGroups = [];
     if (optionGroups) {
-      parsedGroups = typeof optionGroups === 'string' ? JSON.parse(optionGroups) : optionGroups;
+      parsedGroups = typeof optionGroups === 'string' ? safeJsonParse(optionGroups) : optionGroups;
     }
 
     // 🛡️ [SEC-FIX] Pre-validate option prices before transaction
@@ -287,7 +288,7 @@ exports.updateItem = async (req, res) => {
 
     let parsedGroups = [];
     if (req.body.optionGroups) {
-      parsedGroups = typeof req.body.optionGroups === 'string' ? JSON.parse(req.body.optionGroups) : req.body.optionGroups;
+      parsedGroups = typeof req.body.optionGroups === 'string' ? safeJsonParse(req.body.optionGroups) : req.body.optionGroups;
 
       // 🛡️ [SEC-FIX] Pre-validate option prices
       for (const group of parsedGroups) {

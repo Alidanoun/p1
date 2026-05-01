@@ -32,6 +32,7 @@ const {
 } = require('../middleware/orderValidation');
 
 const logger = require('../utils/logger');
+const { validateId } = require('../utils/security');
 
 const router = express.Router();
 
@@ -47,15 +48,15 @@ router.get('/report', authMiddleware, adminMiddleware, getOrdersReport);
 // Only admin can view and update
 router.get('/', authMiddleware, adminMiddleware, getOrders);
 router.post('/accept-all', authMiddleware, adminMiddleware, acceptAllNewOrders);
-router.patch('/:id/status', authMiddleware, adminMiddleware, healthGuard('db'), updateOrderStatus);
-router.patch('/:id/timer', authMiddleware, adminMiddleware, updateOrderTimer);
-router.patch('/:id/prep-time', authMiddleware, adminMiddleware, updatePreparationTime);
-router.patch('/:id/rate', authMiddleware, submitOrderRating);
+router.patch('/:id/status', authMiddleware, adminMiddleware, healthGuard('db'), validateId(), updateOrderStatus);
+router.patch('/:id/timer', authMiddleware, adminMiddleware, validateId(), updateOrderTimer);
+router.patch('/:id/prep-time', authMiddleware, adminMiddleware, validateId(), updatePreparationTime);
+router.patch('/:id/rate', authMiddleware, validateId(), submitOrderRating);
 
 // Full Cancellation
-router.post('/:id/cancel', authMiddleware, healthGuard('db'), validateCancelOrder, cancelOrder);
+router.post('/:id/cancel', authMiddleware, healthGuard('db'), validateId(), validateCancelOrder, cancelOrder);
 
-router.post('/:id/handle-cancellation', authMiddleware, adminMiddleware, handleCancellationRequest);
+router.post('/:id/handle-cancellation', authMiddleware, adminMiddleware, validateId(), handleCancellationRequest);
 
 // --- Partial Cancellation ---
 
@@ -63,6 +64,7 @@ router.post('/:id/handle-cancellation', authMiddleware, adminMiddleware, handleC
 router.post(
   "/:orderId/partial-cancel",
   authMiddleware,
+  validateId('orderId'),
   validatePartialCancelRequest,
   requestPartialCancel
 );
@@ -72,6 +74,7 @@ router.post(
   "/:orderId/handle-partial-cancel",
   authMiddleware,
   adminMiddleware,
+  validateId('orderId'),
   validateHandlePartialCancel,
   handlePartialCancelRequest
 );

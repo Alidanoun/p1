@@ -2,6 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
+const csrf = require('csurf');
+const timeout = require('connect-timeout');
 const morgan = require('morgan');
 require('dotenv').config();
 require('./config/secrets');
@@ -58,11 +60,61 @@ async function startServer() {
     // 4. Register Middleware
     app.use(requestTracing);
     app.use(shadowMirrorMiddleware);
-    app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
     
+    // 🛡️ [SEC-FIX] Robust CSP & Security Headers
+    app.use(helmet({ 
+      crossOriginResourcePolicy: { policy: "cross-origin" },
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: ["'self'", "'unsafe-inline'"], // unsafe-inline for some legacy admin scripts, ideally remove later
+          styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+          fontSrc: ["'self'", "https://fonts.gstatic.com"],
+          imgSrc: ["'self'", "data:", "blob:", "*"], // Allow images from any source for now (CDN/Uploads)
+          objectSrc: ["'none'"],
+          upgradeInsecureRequests: []
+        }
+      }
+    }));
+    
+    // ⏱️ [SEC-FIX] Robust Request Timeout
+    app.use(timeout('5s'));
+    app.use((req, res, next) => {
+      if (!req.timedout) next();
+    });
+    
+    app.use(cookieParser());
+    
+    // 🛡️ CSRF Protection (Double Cookie Method)
+    const csrfProtection = csrf({ 
+      cookie: {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax'
+      }
+    });
+    
+    // Apply CSRF protection selectively
+    app.use((req, res, next) => {
+      // 🛡️ [SEC-FIX] Explicitly skip CSRF for:
+      // 1. All Auth routes (Login, Register, Refresh, Verify)
+      // 2. Mobile app requests (using Authorization header)
+      const isAuthRoute = req.path.startsWith('/auth');
+      const hasAuthHeader = req.headers.authorization;
+      
+      if (isAuthRoute || hasAuthHeader) {
+        return next(); 
+      }
+      
+      csrfProtection(req, res, (err) => {
+        if (err) return next(err);
+        res.cookie('XSRF-TOKEN', req.csrfToken());
+        next();
+      });
+    });
+
     const { globalLimiter } = require('./middleware/rateLimiter');
     app.use(globalLimiter);
-    app.use(cookieParser());
     
     // CORS Setup
     const allowedOrigins = (process.env.CORS_ORIGIN || '').split(',').map(o => o.trim()).filter(Boolean);
@@ -83,8 +135,14 @@ async function startServer() {
       allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
     }));
 
-    app.use(express.json({ limit: '50kb' }));
-    app.use(express.urlencoded({ extended: true, limit: '50kb' }));
+    app.use(express.json({ limit: '100kb', strict: true }));
+    app.use(express.urlencoded({ extended: true, limit: '100kb' }));
+
+    // ⏱️ Request Timeout Hardening
+    app.use((req, res, next) => {
+      req.setTimeout(5000); // 5 seconds max
+      next();
+    });
 
     // HTTP Logging
     morgan.token('client-ip', (req) => req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress);
@@ -96,6 +154,7 @@ async function startServer() {
 
     // Routes
     app.use('/auth', governorGuard('MISSION_CRITICAL'), authRoutes);
+    app.use('/admin/audit', require('./routes/audit'));
     app.use('/items', itemRoutes);
     app.use('/orders', governorGuard('MISSION_CRITICAL'), IdempotencyService.guard(), orderRoutes);
     app.use('/categories', categoryRoutes);
@@ -114,10 +173,19 @@ async function startServer() {
     app.use('/order-modifications', governorGuard('MISSION_CRITICAL'), IdempotencyService.guard(), orderModificationRoutes);
     app.get('/health/external', externalProbeController.pings);
 
-    // Global Error Handler
+    // 🚨 Global Error Handler (Centralized Survival Layer)
     app.use((err, req, res, next) => {
+      if (err.code === 'EBADCSRFTOKEN') {
+        return res.status(403).json({ success: false, error: 'تنبيه أمني: كود التحقق CSRF غير صالح' });
+      }
+      
       logger.error(err.message, { method: req.method, endpoint: req.originalUrl, stack: err.stack });
-      res.status(500).json({ error: 'حدث خطأ غير متوقع، يرجى المحاولة لاحقاً' });
+      
+      const statusCode = err.status || 500;
+      res.status(statusCode).json({ 
+        success: false, 
+        error: err.message || 'حدث خطأ غير متوقع، يرجى المحاولة لاحقاً' 
+      });
     });
 
     const PORT = process.env.PORT || 5000;
@@ -139,15 +207,31 @@ async function startServer() {
   }
 }
 
-// Global Process Handlers
-process.on('uncaughtException', (err) => {
-  logger.error(`UNCAUGHT EXCEPTION: ${err.message}`, { stack: err.stack });
-  setTimeout(() => process.exit(1), 1000);
-});
+// 🛑 Graceful Shutdown Logic
+async function shutdown(signal) {
+  logger.info(`[${signal}] Received. Starting graceful shutdown...`);
+  
+  try {
+    // 1. Close HTTP Server
+    server.close(() => {
+      logger.info('HTTP server closed.');
+    });
 
-process.on('unhandledRejection', (reason) => {
-  logger.error(`UNHANDLED REJECTION: ${reason}`);
-  setTimeout(() => process.exit(1), 1000);
-});
+    // 2. Disconnect from DB & Redis
+    await prisma.$disconnect();
+    logger.info('Prisma disconnected.');
+
+    // 3. Close background workers if they have close methods
+    // (Add specific cleanup for Redis/Queues here if needed)
+
+    process.exit(0);
+  } catch (err) {
+    logger.error('Error during shutdown', { error: err.message });
+    process.exit(1);
+  }
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 startServer();
