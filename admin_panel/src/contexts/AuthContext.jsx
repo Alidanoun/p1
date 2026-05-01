@@ -43,6 +43,8 @@ export const AuthProvider = ({ children }) => {
     bootstrap();
   }, []);
 
+  const [selectedBranchId, setSelectedBranchId] = useState(null);
+
   const login = async (email, password) => {
     try {
       const { data: response } = await api.post('/auth/login', { email, password });
@@ -52,6 +54,9 @@ export const AuthProvider = ({ children }) => {
       // 🔒 Save to memory only
       tokenStore.set(accessToken);
       setUser(user);
+      
+      // Reset branch context on login
+      setSelectedBranchId(null);
 
       return { success: true };
     } catch (error) {
@@ -69,12 +74,13 @@ export const AuthProvider = ({ children }) => {
     } finally {
       tokenStore.clear();
       setUser(null);
+      setSelectedBranchId(null);
       window.location.href = '/login';
     }
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, loading }}>
+    <AuthContext.Provider value={{ user, login, logout, loading, selectedBranchId, setSelectedBranchId }}>
       {children}
     </AuthContext.Provider>
   );

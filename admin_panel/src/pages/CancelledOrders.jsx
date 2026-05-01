@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useDebounce } from '../hooks/useDebounce';
 import { useBlacklistStatus } from '../hooks/useBlacklistStatus';
+import InvoiceModal from '../components/InvoiceModal';
 import { 
   formatBlacklistStatus, 
   getRiskScoreColor, 
@@ -22,6 +23,8 @@ import {
 const CancelledOrders = () => {
   const [cancellations, setCancellations] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const [isInvoiceOpen, setIsInvoiceOpen] = useState(false);
   
   // Advanced State Management (CRM Tier)
   const [isBlacklistModalOpen, setIsBlacklistModalOpen] = useState(false);
@@ -77,15 +80,22 @@ const CancelledOrders = () => {
   };
 
   const calculateStats = () => {
-    if (cancellations.length === 0) return { totalLoss: 0, topReason: 'N/A', customerCount: 0 };
+    if (cancellations.length === 0) return { totalLoss: 0, topReason: 'N/A', customerCount: 0, adminCount: 0 };
     
     const totalLoss = cancellations.reduce((acc, order) => {
-      // Logic: total - deliveryFee
-      return acc + (order.total - (order.deliveryFee || 0));
+      // 🛡️ [SELF-HEALING] If total was zeroed out (legacy cancellation bug), 
+      // we reconstruct it from cartItems line totals.
+      let orderTotal = order.total || order.totalPrice || 0;
+      
+      if (orderTotal === 0 && order.cartItems && order.cartItems.length > 0) {
+        orderTotal = order.cartItems.reduce((sum, item) => sum + (item.lineTotal || 0), 0);
+      }
+
+      return acc + (orderTotal - (order.deliveryFee || 0));
     }, 0);
 
-    const customerCount = cancellations.filter(o => o.cancellation?.cancelledBy === 'customer').length;
-    const adminCount = cancellations.filter(o => o.cancellation?.cancelledBy === 'admin').length;
+    const customerCount = cancellations.filter(o => o.cancellation?.cancelledBy?.toLowerCase() === 'customer').length;
+    const adminCount = cancellations.filter(o => o.cancellation?.cancelledBy && o.cancellation.cancelledBy.toLowerCase() !== 'customer').length;
 
     return { totalLoss, customerCount, adminCount };
   };
@@ -282,6 +292,7 @@ const CancelledOrders = () => {
                 <tr className="bg-white/5 border-b border-white/5">
                   <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider"><Hash className="w-3 h-3 inline ml-1" /> رقم الطلب</th>
                   <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider"><User className="w-3 h-3 inline ml-1" /> العميل</th>
+                  <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider"><TrendingDown className="w-3 h-3 inline ml-1" /> القيمة (خسارة)</th>
                   <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider"><AlertTriangle className="w-3 h-3 inline ml-1" /> سبب الإلغاء</th>
                   <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider"><ShieldCheck className="w-3 h-3 inline ml-1" /> القائم بالإلغاء</th>
                   <th className="p-4 text-xs font-bold text-text-muted uppercase tracking-wider"><Clock className="w-3 h-3 inline ml-1" /> الحالة وقتها</th>
@@ -305,41 +316,72 @@ const CancelledOrders = () => {
                           <span className="text-[10px] text-text-muted">{order.customerPhone || order.customer?.phone || '—'}</span>
                         </div>
                       </td>
-                      <td className="p-4 max-w-[250px]">
-                        <p className="text-xs text-danger font-medium line-clamp-2">{cancelData.reason || 'غير محدد'}</p>
-                      </td>
-                      <td className="p-4 text-center">
-                        <span className={cn(
-                          "px-2 py-1 rounded text-[10px] font-black uppercase",
-                          cancelData.cancelledBy === 'customer' ? 'bg-amber-500/10 text-amber-500' : 'bg-blue-500/10 text-blue-500'
-                        )}>
-                          {cancelData.cancelledBy === 'customer' ? 'العميل' : (cancelData.adminName || 'المدير العام')}
-                        </span>
-                      </td>
-                      <td className="p-4">
-                        {getStatusBadge(cancelData.previousStatus || 'unknown')}
-                      </td>
-                      <td className="p-4 whitespace-nowrap">
-                        <div className="flex flex-col text-left">
-                          <span className="text-[11px] font-bold text-white">
-                            {format(new Date(cancelData.createdAt || order.updatedAt), 'dd MMMM yyyy', { locale: ar })}
+                        <td className="p-4 whitespace-nowrap">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-black text-white">
+                              {(() => {
+                                // Priority 1: Use explicitly stored total or subtotal
+                                let total = order.total || order.subtotal || 0;
+                                
+                                // Priority 2: Self-healing fallback - Calculate from items if total is zero
+                                if (total === 0 && order.cartItems && order.cartItems.length > 0) {
+                                  total = order.cartItems.reduce((acc, item) => {
+                                    const itemPrice = item.lineTotal || ((item.unitPrice || item.price || 0) * (item.quantity || item.qty || 0));
+                                    return acc + itemPrice;
+                                  }, 0);
+                                }
+                                
+                                return total.toFixed(2);
+                              })()}
+                            </span>
+                            <span className="text-[9px] font-bold text-danger uppercase tracking-tighter">صافي الخسارة</span>
+                          </div>
+                        </td>
+                        <td className="p-4 max-w-[250px]">
+                          <p className="text-xs text-danger font-medium line-clamp-2">{cancelData.reason || 'غير محدد'}</p>
+                        </td>
+                        <td className="p-4 text-center">
+                          <span className={cn(
+                            "px-2 py-1 rounded text-[10px] font-black uppercase",
+                            cancelData.cancelledBy === 'customer' ? 'bg-amber-500/10 text-amber-500' : 'bg-blue-500/10 text-blue-500'
+                          )}>
+                            {cancelData.cancelledBy === 'customer' ? 'العميل' : (cancelData.adminName || 'المدير العام')}
                           </span>
-                          <span className="text-[10px] text-text-muted">
-                            {format(new Date(cancelData.createdAt || order.updatedAt), 'hh:mm a', { locale: ar })}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="p-4">
-                        <div className="flex items-center gap-2">
-                           <button 
-                             onClick={() => handleOpenBlockModal(order)}
-                             className="p-2 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white transition-all group/btn"
-                             title="حظر العميل"
-                           >
-                             <ShieldAlert className="w-4 h-4" />
-                           </button>
-                        </div>
-                      </td>
+                        </td>
+                        <td className="p-4">
+                          {getStatusBadge(cancelData.previousStatus || 'unknown')}
+                        </td>
+                        <td className="p-4 whitespace-nowrap">
+                          <div className="flex flex-col text-left">
+                            <span className="text-[11px] font-bold text-white">
+                              {format(new Date(cancelData.createdAt || order.updatedAt), 'dd MMMM yyyy', { locale: ar })}
+                            </span>
+                            <span className="text-[10px] text-text-muted">
+                              {format(new Date(cancelData.createdAt || order.updatedAt), 'hh:mm a', { locale: ar })}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <div className="flex items-center gap-2">
+                             <button 
+                               onClick={() => {
+                                 setSelectedOrder(order);
+                                 setIsInvoiceOpen(true);
+                               }}
+                               className="p-2 rounded-lg bg-white/5 text-text-muted hover:bg-white/10 hover:text-white transition-all"
+                               title="تفاصيل الطلب"
+                             >
+                               <Info className="w-4 h-4" />
+                             </button>
+                             <button 
+                               onClick={() => handleOpenBlockModal(order)}
+                               className="p-2 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white transition-all group/btn"
+                               title="حظر العميل"
+                             >
+                               <ShieldAlert className="w-4 h-4" />
+                             </button>
+                          </div>
+                        </td>
                     </tr>
                   );
                 })}
@@ -527,6 +569,12 @@ const CancelledOrders = () => {
           </div>
         )}
       </AnimatePresence>
+
+      <InvoiceModal 
+        order={selectedOrder}
+        isOpen={isInvoiceOpen}
+        onClose={() => setIsInvoiceOpen(false)}
+      />
     </div>
   );
 };

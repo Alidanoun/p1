@@ -5,9 +5,10 @@ import { useSocket } from '../contexts/SocketContext';
 import { useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { ar } from 'date-fns/locale';
+import BranchSwitcher from './BranchSwitcher';
 
 const Header = ({ title, subtitle, action }) => {
-  const { user } = useAuth();
+  const { user, selectedBranchId, setSelectedBranchId } = useAuth();
   const { notifications, unreadCount, markAsRead, markAllAsRead, fetchNotifications } = useSocket();
   const [showNotifications, setShowNotifications] = useState(false);
   const dropdownRef = useRef(null);
@@ -240,6 +241,14 @@ const Header = ({ title, subtitle, action }) => {
             </div>
           )}
         </div>
+        
+        {/* Branch Switcher (Admin Only) */}
+        {(user?.role?.toUpperCase() === 'ADMIN' || user?.role?.toUpperCase() === 'SUPER_ADMIN') && (
+          <BranchSwitcher 
+            selectedBranchId={selectedBranchId} 
+            onBranchChange={setSelectedBranchId} 
+          />
+        )}
         
         {/* Profile */}
         <div className="flex items-center gap-3 bg-background border border-slate-700/50 pl-2 pr-4 py-1.5 rounded-full">

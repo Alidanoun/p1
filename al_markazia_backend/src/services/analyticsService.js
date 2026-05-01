@@ -15,12 +15,17 @@ class AnalyticsService {
     const start = now.startOf('day').toJSDate();
     const end = now.endOf('day').toJSDate();
 
-    // 1. Fetch Today's Orders for Branch
+    // 1. Fetch Today's Orders (Filtered by Branch if branchId is provided)
+    const whereClause = {
+      createdAt: { gte: start, lte: end },
+      isDeleted: false
+    };
+    if (branchId) {
+      whereClause.branchId = branchId;
+    }
+
     const orders = await prisma.order.findMany({
-      where: {
-        branchId: branchId,
-        createdAt: { gte: start, lte: end }
-      },
+      where: whereClause,
       select: {
         id: true,
         status: true,
@@ -37,8 +42,8 @@ class AnalyticsService {
     // 2. Calculate Operational Metrics
     const metrics = {
       totalOrders: orders.length,
-      activeOrders: orders.filter(o => ['pending', 'preparing', 'ready', 'confirmed'].includes(o.status)).length,
-      cancellations: orders.filter(o => o.status === 'cancelled' || o.status.includes('waiting_cancellation')).length,
+      activeOrders: orders.filter(o => ['pending', 'preparing', 'ready', 'confirmed', 'waiting_cancellation', 'waiting_cancellation_admin'].includes(o.status)).length,
+      cancellations: orders.filter(o => o.status === 'cancelled').length,
       topItems: this._calculateTopItems(orders)
     };
 

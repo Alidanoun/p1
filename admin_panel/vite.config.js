@@ -38,6 +38,8 @@ export default defineConfig({
       '/restaurant':     apiProxy('http://localhost:5000'),
       '/health':         apiProxy('http://localhost:5000'),
       '/loyalty':        apiProxy('http://localhost:5000'),
+      '/branch':         apiProxy('http://localhost:5000'),
+      '/api':            apiProxy('http://localhost:5000'),
     }
   }
 })

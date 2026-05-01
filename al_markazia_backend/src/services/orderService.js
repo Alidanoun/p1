@@ -36,7 +36,8 @@ class OrderService {
     if (status) where.status = status;
 
     // 🏢 Multi-Branch Isolation
-    if (query.userRole === 'BRANCH_MANAGER' && query.branchId) {
+    const normalizedRole = query.userRole?.toLowerCase(); const isAdmin = ["admin", "super_admin"].includes(normalizedRole);
+    if ((normalizedRole === "branch_manager" || normalizedRole === "manager") && query.branchId) { where.branchId = query.branchId; } else if (isAdmin && query.branchId) {
       where.branchId = query.branchId;
     }
 
@@ -96,7 +97,7 @@ class OrderService {
     const { status, search, active_only } = query;
     const { page, limit, skip } = require('../utils/pagination').parsePagination(query);
 
-    const where = {};
+    const where = { isDeleted: false };
     if (active_only === 'true') {
       where.status = { notIn: ['delivered', 'cancelled'] };
     } else if (status) {
@@ -112,7 +113,8 @@ class OrderService {
     }
 
     // 🏢 Multi-Branch Isolation
-    if (query.userRole === 'BRANCH_MANAGER' && query.branchId) {
+    const normalizedRole = query.userRole?.toLowerCase(); const isAdmin = ["admin", "super_admin"].includes(normalizedRole);
+    if ((normalizedRole === "branch_manager" || normalizedRole === "manager") && query.branchId) { where.branchId = query.branchId; } else if (isAdmin && query.branchId) {
       where.branchId = query.branchId;
     }
 
@@ -406,7 +408,7 @@ class OrderService {
     }
 
     // 🏢 Multi-Branch Isolation
-    if (user && user.role === 'BRANCH_MANAGER') {
+    if (user && user.role?.toUpperCase() === 'BRANCH_MANAGER') {
       if (order.branchId !== user.branchId) {
         throw new Error('ORDER_FORBIDDEN');
       }
@@ -430,7 +432,7 @@ class OrderService {
 
     // 1. Role Identification
     const isAdmin = user?.role === 'super_admin' || user?.role === 'admin';
-    const isManager = user?.role === 'BRANCH_MANAGER';
+    const isManager = user?.role?.toUpperCase() === 'BRANCH_MANAGER';
     const isCustomer = user?.role === 'customer';
 
     // 2. 🏢 Branch Isolation
@@ -476,8 +478,6 @@ class OrderService {
         where: { id: order.id, version: order.version },
         data: {
           status: 'cancelled',
-          total: 0,
-          subtotal: 0,
           version: { increment: 1 }
         },
         include: ORDER_INCLUDE_FULL
@@ -542,7 +542,7 @@ class OrderService {
 
     // 🔐 Permission Check
     const isAdmin = user?.role === 'super_admin' || user?.role === 'admin';
-    const isManager = user?.role === 'BRANCH_MANAGER';
+    const isManager = user?.role?.toUpperCase() === 'BRANCH_MANAGER';
 
     if (isManager) {
       if (order.branchId !== user.branchId) throw new Error('ORDER_FORBIDDEN');
@@ -566,7 +566,7 @@ class OrderService {
     if (!order || !order.cancellation) throw new Error('CANCELLATION_NOT_FOUND');
     
     // Role & Branch Check
-    if (user.role === 'BRANCH_MANAGER' && order.branchId !== user.branchId) {
+    if (user.role?.toUpperCase() === 'BRANCH_MANAGER' && order.branchId !== user.branchId) {
       throw new Error('ORDER_FORBIDDEN');
     }
 
@@ -672,9 +672,12 @@ class OrderService {
     if (!sysSettings) {
       const redisSettings = await redis.get('system:settings');
       if (redisSettings) sysSettings = safeJsonParse(redisSettings);
-      else sysSettings = await prisma.systemSettings.findFirst();
+      else {
+        const dbSetting = await prisma.systemSettings.findUnique({ where: { key: 'autoAcceptOrders' } });
+        sysSettings = { autoAcceptOrders: dbSetting?.value === 'true' };
+      }
     }
-    const isAutoAccept = sysSettings?.autoAcceptOrders === 'true' || sysSettings?.autoAcceptOrders === true;
+    const isAutoAccept = sysSettings?.autoAcceptOrders === true || sysSettings?.autoAcceptOrders === 'true';
     const initialStatus = isAutoAccept ? 'preparing' : 'pending';
 
     // 6. 💎 Atomic Transactional Persistence
@@ -909,31 +912,62 @@ class OrderService {
    * 💰 Calculation Engine: Re-verifies all prices from DB to prevent client-side manipulation.
    */
   async _calculateAndValidatePricing(cartItems) {
+    logger.info(`[Pricing] Validating ${cartItems?.length} items.`);
     let subtotal = 0;
     const validatedItems = [];
 
     for (const item of cartItems) {
       const dbItem = await prisma.item.findUnique({
         where: { id: parseInt(item.productId || item.id) },
-        include: { optionGroups: { include: { options: true } } }
+        include: { 
+          optionGroups: { 
+            where: { isActive: true },
+            include: { options: { where: { isAvailable: true } } } 
+          } 
+        }
       });
 
       if (!dbItem) throw new Error(`ITEM_NOT_FOUND:${item.id}`);
       if (!dbItem.isAvailable) throw new Error(`ITEM_UNAVAILABLE:${dbItem.title}`);
 
       let unitPrice = toNumber(dbItem.basePrice);
-      const optionIds = item.optionIds || [];
+      const incomingOptionIds = (item.optionIds || []).map(id => parseInt(id)).filter(id => !isNaN(id));
+      
+      // Track which groups are already covered by incoming options
+      const coveredGroupIds = new Set();
+      const validatedOptionIds = [];
+      const validatedOptionNames = [];
+      const validatedOptionNamesEn = [];
 
-      if (optionIds.length > 0) {
+      // 1. Process client-provided options
+      if (incomingOptionIds.length > 0) {
         const dbOptions = await prisma.itemOption.findMany({
-          where: { id: { in: optionIds.map(id => parseInt(id)) } },
+          where: { id: { in: incomingOptionIds } },
           include: { group: true }
         });
 
         for (const opt of dbOptions) {
-          if (opt.group.itemId !== dbItem.id) throw new Error('DATA_INTEGRITY_VIOLATION');
-          if (!opt.isAvailable) throw new Error(`OPTION_UNAVAILABLE:${opt.name}`);
+          if (opt.group.itemId !== dbItem.id) continue; // Security: Ensure option belongs to item
           unitPrice += toNumber(opt.price);
+          coveredGroupIds.add(opt.groupId);
+          validatedOptionIds.push(opt.id);
+          validatedOptionNames.push(opt.name);
+          if (opt.nameEn) validatedOptionNamesEn.push(opt.nameEn);
+        }
+      }
+
+      // 2. 🛡️ Self-Healing: Fill gaps for REQUIRED groups that were NOT provided
+      for (const group of dbItem.optionGroups) {
+        if (group.isRequired && !coveredGroupIds.has(group.id)) {
+          // Find default option, or fallback to first available
+          const fallbackOpt = group.options.find(o => o.isDefault) || group.options[0];
+          if (fallbackOpt) {
+            logger.warn(`[Pricing] Auto-applying default option ${fallbackOpt.name} for required group ${group.groupName} on item ${dbItem.title}`);
+            unitPrice += toNumber(fallbackOpt.price);
+            validatedOptionIds.push(fallbackOpt.id);
+            validatedOptionNames.push(fallbackOpt.name);
+            if (fallbackOpt.nameEn) validatedOptionNamesEn.push(fallbackOpt.nameEn);
+          }
         }
       }
 
@@ -943,6 +977,12 @@ class OrderService {
       const lineTotal = toMoney(unitPrice * qty);
       subtotal += lineTotal;
 
+      // Construct final options text if missing or incomplete
+      let finalOptionsText = item.optionsText || null;
+      if (!finalOptionsText && validatedOptionNames.length > 0) {
+        finalOptionsText = validatedOptionNames.join(', ');
+      }
+
       validatedItems.push({
         itemId: dbItem.id,
         itemName: dbItem.title,
@@ -950,8 +990,8 @@ class OrderService {
         quantity: qty,
         unitPrice,
         lineTotal,
-        selectedOptions: item.optionsText || null,
-        selectedOptionsEn: item.optionsTextEn || null
+        selectedOptions: finalOptionsText,
+        selectedOptionsEn: validatedOptionNamesEn.length > 0 ? validatedOptionNamesEn.join(', ') : (item.optionsTextEn || null)
       });
     }
 

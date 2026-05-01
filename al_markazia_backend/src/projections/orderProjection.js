@@ -12,8 +12,12 @@ function removeOrder(orderId) {
   orders.delete(orderId.toString());
 }
 
-function getAllOrders() {
-  return Array.from(orders.values());
+function getAllOrders(branchId) {
+  const all = Array.from(orders.values());
+  if (branchId) {
+    return all.filter(o => o.branchId === branchId);
+  }
+  return all;
 }
 
 function getOrderById(id) {

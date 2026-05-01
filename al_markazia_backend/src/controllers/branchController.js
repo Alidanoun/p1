@@ -16,14 +16,15 @@ exports.toggleItemAvailability = async (req, res) => {
   try {
     const { itemId, isAvailable } = req.body;
     const user = req.user;
+    const role = user.role?.toUpperCase();
 
     // 1. 🔐 Security & Role Check
-    if (user.role !== 'BRANCH_MANAGER' && user.role !== 'super_admin') {
+    if (role !== 'BRANCH_MANAGER' && role !== 'SUPER_ADMIN' && role !== 'ADMIN') {
       return response.error(res, 'غير مصرح لك بالقيام بهذا الإجراء', 'UNAUTHORIZED', 403);
     }
 
     // 🏢 Determine target branch (Admins can pass branchId, Managers are locked to their JWT)
-    const targetBranchId = user.role === 'super_admin' ? (req.body.branchId || user.branchId) : user.branchId;
+    const targetBranchId = (role === 'SUPER_ADMIN' || role === 'ADMIN') ? (req.body.branchId || user.branchId) : user.branchId;
 
     if (!targetBranchId) {
       return response.error(res, 'يجب تحديد الفرع للقيام بهذا الإجراء', 'BRANCH_REQUIRED', 400);
@@ -101,5 +102,28 @@ exports.toggleItemAvailability = async (req, res) => {
   } catch (error) {
     logger.error('Toggle item availability error', { error: error.message });
     return response.error(res, 'حدث خطأ أثناء تحديث حالة الصنف', 'SERVER_ERROR', 500);
+  }
+};
+
+/**
+ * 📋 List All Branches (Admin Only)
+ */
+exports.getAllBranches = async (req, res) => {
+  try {
+    const branches = await prisma.branch.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        name: true,
+        address: true,
+        phone: true
+      },
+      orderBy: { name: 'asc' }
+    });
+    
+    return res.json({ success: true, data: branches });
+  } catch (error) {
+    logger.error('Get all branches error', { error: error.message });
+    return res.status(500).json({ success: false, error: 'Internal Server Error' });
   }
 };

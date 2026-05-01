@@ -12,6 +12,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { formatCurrencyArabic } from '../lib/formatters';
 import { useSocket } from '../contexts/SocketContext';
+import { useAuth } from '../contexts/AuthContext';
 import InvoiceModal from '../components/InvoiceModal';
 import BranchStats from '../components/BranchStats';
 
@@ -217,6 +218,7 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onC
 };
 
 const LiveOrders = () => {
+  const { user, selectedBranchId } = useAuth();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedOrderId, setSelectedOrderId] = useState(null);
@@ -388,7 +390,10 @@ const LiveOrders = () => {
 
   const fetchOrders = async () => {
     try {
-      const ordersData = unwrap(await api.get('/orders?active_only=true')) || [];
+      const url = selectedBranchId 
+        ? `/orders?active_only=true&branchId=${selectedBranchId}` 
+        : '/orders?active_only=true';
+      const ordersData = unwrap(await api.get(url)) || [];
 
       if (!Array.isArray(ordersData)) {
         console.error('Unexpected orders response shape', ordersData);
@@ -433,7 +438,11 @@ const LiveOrders = () => {
 
   const onUpdateStatus = async (id, status, version) => {
     try {
-      const { data } = await api.patch(`/orders/${id}/status`, { status, version });
+      const idempotencyKey = `manual_upd_${id}_${status}_${Date.now()}`;
+      const { data } = await api.patch(`/orders/${id}/status`, 
+        { status, version },
+        { headers: { 'idempotency-key': idempotencyKey } }
+      );
       setOrders(prev => prev.map(o => o.id === id ? { ...o, status: data.status, version: data.version } : o));
       toast.success('تم تحديث الحالة');
     } catch (err) {
@@ -461,11 +470,15 @@ const LiveOrders = () => {
 
     setIsSubmittingCancel(true);
     try {
-      await api.post(`/orders/${orderToCancel.id}/cancel`, {
-        reason: cancelReason,
-        managerPassword: managerPassword,
-        isAdmin: true
-      });
+      const idempotencyKey = `cancel_req_${orderToCancel.id}_${Date.now()}`;
+      await api.post(`/orders/${orderToCancel.id}/cancel`, 
+        {
+          reason: cancelReason,
+          managerPassword: managerPassword,
+          isAdmin: true
+        },
+        { headers: { 'idempotency-key': idempotencyKey } }
+      );
 
       setOrders(prev => prev.filter(o => o.id !== orderToCancel.id));
       setShowCancelModal(false);
@@ -480,7 +493,7 @@ const LiveOrders = () => {
   useEffect(() => {
     fetchOrders();
     // 🛑 Polling Removed! replaced by Socket.io
-  }, []);
+  }, [selectedBranchId]);
 
   const onDragEnd = async (result) => {
     const { destination, source, draggableId } = result;
@@ -500,7 +513,11 @@ const LiveOrders = () => {
     setOrders(updatedOrders);
 
     try {
-      const { data } = await api.patch(`/orders/${draggableId}/status`, { status: newStatus, version: orderToUpdate.version });
+      const idempotencyKey = `drag_upd_${draggableId}_${newStatus}_${Date.now()}`;
+      const { data } = await api.patch(`/orders/${draggableId}/status`, 
+        { status: newStatus, version: orderToUpdate.version },
+        { headers: { 'idempotency-key': idempotencyKey } }
+      );
       setOrders(prev => prev.map(o => o.id === draggableId ? { ...o, status: data.status, version: data.version } : o));
       toast.info(`تم تحديث حالة الطلب إلى: ${COLUMNS.find(c => c.id === destination.droppableId).title}`);
     } catch (err) {
@@ -566,8 +583,8 @@ const LiveOrders = () => {
             {COLUMNS.map((column) => {
               const ordersInColumn = getOrdersByColumn(column);
 
-              // 👁️ Hide Empty Columns to focus on active tasks
-              if (ordersInColumn.length === 0) return null;
+              // 👁️ [UI-FIX] Show all columns for structure, even if empty
+              // if (ordersInColumn.length === 0) return null;
 
               return (
                 <div key={column.id} className="flex flex-col h-full min-w-[320px] max-w-[400px]">
@@ -666,10 +683,13 @@ const LiveOrders = () => {
                     if (handleAction === 'reject' && !rejectionReason) return toast.error('يرجى ذكر سبب الرفض');
                     setIsHandlingRequest(true);
                     try {
-                      await api.post(`/orders/${orderToCancel.id}/handle-cancellation`, {
-                        action: handleAction,
-                        rejectionReason
-                      });
+                      const idempotencyKey = `${handleAction}_cancel_${orderToCancel.id}_${Date.now()}`;
+                      const endpoint = handleAction === 'approve' ? 'approve-cancel' : 'reject-cancel';
+                      
+                      await api.post(`/orders/${orderToCancel.id}/${endpoint}`, 
+                        { rejectionReason },
+                        { headers: { 'idempotency-key': idempotencyKey } }
+                      );
                       toast.success(handleAction === 'approve' ? 'تم قبول الإلغاء' : 'تم رفض الإلغاء');
                       setOrders(prev => prev.map(o => o.id === orderToCancel.id ? { ...o, status: handleAction === 'approve' ? 'cancelled' : o.cancellation.previousStatus } : o));
                       // Refresh orders to be safe

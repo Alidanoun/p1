@@ -3,10 +3,10 @@ import { useAuth } from '../contexts/AuthContext';
 import { Search, Filter, CheckCircle2, XCircle, Info, Loader2, UtensilsCrossed, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
-import axios from 'axios';
+import api, { unwrap } from '../api/client';
 
 const BranchMenu = () => {
-  const { user } = useAuth();
+  const { user, selectedBranchId } = useAuth();
   const [items, setItems] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -17,14 +17,15 @@ const BranchMenu = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
+      const branchId = selectedBranchId || user.branchId;
       // Fetch items with branch context
       const [itemsRes, catsRes] = await Promise.all([
-        axios.get(`/items?branchId=${user.branchId}`),
-        axios.get('/categories')
+        api.get(`/items?branchId=${branchId}`),
+        api.get('/categories')
       ]);
       
-      setItems(itemsRes.data.data || []);
-      setCategories(catsRes.data.data || []);
+      setItems(unwrap(itemsRes) || []);
+      setCategories(unwrap(catsRes) || []);
     } catch (error) {
       console.error('Failed to fetch branch menu:', error);
       toast.error('فشل تحميل بيانات المنيو');
@@ -35,7 +36,7 @@ const BranchMenu = () => {
 
   useEffect(() => {
     fetchData();
-  }, [user.branchId]);
+  }, [user.branchId, selectedBranchId]);
 
   const toggleAvailability = async (itemId, currentStatus) => {
     const newStatus = !currentStatus;
@@ -47,9 +48,11 @@ const BranchMenu = () => {
     ));
 
     try {
-      const response = await axios.post('/branch/items/toggle', {
+      const branchId = selectedBranchId || user.branchId;
+      const response = await api.post('/branch/items/toggle', {
         itemId,
-        isAvailable: newStatus
+        isAvailable: newStatus,
+        branchId
       });
 
       if (response.data.success) {

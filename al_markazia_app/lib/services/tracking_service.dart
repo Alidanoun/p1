@@ -39,10 +39,10 @@ class TrackingService {
 
   Stream<TrackingUpdate> get trackingStream => _trackingController.stream;
 
-  void init() {
+  Future<void> init() async {
     if (_socket != null) return;
 
-    final token = SessionService.instance.rawAccessToken;
+    final token = await SessionService.instance.accessToken;
     _socket = IO.io(ApiService.baseUrl, 
       IO.OptionBuilder()
         .setTransports(['websocket'])

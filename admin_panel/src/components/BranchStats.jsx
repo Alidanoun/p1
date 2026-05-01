@@ -4,13 +4,19 @@ import api, { unwrap } from '../api/client';
 import { cn } from '../lib/utils';
 import { motion } from 'framer-motion';
 
+import { useAuth } from '../contexts/AuthContext';
+
 const BranchStats = () => {
+  const { user, selectedBranchId } = useAuth();
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const fetchStats = async () => {
     try {
-      const response = await api.get('/analytics/branch/report/today');
+      const url = selectedBranchId 
+        ? `/api/analytics/branch/report/today?branchId=${selectedBranchId}` 
+        : '/api/analytics/branch/report/today';
+      const response = await api.get(url);
       setStats(unwrap(response));
     } catch (err) {
       console.error('Failed to fetch stats', err);
@@ -23,7 +29,7 @@ const BranchStats = () => {
     fetchStats();
     const interval = setInterval(fetchStats, 60000); // Update every minute
     return () => clearInterval(interval);
-  }, []);
+  }, [selectedBranchId]);
 
   if (loading || !stats) return null;
 
@@ -41,19 +47,21 @@ const BranchStats = () => {
         icon={Zap} 
         color="emerald" 
       />
-      <StatCard 
-        title="عمليات الإلغاء" 
-        value={stats.cancellations} 
-        icon={AlertCircle} 
-        color="red" 
-      />
+      {user?.role?.toUpperCase() === 'ADMIN' && (
+        <StatCard 
+          title="عمليات الإلغاء" 
+          value={stats.cancellations} 
+          icon={AlertCircle} 
+          color="red" 
+        />
+      )}
       <div className="bg-white/5 border border-white/10 rounded-2xl p-4 flex flex-col justify-center">
         <div className="flex items-center gap-2 mb-2">
           <Star className="w-4 h-4 text-amber-500" />
           <span className="text-[10px] font-black text-text-muted uppercase tracking-widest">الأكثر مبيعاً</span>
         </div>
         <div className="space-y-1">
-          {stats.topItems.length > 0 ? stats.topItems.map((item, idx) => (
+          {stats.topItems && stats.topItems.length > 0 ? stats.topItems.map((item, idx) => (
             <div key={idx} className="flex justify-between items-center text-[11px] font-bold">
               <span className="text-white truncate max-w-[100px]">{item.name}</span>
               <span className="text-amber-500">{item.count}x</span>
