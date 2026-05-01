@@ -43,6 +43,14 @@ const Settings = () => {
   });
   const [updatingCredentials, setUpdatingCredentials] = useState(false);
 
+  const [branchCredentials, setBranchCredentials] = useState({
+    branchId: '',
+    email: '',
+    newPassword: ''
+  });
+  const [branches, setBranches] = useState([]);
+  const [updatingBranch, setUpdatingBranch] = useState(false);
+
   const [advancedConfig, setAdvancedConfig] = useState({
     business: {},
     security: {}
@@ -55,11 +63,17 @@ const Settings = () => {
           api.get('/settings').then(unwrap).catch(() => ({})),
           api.get('/restaurant/schedule').then(unwrap).catch(() => ({ schedule: [] })),
           api.get('/settings/audit').then(unwrap).catch(() => []),
-          api.get('/system/config').then(unwrap).catch(() => null)
+          api.get('/system/config').then(unwrap).catch(() => null),
+          api.get('/branch').then(unwrap).catch(() => [])
         ]);
         
         if (settingsData) {
           setSettings(prev => ({ ...prev, ...settingsData }));
+        }
+
+        if (branchesData && branchesData.length > 0) {
+          setBranches(branchesData);
+          setBranchCredentials(prev => ({ ...prev, branchId: branchesData[0].id }));
         }
         
         if (scheduleData && scheduleData.schedule) {
@@ -159,11 +173,32 @@ const Settings = () => {
       await api.put('/settings/credentials', credentials);
       toast.success('تم تحديث بيانات الدخول بنجاح');
       setCredentials({ email: '', currentPassword: '', newPassword: '' });
+      fetchData(); // Refresh logs
     } catch (error) {
-      const message = error.response?.data?.error || 'فشل في تحديث بيانات الدخول';
-      toast.error(message);
+      toast.error(error.response?.data?.error || 'فشل في تحديث بيانات الدخول');
     } finally {
       setUpdatingCredentials(false);
+    }
+  };
+
+  const handleUpdateBranchCredentials = async (e) => {
+    e.preventDefault();
+    if (!branchCredentials.newPassword || branchCredentials.newPassword.length < 6) {
+      toast.error('كلمة المرور الجديدة يجب أن تكون 6 أحرف على الأقل');
+      return;
+    }
+    setUpdatingBranch(true);
+    try {
+      await api.put('/settings/branch-credentials', branchCredentials);
+      toast.success('تم تحديث بيانات الفرع بنجاح');
+      setBranchCredentials({ ...branchCredentials, email: '', newPassword: '' });
+      // Refresh logs
+      const logsData = await api.get('/settings/audit').then(unwrap).catch(() => []);
+      setAuditLogs(Array.isArray(logsData) ? logsData : []);
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'فشل في تحديث بيانات الفرع');
+    } finally {
+      setUpdatingBranch(false);
     }
   };
 
@@ -507,6 +542,65 @@ const Settings = () => {
                             {updatingCredentials ? 'جاري التحديث...' : 'تحديث البيانات'}
                           </button>
                         </div>
+                      </div>
+                    </form>
+                  </div>
+
+                  {/* Card: Change Branch Credentials */}
+                  <div className="p-6 rounded-2xl bg-white/5 border border-white/5 space-y-4">
+                    <h3 className="text-lg font-bold text-white flex items-center gap-2 mb-4">
+                      <Shield className="w-5 h-5 text-blue-500" /> إدارة حسابات الفروع
+                    </h3>
+                    
+                    <form onSubmit={handleUpdateBranchCredentials} className="space-y-4">
+                      <div className="space-y-2 mb-4">
+                        <label className="text-xs font-bold text-text-muted pr-1">تحديد الفرع</label>
+                        <select 
+                          className="glass-input text-right w-full bg-background"
+                          value={branchCredentials.branchId}
+                          onChange={e => setBranchCredentials({...branchCredentials, branchId: e.target.value})}
+                        >
+                          {branches.map(branch => (
+                            <option key={branch.id} value={branch.id}>{branch.name}</option>
+                          ))}
+                          {branches.length === 0 && (
+                            <option value="">لا يوجد فروع مسجلة</option>
+                          )}
+                        </select>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold text-text-muted pr-1">البريد الإلكتروني للفرع (اختياري)</label>
+                          <input 
+                            type="email" 
+                            className="glass-input text-right w-full" 
+                            placeholder="اتركه فارغاً إذا لم ترد تغييره"
+                            value={branchCredentials.email} 
+                            onChange={e => setBranchCredentials({...branchCredentials, email: e.target.value})}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold text-text-muted pr-1">كلمة المرور الجديدة (إلزامي)</label>
+                          <input 
+                            type="password" 
+                            required
+                            className="glass-input text-right w-full font-mono placeholder:font-sans" 
+                            placeholder="••••••••"
+                            value={branchCredentials.newPassword} 
+                            onChange={e => setBranchCredentials({...branchCredentials, newPassword: e.target.value})}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end mt-4">
+                        <button 
+                          type="submit"
+                          disabled={updatingBranch}
+                          className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-6 rounded-xl transition-all disabled:opacity-50"
+                        >
+                          {updatingBranch ? 'جاري التحديث...' : 'تحديث بيانات الفرع'}
+                        </button>
                       </div>
                     </form>
                   </div>

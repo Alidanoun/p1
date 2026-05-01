@@ -51,12 +51,13 @@ const refreshCookieOptions = (req) => {
 const clearRefreshCookie = (req, res) => {
   const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https';
   res.clearCookie('refreshToken', { 
-    path: '/',
+    path: '/auth/refresh',
     httpOnly: true,
     secure: isSecure,
     sameSite: isSecure ? 'none' : 'lax'
   });
 };
+
 
 /**
  * 🔄 Refresh Token Rotation (Hardened)

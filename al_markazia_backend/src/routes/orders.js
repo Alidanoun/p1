@@ -1,5 +1,6 @@
 const express = require('express');
 const { orderLimiter } = require('../middleware/rateLimiter');
+const IdempotencyService = require('../services/idempotencyService');
 const { 
   authenticateToken: authMiddleware, 
   isAdmin: adminMiddleware,
@@ -18,6 +19,8 @@ const {
   updateOrderTimer, 
   submitOrderRating, 
   cancelOrder, 
+  approveCancellation,
+  rejectCancellation,
   handleCancellationRequest,
   requestPartialCancel,
   handlePartialCancelRequest,
@@ -53,9 +56,10 @@ router.patch('/:id/timer', authMiddleware, adminMiddleware, validateId(), update
 router.patch('/:id/prep-time', authMiddleware, adminMiddleware, validateId(), updatePreparationTime);
 router.patch('/:id/rate', authMiddleware, validateId(), submitOrderRating);
 
-router.post('/:id/cancel', authenticateToken, IdempotencyService.guard(), orderController.cancelOrder);
-router.post('/:id/approve-cancel', authenticateToken, isAdmin, IdempotencyService.guard(), orderController.approveCancellation);
-router.post('/:id/reject-cancel', authenticateToken, isAdmin, IdempotencyService.guard(), orderController.rejectCancellation);
+// 🛡️ Cancellation Engine Endpoints
+router.post('/:id/cancel', authMiddleware, IdempotencyService.guard(), cancelOrder);
+router.post('/:id/approve-cancel', authMiddleware, adminMiddleware, IdempotencyService.guard(), approveCancellation);
+router.post('/:id/reject-cancel', authMiddleware, adminMiddleware, IdempotencyService.guard(), rejectCancellation);
 
 router.post('/:id/handle-cancellation', authMiddleware, adminMiddleware, validateId(), handleCancellationRequest);
 
@@ -87,7 +91,5 @@ router.get(
   adminMiddleware,
   getPendingPartialCancels
 );
-
-// LEGACY route removed for security.
 
 module.exports = router;

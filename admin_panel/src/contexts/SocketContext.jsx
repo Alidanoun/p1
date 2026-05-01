@@ -3,12 +3,14 @@ import { io } from 'socket.io-client';
 import { toast } from 'sonner';
 import api, { unwrap } from '../api/client';
 import { tokenStore } from '../api/tokenStore';
+import { useAuth } from './AuthContext';
 
 const SocketContext = createContext();
 
 const SOCKET_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 export const SocketProvider = ({ children }) => {
+  const { user, selectedBranchId } = useAuth();
   const [socket, setSocket] = useState(null);
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -29,9 +31,12 @@ export const SocketProvider = ({ children }) => {
     }
   };
 
-  const fetchLiveMetrics = async () => {
+  const fetchLiveMetrics = useCallback(async () => {
     try {
-      const response = await api.get('/dashboard/metrics');
+      const url = selectedBranchId 
+        ? `/dashboard/metrics?branchId=${selectedBranchId}` 
+        : '/dashboard/metrics';
+      const response = await api.get(url);
       const data = unwrap(response);
       
       if (data) {
@@ -43,7 +48,7 @@ export const SocketProvider = ({ children }) => {
     } catch (err) {
       console.error('Failed to fetch metrics:', err);
     }
-  };
+  }, [selectedBranchId]);
 
   const _playBeep = () => {
     try {
@@ -82,7 +87,14 @@ export const SocketProvider = ({ children }) => {
     newSocket.on('connect', () => {
       console.log('Socket connected:', newSocket.id);
       newSocket.emit('join:admin'); 
-      newSocket.emit('join:dashboard');
+      
+      // 🏢 Join Dashboard Context
+      if (selectedBranchId) {
+        newSocket.emit('join:branch:dashboard', { branchId: selectedBranchId });
+      } else {
+        newSocket.emit('join:dashboard');
+      }
+
       fetchNotifications();
       fetchLiveMetrics();
     });
@@ -143,6 +155,22 @@ export const SocketProvider = ({ children }) => {
     socketRef.current = newSocket;
     setSocket(newSocket);
   }, []);
+
+  useEffect(() => {
+    if (socketRef.current) {
+      // 🔄 Switch Rooms without full reconnect if possible, 
+      // but for simplicity, we'll just re-fetch and re-emit join
+      if (selectedBranchId) {
+        socketRef.current.emit('leave:dashboard');
+        socketRef.current.emit('join:branch:dashboard', { branchId: selectedBranchId });
+      } else {
+        socketRef.current.emit('leave:branch:dashboard');
+        socketRef.current.emit('join:dashboard');
+      }
+      setLiveMetrics(null); // Clear while fetching
+      fetchLiveMetrics();
+    }
+  }, [selectedBranchId, fetchLiveMetrics]);
 
   useEffect(() => {
     // 🛡️ Initialization: Try to connect with whatever is in store

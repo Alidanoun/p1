@@ -40,7 +40,7 @@ exports.getAuditLogs = async (req, res) => {
 exports.updateAdminCredentials = async (req, res) => {
   try {
     const { email, currentPassword, newPassword } = req.body;
-    const adminId = req.user.uuid;
+    const adminId = req.user.id;
 
     if (!adminId) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -93,6 +93,57 @@ exports.updateAdminCredentials = async (req, res) => {
   }
 };
 
+exports.updateBranchCredentials = async (req, res) => {
+  try {
+    const { branchId, newPassword, email } = req.body;
+    const adminId = req.user.id;
+
+    if (!adminId || !['admin', 'super_admin'].includes(req.user.role?.toLowerCase())) return res.status(401).json({ error: 'Unauthorized' });
+    if (!branchId || !newPassword) return res.status(400).json({ error: 'الفرع وكلمة المرور الجديدة مطلوبان' });
+
+    // Find the branch manager
+    const manager = await prisma.user.findFirst({
+      where: { 
+        branchId, 
+        role: { in: ['manager', 'branch_manager'], mode: 'insensitive' } 
+      }
+    });
+
+    if (!manager) return res.status(404).json({ error: 'لم يتم العثور على مدير لهذا الفرع' });
+
+    const updateData = {};
+    if (email && email !== manager.email) {
+      const existingUser = await prisma.user.findUnique({ where: { email } });
+      if (existingUser) return res.status(400).json({ error: 'هذا البريد الإلكتروني مستخدم مسبقاً' });
+      updateData.email = email;
+    }
+
+    if (newPassword.length < 6) return res.status(400).json({ error: 'كلمة المرور الجديدة يجب أن تكون 6 أحرف على الأقل' });
+    updateData.password = await bcrypt.hash(newPassword, 10);
+
+    await prisma.user.update({
+      where: { id: manager.id },
+      data: updateData
+    });
+
+    // Log the change
+    await prisma.systemAuditLog.create({
+      data: {
+        userId: adminId,
+        userRole: 'ADMIN',
+        action: 'UPDATE_BRANCH_CREDENTIALS',
+        ip: req.ip,
+        metadata: { branchId, managerId: manager.id, emailChanged: !!updateData.email }
+      }
+    });
+
+    res.json({ success: true, message: 'تم تحديث بيانات الفرع بنجاح' });
+  } catch (error) {
+    logger.error('Update branch credentials error', { error: error.message });
+    res.status(500).json({ error: 'فشل في تحديث بيانات الفرع' });
+  }
+};
+
 exports.updateSetting = async (req, res) => {
   try {
     const { key, value } = req.body;
@@ -140,7 +191,7 @@ exports.updateAdvancedConfig = async (req, res) => {
     // 📝 Log to System Audit
     await prisma.systemAuditLog.create({
       data: {
-        userId: req.user.uuid || req.user.id,
+        userId: req.user.id,
         userRole: req.user.role,
         action: `UPDATE_${type.toUpperCase()}_CONFIG`,
         entityType: 'SystemSettings',
@@ -180,15 +231,31 @@ exports.updateBulkSettings = async (req, res) => {
     }
 
     // 🚀 Atomic Multi-Update
-    const operations = Object.entries(settings).map(([key, value]) => {
-      return prisma.systemSettings.upsert({
-        where: { key },
-        update: { value: String(value) },
-        create: { key, value: String(value) }
+    const operations = Object.entries(settings)
+      .filter(([key, value]) => {
+        // Skip huge values (like Base64 logos) to prevent DB clogging
+        // These should be handled via a dedicated upload endpoint
+        if (typeof value === 'string' && value.length > 50000) {
+          logger.warn(`Skipping large setting key: ${key} (Length: ${value.length})`);
+          return false;
+        }
+        return true;
+      })
+      .map(([key, value]) => {
+        return prisma.systemSettings.upsert({
+          where: { key },
+          update: { value: String(value) },
+          create: { key, value: String(value) }
+        });
       });
-    });
 
     await prisma.$transaction(operations);
+
+    // ♻️ Invalidate Cache
+    const redis = require('../lib/redis');
+    await redis.del('system:settings');
+    const memoryCache = require('../lib/memoryCache');
+    memoryCache.del('system:settings');
 
     // 📝 Add System Audit Log
     try {
@@ -198,7 +265,7 @@ exports.updateBulkSettings = async (req, res) => {
           userRole: req.user?.role || 'admin',
           action: 'UPDATE_BULK_SETTINGS',
           ip: req.ip,
-          metadata: { updatedKeys: Object.keys(settings) }
+          metadata: { updatedKeys: Object.keys(settings).filter(k => settings[k]?.length < 1000) }
         }
       });
     } catch (auditErr) {

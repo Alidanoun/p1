@@ -39,6 +39,7 @@ const authenticateToken = async (req, res, next) => {
       id: userId, // This is the UUID
       phone: decoded.phone,
       role: (decoded.role || '').toLowerCase(), // 🧠 Identity Normalization
+      branchId: decoded.branchId || null,
       jti: jti
     };
     
@@ -62,13 +63,15 @@ const authenticateToken = async (req, res, next) => {
  * 👑 Role Hierarchy Definition
  */
 const ROLE_LEVELS = {
-  'super_admin': 3,
-  'admin': 2,
-  'BRANCH_MANAGER': 2,
+  'super_admin': 4,
+  'admin': 3,
+  'branch_manager': 2,
   'manager': 2,
   'staff': 1,
   'customer': 0
 };
+
+
 
 /**
  * Role-Based Access Control (RBAC) Helper
@@ -143,6 +146,7 @@ const optionalAuth = async (req, res, next) => {
       id: userId,
       phone: decoded.phone,
       role: (decoded.role || '').toLowerCase(),
+      branchId: decoded.branchId || null,
       jti: jti
     };
     next();

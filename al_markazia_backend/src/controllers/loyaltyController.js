@@ -84,7 +84,7 @@ class LoyaltyController {
    */
   async rewardSocialShare(req, res) {
     try {
-      const customerId = req.user.uuid; // From authenticateToken
+      const customerId = req.user.id; // From authenticateToken
       const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
       const redisKey = `loyalty:share_throttle:${customerId}:${today}`;
 
@@ -162,7 +162,7 @@ class LoyaltyController {
   async claimReward(req, res) {
     try {
       const customer = await require('../lib/prisma').customer.findUnique({
-        where: { uuid: req.user.uuid }
+        where: { uuid: req.user.id }
       });
       if (!customer) return res.status(404).json({ success: false, error: 'Customer not found' });
 
@@ -177,7 +177,7 @@ class LoyaltyController {
   async getMyRewards(req, res) {
     try {
       const customer = await require('../lib/prisma').customer.findUnique({
-        where: { uuid: req.user.uuid }
+        where: { uuid: req.user.id }
       });
       if (!customer) return res.status(404).json({ success: false, error: 'Customer not found' });
 
@@ -191,7 +191,7 @@ class LoyaltyController {
   async getMyLoyaltyProfile(req, res) {
     try {
       const customer = await prisma.customer.findUnique({
-        where: { uuid: req.user.uuid },
+        where: { uuid: req.user.id },
         select: { id: true, name: true, points: true, tier: true, totalOrders: true }
       });
 

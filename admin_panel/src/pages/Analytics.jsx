@@ -30,7 +30,7 @@ const Analytics = () => {
   const fetchStats = async () => {
     setLoading(true);
     try {
-      const stats = unwrap(await api.get(`/analytics/dashboard?period=${period}&source=${source}`));
+      const stats = unwrap(await api.get(`/api/analytics/dashboard?period=${period}&source=${source}`));
       setData(stats);
     } catch (error) {
       console.error('Fetch stats error:', error);

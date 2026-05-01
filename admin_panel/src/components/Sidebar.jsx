@@ -10,13 +10,14 @@ const Sidebar = () => {
   const { theme, toggleTheme } = useTheme();
 
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
-  const isBranchManager = user?.role === 'BRANCH_MANAGER';
+  const isBranchManager = user?.role === 'BRANCH_MANAGER' || user?.role === 'manager';
 
   const navItems = [
-    { name: 'مركز العمليات', icon: LayoutDashboard, path: '/', isLive: true, show: true },
+    { name: 'مركز العمليات', icon: LayoutDashboard, path: '/', isLive: true, show: isAdmin },
     { name: 'الطلبات الحية', icon: ListOrdered, path: '/orders', show: true },
     { name: 'إدارة القائمة', icon: MenuSquare, path: '/menu', show: isAdmin },
     { name: 'منيو الفرع', icon: Utensils, path: '/branch-menu', show: isBranchManager },
+
     { name: 'بث الإشعارات', icon: Send, path: '/broadcast', show: isAdmin },
     { name: 'إدارة التقييمات', icon: Star, path: '/reviews', show: isAdmin },
     { name: 'إدارة الولاء', icon: Stars, path: '/loyalty', show: isAdmin },

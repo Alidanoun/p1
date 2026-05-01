@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { Navigate } from 'react-router-dom';
 import { 
   DollarSign, 
   TrendingUp, 
@@ -37,7 +38,9 @@ import {
   CartesianGrid
 } from 'recharts';
 import Header from '../components/Header';
+import { useAuth } from '../contexts/AuthContext';
 import { useSocket } from '../contexts/SocketContext';
+
 import { formatCurrencyArabic, formatNumberArabic } from '../lib/formatters';
 import { cn } from '../lib/utils';
 
@@ -94,8 +97,15 @@ const EmptyState = ({ icon: Icon, title, subtitle, compact = false }) => (
 );
 
 const LiveDashboard = () => {
+  const { user } = useAuth();
   const { liveMetrics, metricsHistory, socket } = useSocket();
   const [selectedOrder, setSelectedOrder] = useState(null);
+
+  // 🛡️ Access Guard: Operations Center is for Admins only
+  if (user && user.role !== 'admin' && user.role !== 'super_admin') {
+    return <Navigate to="/orders" replace />;
+  }
+
 
   // 🛡️ RECOVERY STATUS INDICATOR
   const syncStatus = useMemo(() => {

@@ -158,7 +158,6 @@ async function startServer() {
     app.use('/items', itemRoutes);
     app.use('/api/audit', require('./routes/audit'));
     app.use('/api/analytics', analyticsRoutes);
-    app.use('/api/reports', require('./routes/reports'));
     app.use('/orders', governorGuard('MISSION_CRITICAL'), IdempotencyService.guard(), orderRoutes);
     app.use('/categories', categoryRoutes);
     app.use('/notifications', notificationRoutes);
@@ -178,7 +177,20 @@ async function startServer() {
 
     // 🚨 Global Error Handler (Centralized Survival Layer)
     const { handleError } = require('./utils/errorHandler');
-    app.use(handleError);
+    app.use((err, req, res, next) => {
+      handleError(err, res);
+    });
+
+    process.on('unhandledRejection', (reason, promise) => {
+      logger.error('Unhandled Rejection at:', { promise, reason });
+      console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    });
+
+    process.on('uncaughtException', (err) => {
+      logger.error('Uncaught Exception thrown:', { error: err.message, stack: err.stack });
+      console.error('Uncaught Exception thrown:', err);
+      process.exit(1);
+    });
 
     const PORT = process.env.PORT || 5000;
     server.listen(PORT, '0.0.0.0', async () => {

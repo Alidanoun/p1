@@ -10,9 +10,10 @@ const orderProjection = require('../projections/orderProjection');
  * Get Real-time KPIs
  */
 exports.getLiveMetrics = (req, res) => {
+  const branchId = req.query.branchId || req.user.branchId;
   res.json({
     success: true,
-    data: analyticsProjection.getMetrics(),
+    data: analyticsProjection.getMetrics(branchId),
     timestamp: new Date()
   });
 };
@@ -21,9 +22,11 @@ exports.getLiveMetrics = (req, res) => {
  * Get Live Orders (Kanban Data)
  */
 exports.getLiveOrders = (req, res) => {
+  const branchId = req.query.branchId || req.user.branchId;
+  const filteredOrders = orderProjection.getAllOrders(branchId);
   res.json({
     success: true,
-    data: orderProjection.getAllOrders(),
-    count: orderProjection.getAllOrders().length
+    data: filteredOrders,
+    count: filteredOrders.length
   });
 };
