@@ -43,6 +43,7 @@ class CheckoutController extends ChangeNotifier {
   String? errorMessage;
 
   Map<String, dynamic>? loyaltyConfig;
+  bool usePoints = false;
 
   // ❄️ Initialize Snapshot (The Golden Rule)
   void initialize(CartController cartController) {
@@ -59,6 +60,7 @@ class CheckoutController extends ChangeNotifier {
     selectedZone = null;
     errorMessage = null;
     isLoading = false;
+    usePoints = false;
     
     // Fetch fresh zones and loyalty config in background
     fetchZones();
@@ -116,7 +118,35 @@ class CheckoutController extends ChangeNotifier {
     notifyListeners();
   }
 
-  double get total => _subtotal + (orderType == 'delivery' ? deliveryFee : 0.0);
+  void toggleUsePoints(bool value) {
+    usePoints = value;
+    notifyListeners();
+  }
+
+  int get availablePoints {
+    final user = _storage.getCurrentUser();
+    return user?['points'] ?? 0;
+  }
+
+  double get pointsDiscount {
+    if (!usePoints || loyaltyConfig == null) return 0.0;
+    final minRedeem = (loyaltyConfig!['minPointsToRedeem'] as num?)?.toInt() ?? 500;
+    final pointsRate = (loyaltyConfig!['pointsToJodRate'] as num?)?.toDouble() ?? 100.0;
+    
+    if (availablePoints < minRedeem) return 0.0;
+    
+    // Calculate how much cash the user's points are worth
+    double rawDiscount = availablePoints / pointsRate;
+    
+    // We cannot discount more than the order subtotal (or total). 
+    // Let's cap the discount to the subtotal.
+    if (rawDiscount > _subtotal) {
+      return _subtotal;
+    }
+    return rawDiscount;
+  }
+
+  double get total => _subtotal + (orderType == 'delivery' ? deliveryFee : 0.0) - pointsDiscount;
 
   int get estimatedPoints {
     if (loyaltyConfig == null) return 0;
@@ -195,6 +225,7 @@ class CheckoutController extends ChangeNotifier {
         deliveryFee: orderType == 'delivery' ? deliveryFee : 0.0,
         branch: selectedBranch,
         deliveryZoneId: orderType == 'delivery' ? selectedZone?.id : null,
+        usePoints: usePoints,
       );
 
       // 3️⃣ Send to API

@@ -33,6 +33,7 @@ class OrderModel {
   final String? branch;
   final String? deliveryZoneId;
   final int version; // 🛡️ Sequence Version for ordering logic
+  final bool usePoints;
 
   OrderModel({
     required this.orderId,
@@ -63,6 +64,7 @@ class OrderModel {
     this.branch,
     this.deliveryZoneId,
     this.version = 1,
+    this.usePoints = false,
   });
 
   String getDisplayStatus(AppLocalizations l10n) {
@@ -133,6 +135,7 @@ class OrderModel {
       branch: json['branch'],
       deliveryZoneId: json['deliveryZoneId'],
       version: json['version'] ?? 1,
+      usePoints: json['usePoints'] ?? false,
     );
   }
 
@@ -162,5 +165,6 @@ class OrderModel {
     'branch': branch,
     'deliveryZoneId': deliveryZoneId,
     'version': version,
+    'usePoints': usePoints,
   };
 }

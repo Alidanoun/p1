@@ -212,6 +212,7 @@ model Customer {
   auditLogs           CustomerAuditLog[]
   orders              Order[]
   reviews             Review[]
+  customerRewards     CustomerReward[]
 
   @@index([isBlacklisted])
 }
@@ -502,6 +503,8 @@ model LoyaltyConfig {
   happyHourEnd            String   @default("18:00")
   isHappyHourEnabled      Boolean  @default(false)
   cancellationCompensationRate Float @default(0.05)
+  pointsToJodRate         Float    @default(100)
+  minPointsToRedeem       Int      @default(500)
   updatedAt               DateTime @updatedAt
 }
 
@@ -562,4 +565,36 @@ model RestaurantSubscription {
   createdAt  DateTime @default(now())
 
   @@index([notified, targetTime])
+}
+
+model RewardItem {
+  id              Int      @id @default(autoincrement())
+  title           String
+  titleEn         String?
+  description     String?
+  descriptionEn   String?
+  image           String?
+  pointsCost      Int
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  customerRewards CustomerReward[]
+}
+
+model CustomerReward {
+  id              Int      @id @default(autoincrement())
+  customerId      Int
+  rewardItemId    Int
+  code            String   @unique @default(uuid())
+  status          String   @default("ACTIVE") // ACTIVE, USED, EXPIRED
+  purchasedAt     DateTime @default(now())
+  usedAt          DateTime?
+  expiresAt       DateTime?
+  
+  customer        Customer   @relation(fields: [customerId], references: [id])
+  rewardItem      RewardItem @relation(fields: [rewardItemId], references: [id])
+
+  @@index([customerId, status])
+  @@index([code])
 }

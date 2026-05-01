@@ -11,7 +11,7 @@ const nodeCache = require('../lib/memoryCache');
 class WorkingHoursService {
   constructor() {
     this.CACHE_KEY = 'restaurant_status';
-    this.CACHE_TTL = 60; // 60 seconds
+    this.CACHE_TTL = 30; // ⚡ Reduced to 30 seconds for better responsiveness
   }
 
   /**
@@ -31,8 +31,12 @@ class WorkingHoursService {
       ]);
 
       if (!settings) {
-        logger.error('[WorkingHours] Restaurant settings not found. Defaulting to OPEN.');
-        return { isOpen: true, message: 'Settings missing' };
+        logger.error('[WORKING_HOURS_FAIL_CLOSE] reason=SETTINGS_MISSING. Blocking orders.');
+        return { 
+          isOpen: false, 
+          reason: 'المطعم مغلق حالياً بسبب خطأ في الإعدادات',
+          reasonEn: 'Restaurant is closed due to internal configuration error.'
+        };
       }
 
       const now = DateTime.now().setZone(settings.timezone);
@@ -53,7 +57,18 @@ class WorkingHoursService {
           nodeCache.set(this.CACHE_KEY, status, this.CACHE_TTL);
           return status;
         } else {
-          logger.info('[WorkingHours] Emergency closure expired. Reopening automatically.');
+          // 🚀 Persistence: Update DB to clear the expired flag to prevent log spam and logic drift
+          logger.info('[WorkingHours] Emergency closure expired. Reopening automatically in DB.');
+          await prisma.restaurantSettings.update({
+            where: { id: 1 },
+            data: { 
+              isEmergencyClosed: false,
+              reopenAt: null,
+              closureReason: null
+            }
+          });
+          // Invalidate cache for the next request
+          this.invalidateCache();
         }
       }
 
@@ -100,8 +115,13 @@ class WorkingHoursService {
       nodeCache.set(this.CACHE_KEY, status, this.CACHE_TTL);
       return status;
     } catch (error) {
-      logger.error('[WorkingHours] Error calculating status', { error: error.message });
-      return { isOpen: true, error: 'TRANSITION_FAILURE' };
+      logger.error('[WORKING_HOURS_FAIL_CLOSE] reason=CALCULATION_ERROR. Blocking orders.', { error: error.message });
+      // 🛡️ Fail-Close: DO NOT CACHE error responses. Always return false on uncertainty.
+      return { 
+        isOpen: false, 
+        reason: 'المطعم مغلق حالياً لإجراء صيانة تقنية سريعة',
+        reasonEn: 'The restaurant is currently closed for quick technical maintenance.'
+      };
     }
   }
 

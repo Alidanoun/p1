@@ -8,6 +8,30 @@ const response = require('../utils/response');
 
 const passwordRegex = /^(?=.*[a-zA-Z])(?=.*[\d!@#$%^&*]).{8,}$/;
 
+// ── Helper: Token Sanitizer ───────────────────────────
+/**
+ * 🧹 Cleans and validates the refresh token string before processing.
+ * Fixes "jwt malformed" caused by quotes, whitespace, or "undefined" strings.
+ */
+const sanitizeToken = (token) => {
+  if (!token || typeof token !== 'string') return null;
+
+  // 1. Trim whitespace and remove wrapping quotes (some browsers/proxies add them)
+  let cleanToken = token.trim().replace(/^"|"$/g, '');
+
+  // 2. Reject literal "undefined" or "null" strings
+  if (cleanToken === 'undefined' || cleanToken === 'null' || cleanToken.length < 20) {
+    return null;
+  }
+
+  // 3. Ensure it looks like a valid JWT (Header.Payload.Signature)
+  if (cleanToken.split('.').length !== 3) {
+    return null;
+  }
+
+  return cleanToken;
+};
+
 // ── Helper: Secure Cookie Config ──────────────────────
 const refreshCookieOptions = (req) => {
   const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https';
@@ -21,37 +45,61 @@ const refreshCookieOptions = (req) => {
   };
 };
 
+// ── Helper: Clear Cookie with same options ──
+const clearRefreshCookie = (req, res) => {
+  const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https';
+  res.clearCookie('refreshToken', { 
+    path: '/',
+    httpOnly: true,
+    secure: isSecure,
+    sameSite: isSecure ? 'none' : 'lax'
+  });
+};
+
 /**
  * 🔄 Refresh Token Rotation (Hardened)
  * Supports both Cookie (Modern) and Body (Legacy Fallback).
  */
 const refreshToken = async (req, res) => {
-  // 🛡️ Backward Compatible: Check cookie first, then body
-  const token = req.cookies?.refreshToken || req.body?.refreshToken;
+  // 🛡️ Sanitization: Protect against malformed cookies/body
+  const rawToken = req.cookies?.refreshToken || req.body?.refreshToken;
+  const token = sanitizeToken(rawToken);
 
   if (!token) {
-    return response.error(res, 'Refresh token is required', 'MISSING_TOKEN', 401);
+    logger.security('[REFRESH_BLOCKED] Corrupt or missing token received.', { 
+      type: typeof rawToken, 
+      length: rawToken?.length || 0,
+      preview: typeof rawToken === 'string' ? rawToken.substring(0, 10) : 'N/A'
+    });
+    clearRefreshCookie(req, res);
+    return response.error(res, 'جلسة غير صالحة، يرجى تسجيل الدخول مجدداً', 'INVALID_SESSION', 401);
   }
 
   try {
-    // 🛡️ Secure Rotation & Abuse Detection
-    const { accessToken, newRefreshToken, user } = await TokenService.validateAndRotate(token);
+    // 🛡️ Secure Rotation & Abuse Detection with IP Tracking
+    const { accessToken, newRefreshToken, user } = await TokenService.validateAndRotate(token, req.ip);
+    const refreshTokenString = newRefreshToken.token;
+
+    // 🛡️ Security Guard: Prevent writing 'undefined' cookies
+    if (!refreshTokenString || typeof refreshTokenString !== 'string') {
+      throw new Error('[CRITICAL] Invalid refresh token generated during rotation');
+    }
     
     // ✅ Set Secure Cookie
-    res.cookie('refreshToken', newRefreshToken.token, refreshCookieOptions(req));
+    res.cookie('refreshToken', refreshTokenString, refreshCookieOptions(req));
 
     // ✅ Return both tokens (refreshToken is for mobile app storage)
     response.success(res, { 
       accessToken,
-      refreshToken: newRefreshToken.token
+      refreshToken: refreshTokenString
     });
   } catch (error) {
     if (error.message === 'TOKEN_REUSE_DETECTED') {
-      res.clearCookie('refreshToken', { path: '/' });
+      clearRefreshCookie(req, res);
       return response.error(res, 'تنبيه أمني: تم اكتشاف محاولة اختراق الجلسة. تم تسجيل الخروج من كافة الأجهزة.', 'SECURITY_BREACH', 401);
     }
     
-    res.clearCookie('refreshToken', { path: '/' });
+    clearRefreshCookie(req, res);
     logger.security('Invalid refresh attempt', { error: error.message });
     return response.error(res, 'انتهت صلاحية الجلسة، يرجى تسجيل الدخول', 'SESSION_EXPIRED', 401);
   }
@@ -98,11 +146,16 @@ const login = async (req, res) => {
     }
 
     // --- Enterprise Identity Transition ---
-    const { token: refreshToken, jti } = await TokenService.generateAndSaveRefreshToken(account);
+    const { token, jti } = await TokenService.generateAndSaveRefreshToken(account);
     const accessToken = TokenService.generateAccessToken(account, jti);
+
+    // 🛡️ Security Guard: Prevent writing 'undefined' cookies
+    if (!token || typeof token !== 'string') {
+      throw new Error('[CRITICAL] Invalid refresh token generated during login');
+    }
     
     // ✅ Set Secure Cookie
-    res.cookie('refreshToken', refreshToken.token, refreshCookieOptions(req));
+    res.cookie('refreshToken', token, refreshCookieOptions(req));
 
     logger.security('Valid login', { 
       role: account.role || 'customer',
@@ -112,13 +165,13 @@ const login = async (req, res) => {
 
     response.success(res, { 
       accessToken, 
-      refreshToken: refreshToken.token,
+      refreshToken: token,
       user: { 
         id: account.uuid,
         email: account.email, 
         name: account.name,
         phone: account.phone,
-        role: account.role || 'customer' 
+        role: account.role || 'customer'
       } 
     });
   } catch (error) {
@@ -137,7 +190,7 @@ const logout = async (req, res) => {
     await TokenService.revokeToken(token);
   }
 
-  res.clearCookie('refreshToken', { path: '/' });
+  clearRefreshCookie(req, res);
   return res.json({ success: true, message: 'Logged out successfully' });
 };
 
@@ -281,14 +334,19 @@ const verifyRegistration = async (req, res) => {
     });
 
     // 5. Generate Session
-    const { token: refreshToken, jti } = await TokenService.generateAndSaveRefreshToken(account);
+    const { token, jti } = await TokenService.generateAndSaveRefreshToken(account);
     const accessToken = TokenService.generateAccessToken(account, jti);
+
+    // 🛡️ Security Guard
+    if (!token || typeof token !== 'string') {
+      throw new Error('[CRITICAL] Invalid refresh token generated during registration');
+    }
     
-    res.cookie('refreshToken', refreshToken.token, refreshCookieOptions(req));
+    res.cookie('refreshToken', token, refreshCookieOptions(req));
 
     response.success(res, { 
       accessToken, 
-      refreshToken: refreshToken.token,
+      refreshToken: token,
       user: { 
         id: account.uuid, 
         email: account.email, 
@@ -436,13 +494,19 @@ const resetPassword = async (req, res) => {
     });
 
     // 🚀 Auto-login after successful reset
-    const accessToken = TokenService.generateAccessToken(updatedAccount);
-    const refreshToken = await TokenService.generateAndSaveRefreshToken(updatedAccount);
-    res.cookie('refreshToken', refreshToken.token, refreshCookieOptions(req));
+    const { token, jti } = await TokenService.generateAndSaveRefreshToken(updatedAccount);
+    const accessToken = TokenService.generateAccessToken(updatedAccount, jti);
+
+    // 🛡️ Security Guard
+    if (!token || typeof token !== 'string') {
+      throw new Error('[CRITICAL] Invalid refresh token generated during password reset');
+    }
+
+    res.cookie('refreshToken', token, refreshCookieOptions(req));
 
     response.success(res, {
       accessToken,
-      refreshToken: refreshToken.token,
+      refreshToken: token,
       user: { 
         id: updatedAccount.uuid, 
         email: updatedAccount.email, 

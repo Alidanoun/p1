@@ -26,9 +26,14 @@ const workingHoursGuard = async (req, res, next) => {
 
     next();
   } catch (error) {
-    logger.error('[WorkingHoursGuard] Error in middleware', { error: error.message });
-    // In case of error, we default to OPEN to avoid blocking sales unless it's a critical DB failure
-    next();
+    logger.error('[WORKING_HOURS_GUARD_FAIL_CLOSE] Critical error in middleware. Blocking request.', { error: error.message });
+    
+    // 🛡️ Fail-Close: If status is uncertain, we MUST block.
+    return res.status(403).json({
+      success: false,
+      error: 'RESTAURANT_STATUS_UNCERTAIN',
+      message: 'عذراً، لا يمكن معالجة طلبك حالياً بسبب عطل فني في التحقق من أوقات العمل. يرجى المحاولة لاحقاً.'
+    });
   }
 };
 

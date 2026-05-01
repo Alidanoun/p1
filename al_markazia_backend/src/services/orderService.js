@@ -279,11 +279,23 @@ class OrderService {
       throw new Error('ORDER_FORBIDDEN');
     }
 
+    const isFirstTimeRating = !order.rating;
+
     const updatedOrder = await prisma.order.update({
       where: { id: orderId },
       data: { rating, ratingComment: comment, isRatingApproved: false },
       include: ORDER_INCLUDE_FULL
     });
+
+    // 🎁 Reward points for the review
+    if (isFirstTimeRating && order.customerId) {
+       try {
+         const loyaltyService = require('./loyaltyService');
+         await loyaltyService.awardEngagementPoints(order.customerId, 'REVIEW');
+       } catch (err) {
+         logger.error('Failed to award review points', { error: err.message, orderId });
+       }
+    }
 
     return mapOrderResponse(updatedOrder);
   }
@@ -539,9 +551,38 @@ class OrderService {
     // 5. 🔢 Generate Atomic Order Number
     const orderNumber = await this._generateOrderNumber();
 
+    // 5.5 🎁 Points Redemption Logic
+    let pointsDiscount = 0;
+    let pointsToDeduct = 0;
+
+    if (data.usePoints === true) {
+      const loyaltyConfig = await loyaltyService.getConfig();
+      const minPoints = loyaltyConfig.minPointsToRedeem || 500;
+      const rate = loyaltyConfig.pointsToJodRate || 100;
+      
+      if (resolvedCustomer.points >= minPoints) {
+        // Calculate max cash value from points
+        const rawDiscount = resolvedCustomer.points / rate;
+        // Cap discount to subtotal
+        pointsDiscount = Math.min(rawDiscount, subtotal);
+        // Calculate exact points to deduct
+        pointsToDeduct = Math.floor(pointsDiscount * rate);
+      }
+    }
+
     // 🛡️ Pricing Logic: Inclusive of Tax
     const tax = 0;
-    const total = toMoney(subtotal + deliveryDetails.fee);
+    const total = Math.max(0, toMoney(subtotal + deliveryDetails.fee - pointsDiscount));
+
+    // 🚀 Auto Accept Orders Logic
+    let sysSettings = memoryCache.get('system:settings');
+    if (!sysSettings) {
+      const redisSettings = await redis.get('system:settings');
+      if (redisSettings) sysSettings = JSON.parse(redisSettings);
+      else sysSettings = await prisma.systemSettings.findFirst();
+    }
+    const isAutoAccept = sysSettings?.autoAcceptOrders === 'true' || sysSettings?.autoAcceptOrders === true;
+    const initialStatus = isAutoAccept ? 'preparing' : 'pending';
 
     // 6. 💎 Atomic Transactional Persistence
     const { newOrder } = await prisma.$transaction(async (tx) => {
@@ -557,7 +598,7 @@ class OrderService {
           tax,
           deliveryFee: deliveryDetails.fee,
           total,
-          status: 'pending',
+          status: initialStatus,
           source: (authUser && authUser.role === 'admin') ? 'manual' : 'app',
           address: address ? xss(address) : address,
           notes: notes ? xss(notes) : notes,
@@ -588,6 +629,41 @@ class OrderService {
           targetRoute: '/orders'
         }
       });
+
+      // 💳 Execute Points Deduction if requested
+      if (pointsToDeduct > 0) {
+        await tx.customer.update({
+          where: { id: resolvedCustomer.id },
+          data: { points: { decrement: pointsToDeduct } }
+        });
+
+        await tx.customerAuditLog.create({
+          data: {
+            customerId: resolvedCustomer.id,
+            action: 'POINTS_REDEEMED',
+            oldValue: resolvedCustomer.points,
+            newValue: resolvedCustomer.points - pointsToDeduct,
+            actorId: resolvedCustomer.id,
+            reason: `استخدام النقاط للخصم من الطلب #${order.orderNumber}`,
+            metadata: { orderId: order.id, pointsDeducted: pointsToDeduct, discount: pointsDiscount }
+          }
+        });
+
+        await tx.financialLedger.create({
+          data: {
+            customerId: resolvedCustomer.id,
+            orderId: order.id,
+            type: 'DEBIT',
+            category: 'ORDER_PAYMENT',
+            amount: pointsDiscount,
+            balanceBefore: resolvedCustomer.walletBalance,
+            balanceAfter: resolvedCustomer.walletBalance,
+            method: 'POINTS',
+            description: `دفع جزئي باستخدام النقاط للطلب #${order.orderNumber}`,
+            metadata: { pointsDeducted: pointsToDeduct }
+          }
+        });
+      }
 
       return { newOrder: order };
     });

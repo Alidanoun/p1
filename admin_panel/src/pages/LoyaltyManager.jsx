@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react';
 import { Stars, Settings, Save, TrendingUp, Gift, Share2, MessageSquare, UserPlus } from 'lucide-react';
 import Header from '../components/Header';
 import api, { unwrap } from '../api/client';
+import { useSocket } from '../contexts/SocketContext';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
 
 const LoyaltyManager = () => {
+  const { socket } = useSocket();
   const [settings, setSettings] = useState({
     pointsPerJod: 10,
     tierGoldMinOrders: 10,
@@ -27,17 +29,25 @@ const LoyaltyManager = () => {
   useEffect(() => {
     fetchSettings();
 
-    // 📡 Socket listener for real-time auto-off
+    // 📡 Standardized Socket listener via useSocket
     const handleRemoteUpdate = (data) => {
       if (data.refreshNeeded) {
         fetchSettings();
-        toast.info('تم تحديث حالة ساعة السعادة تلقائياً');
+        toast.info('تم تحديث إعدادات الولاء من جهاز آخر');
       }
     };
 
-    api.socket?.on('loyalty:configUpdated', handleRemoteUpdate);
-    return () => api.socket?.off('loyalty:configUpdated', handleRemoteUpdate);
-  }, []);
+    socket?.on('loyalty:configUpdated', handleRemoteUpdate);
+    return () => socket?.off('loyalty:configUpdated', handleRemoteUpdate);
+  }, [socket]);
+
+  // 💓 Slow Heartbeat Sync (Every 10 mins) to correct clock drift
+  useEffect(() => {
+    const heartbeat = setInterval(() => {
+      if (!loading) fetchSettings();
+    }, 10 * 60 * 1000);
+    return () => clearInterval(heartbeat);
+  }, [loading]);
 
   // ⏱️ Countdown Logic
   useEffect(() => {
@@ -73,9 +83,27 @@ const LoyaltyManager = () => {
   const handleUpdateSettings = async () => {
     setIsSaving(true);
     try {
-      await api.patch('/loyalty/settings', settings);
+      // 🛡️ Partial Update: Only send editable business fields
+      const editableFields = {
+        pointsPerJod: parseFloat(settings.pointsPerJod) || 0,
+        tierGoldMinOrders: parseInt(settings.tierGoldMinOrders) || 0,
+        tierPlatinumMinOrders: parseInt(settings.tierPlatinumMinOrders) || 0,
+        pointsMultiplierGold: parseFloat(settings.pointsMultiplierGold) || 1,
+        pointsMultiplierPlatinum: parseFloat(settings.pointsMultiplierPlatinum) || 1,
+        reviewPoints: parseInt(settings.reviewPoints) || 0,
+        referralPoints: parseInt(settings.referralPoints) || 0,
+        socialSharePoints: parseInt(settings.socialSharePoints) || 0,
+        isHappyHourEnabled: settings.isHappyHourEnabled,
+        happyHourMultiplier: parseFloat(settings.happyHourMultiplier) || 1,
+        happyHourStart: settings.happyHourStart,
+        happyHourEnd: settings.happyHourEnd,
+        pointsToJodRate: parseFloat(settings.pointsToJodRate) || 100,
+        minPointsToRedeem: parseInt(settings.minPointsToRedeem) || 500
+      };
+
+      await api.patch('/loyalty/settings', editableFields);
       toast.success('تم حفظ إعدادات الولاء بنجاح');
-      fetchSettings(); // Refresh to get updated countdown status
+      fetchSettings(); // Refresh to get updated countdown/server status
     } catch (error) {
       toast.error('فشل في حفظ التعديلات');
     } finally {
@@ -154,11 +182,25 @@ const LoyaltyManager = () => {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <SettingCard 
-                title="النقاط مقابل الدينار"
+                title="النقاط مقابل الدينار (للاكتساب)"
                 description="عدد النقاط التي يكتسبها العميل مقابل كل 1 دينار مصروف."
                 value={settings.pointsPerJod}
-                onChange={(val) => setSettings({...settings, pointsPerJod: parseFloat(val)})}
+                onChange={(val) => setSettings({...settings, pointsPerJod: val})}
                 suffix="نقطة / دينار"
+              />
+              <SettingCard 
+                title="قيمة النقاط (للاسترداد)"
+                description="عدد النقاط التي تساوي 1 دينار عند الخصم."
+                value={settings.pointsToJodRate}
+                onChange={(val) => setSettings({...settings, pointsToJodRate: val})}
+                suffix="نقطة = 1 دينار"
+              />
+              <SettingCard 
+                title="الحد الأدنى لاستخدام النقاط"
+                description="أقل رصيد نقاط مسموح للزبون استخدامه في الطلب."
+                value={settings.minPointsToRedeem}
+                onChange={(val) => setSettings({...settings, minPointsToRedeem: val})}
+                suffix="نقطة"
               />
             </div>
           </motion.div>
@@ -178,42 +220,74 @@ const LoyaltyManager = () => {
             </div>
 
             <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="bg-white/5 rounded-2xl p-6 border border-white/5 space-y-4">
+              <p className="text-sm text-slate-300 leading-relaxed bg-white/5 p-4 rounded-xl border border-white/5">
+                💡 <strong>آلية العمل:</strong> يبدأ جميع الزبائن تلقائياً في <span className="text-slate-400 font-bold">المستوى الفضّي الأساسي</span> بدون أي مضاعفات للرصيد (x1.0). بمجرد إتمام الزبون لعدد معين من الطلبات (مثلاً 10 طلبات)، يقوم النظام <strong>بترقيته تلقائياً</strong> إلى المستوى الذهبي لتسريع كسبه للنقاط، وهكذا للبلاتيني.
+              </p>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {/* Silver Tier (Informational Only) */}
+                <div className="bg-white/5 rounded-2xl p-6 border border-white/5 space-y-4 opacity-70">
+                  <div className="flex items-center gap-2 text-slate-400">
+                    <div className="w-2 h-2 rounded-full bg-slate-400" />
+                    <span className="font-bold">المستوى الفضّي (الأساسي)</span>
+                  </div>
+                  <div className="flex flex-col gap-2 mt-4">
+                    <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest">الحد الأدنى للطلبات</label>
+                    <div className="text-white font-bold text-sm bg-background border border-white/10 rounded-xl px-3 py-3">
+                      مباشرة عند التسجيل
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <label className="text-[10px] text-text-muted font-bold uppercase tracking-widest">مضاعف النقاط</label>
+                    <div className="text-white font-bold text-sm bg-background border border-white/10 rounded-xl px-3 py-3">
+                      x1.0 (سرعة عادية)
+                    </div>
+                  </div>
+                </div>
+
+                {/* Gold Tier */}
+                <div className="bg-white/5 rounded-2xl p-6 border border-amber-500/20 space-y-4 relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 rounded-bl-full -z-10 group-hover:scale-110 transition-transform" />
                   <div className="flex items-center gap-2 text-amber-400">
-                    <div className="w-2 h-2 rounded-full bg-amber-400" />
+                    <div className="w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.8)]" />
                     <span className="font-bold">المستوى الذهبي</span>
                   </div>
+                  <div className="mt-4">
+                    <SettingInput 
+                      label="الطلبات المطلوبة للترقية"
+                      value={settings.tierGoldMinOrders}
+                      onChange={(val) => setSettings({...settings, tierGoldMinOrders: val})}
+                      suffix="طلب"
+                    />
+                  </div>
                   <SettingInput 
-                    label="الحد الأدنى للطلبات"
-                    value={settings.tierGoldMinOrders}
-                    onChange={(val) => setSettings({...settings, tierGoldMinOrders: parseInt(val)})}
-                    suffix="طلب"
-                  />
-                  <SettingInput 
-                    label="مضاعف النقاط"
+                    label="سرعة كسب النقاط"
                     value={settings.pointsMultiplierGold}
-                    onChange={(val) => setSettings({...settings, pointsMultiplierGold: parseFloat(val)})}
+                    onChange={(val) => setSettings({...settings, pointsMultiplierGold: val})}
                     suffix="x"
                     step="0.1"
                   />
                 </div>
 
-                <div className="bg-white/5 rounded-2xl p-6 border border-white/5 space-y-4">
-                  <div className="flex items-center gap-2 text-slate-300">
-                    <div className="w-2 h-2 rounded-full bg-slate-300" />
-                    <span className="font-bold">المستوى البلاتيني</span>
+                {/* Platinum Tier */}
+                <div className="bg-white/5 rounded-2xl p-6 border border-blue-400/20 space-y-4 relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-blue-400/5 rounded-bl-full -z-10 group-hover:scale-110 transition-transform" />
+                  <div className="flex items-center gap-2 text-blue-300">
+                    <div className="w-2 h-2 rounded-full bg-blue-300 shadow-[0_0_10px_rgba(147,197,253,0.8)]" />
+                    <span className="font-bold">المستوى البلاتيني (VIP)</span>
+                  </div>
+                  <div className="mt-4">
+                    <SettingInput 
+                      label="الطلبات المطلوبة للترقية"
+                      value={settings.tierPlatinumMinOrders}
+                      onChange={(val) => setSettings({...settings, tierPlatinumMinOrders: val})}
+                      suffix="طلب"
+                    />
                   </div>
                   <SettingInput 
-                    label="الحد الأدنى للطلبات"
-                    value={settings.tierPlatinumMinOrders}
-                    onChange={(val) => setSettings({...settings, tierPlatinumMinOrders: parseInt(val)})}
-                    suffix="طلب"
-                  />
-                  <SettingInput 
-                    label="مضاعف النقاط"
+                    label="سرعة كسب النقاط"
                     value={settings.pointsMultiplierPlatinum}
-                    onChange={(val) => setSettings({...settings, pointsMultiplierPlatinum: parseFloat(val)})}
+                    onChange={(val) => setSettings({...settings, pointsMultiplierPlatinum: val})}
                     suffix="x"
                     step="0.1"
                   />
@@ -239,17 +313,11 @@ const LoyaltyManager = () => {
               
               <div className="flex items-center gap-6">
                 {/* ⏱️ Live Countdown Timer */}
-                {settings.isHappyHourEnabled && settings.happyHourStatus && (
-                  <div className={`flex items-center gap-3 px-4 py-2 rounded-2xl border ${
-                    settings.happyHourStatus.status === 'ACTIVE' 
-                      ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' 
-                      : settings.happyHourStatus.status === 'PENDING'
-                      ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
-                      : 'bg-slate-500/10 border-white/5 text-slate-400'
-                  }`}>
+                {settings.isHappyHourEnabled && settings.happyHourStatus?.status === 'ACTIVE' && (
+                  <div className="flex items-center gap-3 px-4 py-2 rounded-2xl border bg-emerald-500/10 border-emerald-500/20 text-emerald-400">
                     <div className="flex flex-col items-end">
                       <span className="text-[10px] font-bold uppercase tracking-wider opacity-60">
-                        {settings.happyHourStatus.status === 'ACTIVE' ? 'ينتهي خلال' : 'يبدأ خلال'}
+                        ينتهي خلال
                       </span>
                       <span className="font-mono font-bold text-lg leading-none">
                         {formatTime(localRemainingSeconds)}
@@ -262,7 +330,18 @@ const LoyaltyManager = () => {
                   <input 
                     type="checkbox" 
                     checked={settings.isHappyHourEnabled}
-                    onChange={(e) => setSettings({...settings, isHappyHourEnabled: e.target.checked})}
+                    onChange={async (e) => {
+                      const newVal = e.target.checked;
+                      setSettings({...settings, isHappyHourEnabled: newVal});
+                      // 🚀 Immediate Save for toggles to avoid confusion
+                      try {
+                        await api.patch('/loyalty/settings', { ...settings, isHappyHourEnabled: newVal });
+                        toast.success(newVal ? 'تم تفعيل ساعة السعادة' : 'تم إيقاف ساعة السعادة');
+                        fetchSettings();
+                      } catch (err) {
+                        toast.error('فشل في تحديث الحالة');
+                      }
+                    }}
                     className="sr-only peer" 
                   />
                   <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
@@ -293,8 +372,12 @@ const LoyaltyManager = () => {
                         key={h}
                         type="button"
                         onClick={() => {
+                          // Use server time if available, fallback to local (though server time is preferred)
+                          const [sH, sM] = (settings.serverTime || "12:00").split(':').map(Number);
                           const now = new Date();
-                          const startStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+                          now.setHours(sH, sM, 0, 0);
+
+                          const startStr = settings.serverTime || `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
                           
                           const end = new Date(now.getTime() + h * 60 * 60 * 1000);
                           const endStr = `${end.getHours().toString().padStart(2, '0')}:${end.getMinutes().toString().padStart(2, '0')}`;
@@ -302,7 +385,8 @@ const LoyaltyManager = () => {
                           setSettings({
                             ...settings, 
                             happyHourStart: startStr,
-                            happyHourEnd: endStr
+                            happyHourEnd: endStr,
+                            isHappyHourEnabled: true
                           });
                         }}
                       className="px-2 py-1 text-[9px] font-bold bg-white/5 border border-white/10 rounded-lg hover:bg-primary/20 hover:border-primary/30 transition-all text-text-muted hover:text-white"
@@ -315,7 +399,7 @@ const LoyaltyManager = () => {
               <SettingInput 
                 label="مضاعف النقاط"
                 value={settings.happyHourMultiplier}
-                onChange={(val) => setSettings({...settings, happyHourMultiplier: parseFloat(val)})}
+                onChange={(val) => setSettings({...settings, happyHourMultiplier: val})}
                 suffix="x"
                 step="0.1"
               />
@@ -370,19 +454,19 @@ const LoyaltyManager = () => {
                 icon={<MessageSquare className="w-4 h-4" />}
                 title="تقييم وجبة"
                 value={settings.reviewPoints}
-                onChange={(val) => setSettings({...settings, reviewPoints: parseInt(val)})}
+                onChange={(val) => setSettings({...settings, reviewPoints: val})}
               />
               <EngagementItem 
                 icon={<UserPlus className="w-4 h-4" />}
                 title="دعوة صديق"
                 value={settings.referralPoints}
-                onChange={(val) => setSettings({...settings, referralPoints: parseInt(val)})}
+                onChange={(val) => setSettings({...settings, referralPoints: val})}
               />
               <EngagementItem 
                 icon={<Share2 className="w-4 h-4" />}
                 title="مشاركة المنتج"
                 value={settings.socialSharePoints}
-                onChange={(val) => setSettings({...settings, socialSharePoints: parseInt(val)})}
+                onChange={(val) => setSettings({...settings, socialSharePoints: val})}
               />
             </div>
           </motion.div>

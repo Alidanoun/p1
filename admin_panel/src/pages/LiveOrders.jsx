@@ -300,15 +300,25 @@ const LiveOrders = () => {
       const openAt = new Date(restaurantStatus.nextOpenAt).getTime();
       const distance = openAt - now;
 
-      if (distance < 0) {
-        setTimeLeft('');
-        fetchStatus(); // Re-fetch to confirm opening
+      if (distance <= 0) {
+        setTimeLeft('جاري التحديث...');
+        clearInterval(timer);
+        setTimeout(fetchStatus, 2000);
         return;
       }
 
+      const hours = Math.floor(distance / (1000 * 60 * 60));
       const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
       const seconds = Math.floor((distance % (1000 * 60)) / 1000);
-      setTimeLeft(`${minutes}:${seconds < 10 ? '0' : ''}${seconds}`);
+
+      let formattedTime = '';
+      if (hours > 0) {
+        formattedTime = `${hours} ساعة و ${minutes} دقيقة`;
+      } else {
+        formattedTime = `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+      }
+
+      setTimeLeft(formattedTime);
     }, 1000);
 
     return () => clearInterval(timer);
