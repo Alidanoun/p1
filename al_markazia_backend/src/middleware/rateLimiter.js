@@ -17,9 +17,9 @@ const globalLimiter = rateLimit({
 
 // تقييد المصادقة (Auth Limiter) - Hardened: 8 attempts per 10 mins
 const authLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000, // 10 minutes
-  max: 8,
-  keyGenerator: (req) => req.body?.email || req.body?.phone || req.ip,
+  windowMs: 60 * 1000, // 1 minute
+  max: 5,
+  keyGenerator: (req) => `${req.ip}_${req.body?.email || req.body?.phone || 'guest'}`,
   validate: false,
   standardHeaders: true,
   legacyHeaders: false,

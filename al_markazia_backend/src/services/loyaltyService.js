@@ -2,6 +2,8 @@ const prisma = require('../lib/prisma');
 const { DateTime } = require('luxon');
 const logger = require('../utils/logger');
 const eventBus = require('../events/eventBus');
+const financialService = require('./financialService');
+const auditService = require('./auditService');
 
 /**
  * 🎁 Loyalty Service
@@ -82,24 +84,24 @@ class LoyaltyService {
   }
 
   /**
-   * 🛡️ Core Time Guard: Handles midnight crossing and precision checks.
+   * 🛡️ Core Time Guard: Handles midnight crossing using MSM (Minutes Since Midnight).
    */
   _isWithinHappyHour(config, timestamp) {
     if (!config || !config.isHappyHourEnabled) return false;
     
     const { DEFAULT_TIMEZONE } = require('../config/constants');
     const timeToCheck = DateTime.fromJSDate(new Date(timestamp)).setZone(DEFAULT_TIMEZONE);
-    const today = timeToCheck.toISODate();
     
-    const start = DateTime.fromISO(`${today}T${config.happyHourStart}`, { zone: DEFAULT_TIMEZONE });
-    const end = DateTime.fromISO(`${today}T${config.happyHourEnd}`, { zone: DEFAULT_TIMEZONE });
+    const nowMinutes = financialService.getMinutesSinceMidnight(timeToCheck);
+    const startMinutes = financialService.parseTimeToMinutes(config.happyHourStart);
+    const endMinutes = financialService.parseTimeToMinutes(config.happyHourEnd);
 
-    if (start > end) {
-      // Midnight crossing case (e.g., 23:00 to 01:00)
-      return timeToCheck >= start || timeToCheck <= end;
+    if (startMinutes > endMinutes) {
+      // Midnight crossing case
+      return nowMinutes >= startMinutes || nowMinutes < endMinutes;
     }
 
-    return timeToCheck >= start && timeToCheck <= end;
+    return nowMinutes >= startMinutes && nowMinutes < endMinutes;
   }
 
   /**
@@ -227,12 +229,15 @@ class LoyaltyService {
         data: sanitized
       });
 
-      // 📮 [RESILIENCE-FIX] Outbox for Audit Trail / External Sync
-      const outboxService = require('./outboxService');
-      await outboxService.enqueue('loyalty.config_updated', {
-        configId: config.id,
-        changes: sanitized
-      }, tx);
+      // 🛡️ [SEC-FIX] Audit Trail with Diff
+      await auditService.logWithDiff({
+        userId: 'admin-system', // Replace with actual admin UUID if available in ctx
+        userRole: 'admin',
+        action: 'LOYALTY_CONFIG_UPDATE',
+        entityType: 'LoyaltyConfig',
+        entityId: config.id.toString(),
+        severity: 'WARN'
+      }, config, result);
 
       return result;
     });
@@ -291,12 +296,11 @@ class LoyaltyService {
       }
 
       // 3. Update Customer Points & Total Orders
-      const updatedCustomer = await db.customer.update({
+      const updatedCustomer = await financialService.awardPoints(order.customerId, pointsEarned, 'ORDER', db);
+      
+      await db.customer.update({
         where: { id: order.customerId },
-        data: {
-          points: { increment: pointsEarned },
-          totalOrders: { increment: 1 }
-        }
+        data: { totalOrders: { increment: 1 } }
       });
       
       logger.info(`[Loyalty] DB Update Success. Customer ${updatedCustomer.id} (UUID: ${updatedCustomer.uuid}) new balance: ${updatedCustomer.points}`);

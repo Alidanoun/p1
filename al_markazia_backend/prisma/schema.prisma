@@ -19,6 +19,8 @@ model User {
   fcmToken     String?
   uuid         String   @unique @default(uuid())
   tokenVersion Int      @default(1)
+  failedAttempts Int     @default(0)
+  lockUntil      DateTime?
 }
 
 model Category {
@@ -29,6 +31,8 @@ model Category {
   descriptionEn String?
   image         String?
   isActive      Boolean @default(true)
+  isDeleted     Boolean @default(false)
+  deletedAt     DateTime?
   sortOrder     Int     @default(0)
   items         Item[]
 }
@@ -49,6 +53,8 @@ model Item {
   cachedAvgRating   Float?            @default(0)
   cachedReviewCount Int?              @default(0)
   excludeFromStats  Boolean           @default(false)
+  isDeleted         Boolean           @default(false)
+  deletedAt         DateTime?
   category          Category          @relation(fields: [categoryId], references: [id])
   optionGroups      ItemOptionGroup[]
   orderItems        OrderItem[]
@@ -193,6 +199,8 @@ model Customer {
   tier                String             @default("SILVER") // SILVER, GOLD, PLATINUM
   cancellationCount   Int                @default(0)
   isBlacklisted       Boolean            @default(false)
+  isDeleted           Boolean            @default(false)
+  deletedAt           DateTime?
   blacklistedAt       DateTime?
   blacklistExpiresAt  DateTime?
   blacklistUntil      DateTime?
@@ -209,6 +217,8 @@ model Customer {
   username            String?            @unique
   uuid                String             @unique @default(uuid())
   tokenVersion        Int                @default(1)
+  failedAttempts      Int                @default(0)
+  lockUntil           DateTime?
   auditLogs           CustomerAuditLog[]
   orders              Order[]
   reviews             Review[]
@@ -407,10 +417,14 @@ model RefreshToken {
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
   isRevoked Boolean  @default(false)
+  isUsed    Boolean  @default(false)
+  tokenFamily String?
+  fingerprint String?
 
   @@index([userId])
   @@index([token])
   @@index([jti])
+  @@index([tokenFamily])
 }
 
 model HealthMetric {
@@ -449,14 +463,19 @@ model SystemAuditLog {
   id           String   @id @default(uuid())
   userId       String?  // Can be User uuid or Customer uuid
   userRole     String?
-  action       String
+  action       String   // LOGIN_SUCCESS, PRICE_UPDATE, etc.
+  entityType   String?  // Order, Item, Setting, etc.
+  entityId     String?  // ID or UUID of the entity
+  status       String   @default("SUCCESS") // SUCCESS, FAIL
+  severity     String   @default("INFO")    // INFO, WARN, CRITICAL
   ip           String?
   userAgent    String?
-  metadata     Json?
+  metadata     Json?    // Stores diffs: { before: {}, after: {} }
   createdAt    DateTime @default(now())
 
   @@index([userId])
   @@index([action])
+  @@index([entityType, entityId])
   @@index([createdAt])
 }
 
