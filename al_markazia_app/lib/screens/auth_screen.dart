@@ -7,6 +7,7 @@ import 'main_nav_screen.dart';
 import '../utils/validators.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../services/biometric_service.dart';
+import '../widgets/feedback/ui_feedback.dart';
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({Key? key}) : super(key: key);
@@ -282,7 +283,8 @@ class _AuthScreenState extends State<AuthScreen>
                               _goToHome();
                             }
                           } else if (mounted) {
-                            showCustomSnackbar(context, auth.errorMessage ?? 'خطأ', isSuccess: false);
+                            final translated = UIFeedback.translateError(auth.errorMessage ?? '');
+                            UIFeedback.showError(context, translated);
                           }
                         }
                       },
@@ -454,8 +456,8 @@ class _AuthScreenState extends State<AuthScreen>
                           if (success && mounted) {
                             _showOtpDialog(context, regEmail, isReset: false);
                           } else if (mounted) {
-                            showCustomSnackbar(
-                              context, auth.errorMessage ?? 'خطأ', isSuccess: false);
+                            final translated = UIFeedback.translateError(auth.errorMessage ?? '');
+                            UIFeedback.showError(context, translated);
                           }
                         }
                       },

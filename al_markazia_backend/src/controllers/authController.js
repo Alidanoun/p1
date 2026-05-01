@@ -142,6 +142,10 @@ const login = async (req, res) => {
       return response.error(res, `الحساب مغلق مؤقتاً بكثرة المحاولات الخاطئة. حاول مجدداً بعد ${remainingMinutes} دقيقة.`, 'ACCOUNT_LOCKED', 403);
     }
 
+    const configService = require('../services/configService');
+    const systemConfig = await configService.getFullConfig();
+    const { maxLoginAttempts, lockDurationMinutes, timingDelayMs } = systemConfig.security;
+
     if (!account || !account.password) {
       await auditService.log({
         action: 'LOGIN_FAIL',
@@ -159,7 +163,9 @@ const login = async (req, res) => {
       if (account) {
         // Increment failed attempts
         const newAttempts = account.failedAttempts + 1;
-        const lockUntil = newAttempts >= 5 ? new Date(Date.now() + 15 * 60 * 1000) : null;
+        const lockUntil = newAttempts >= maxLoginAttempts 
+          ? new Date(Date.now() + lockDurationMinutes * 60 * 1000) 
+          : null;
         
         if (user) {
           await prisma.user.update({ where: { id: user.id }, data: { failedAttempts: newAttempts, lockUntil } });
@@ -172,7 +178,7 @@ const login = async (req, res) => {
           userRole: account.role || 'customer',
           action: 'LOGIN_FAIL',
           status: 'FAIL',
-          severity: newAttempts >= 5 ? 'CRITICAL' : 'WARN',
+          severity: newAttempts >= maxLoginAttempts ? 'CRITICAL' : 'WARN',
           metadata: { failedAttempts: newAttempts, locked: !!lockUntil },
           req
         });
@@ -182,7 +188,7 @@ const login = async (req, res) => {
       
       // ⏱️ Timing Attack Protection: Standardized delay
       const elapsed = Date.now() - start;
-      if (elapsed < 300) await new Promise(r => setTimeout(r, 300 - elapsed));
+      if (elapsed < timingDelayMs) await new Promise(r => setTimeout(r, timingDelayMs - elapsed));
       
       return response.error(res, 'بيانات الدخول غير صحيحة', 'INVALID_CREDENTIALS', 401);
     }

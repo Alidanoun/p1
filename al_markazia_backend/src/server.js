@@ -174,19 +174,8 @@ async function startServer() {
     app.get('/health/external', externalProbeController.pings);
 
     // 🚨 Global Error Handler (Centralized Survival Layer)
-    app.use((err, req, res, next) => {
-      if (err.code === 'EBADCSRFTOKEN') {
-        return res.status(403).json({ success: false, error: 'تنبيه أمني: كود التحقق CSRF غير صالح' });
-      }
-      
-      logger.error(err.message, { method: req.method, endpoint: req.originalUrl, stack: err.stack });
-      
-      const statusCode = err.status || 500;
-      res.status(statusCode).json({ 
-        success: false, 
-        error: err.message || 'حدث خطأ غير متوقع، يرجى المحاولة لاحقاً' 
-      });
-    });
+    const { handleError } = require('./utils/errorHandler');
+    app.use(handleError);
 
     const PORT = process.env.PORT || 5000;
     server.listen(PORT, '0.0.0.0', async () => {

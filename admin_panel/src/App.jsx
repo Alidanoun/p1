@@ -17,6 +17,7 @@ import CancelledOrders from './pages/CancelledOrders';
 import LoyaltyManager from './pages/LoyaltyManager';
 import RewardStoreManager from './pages/RewardStoreManager';
 import DeliveryZonesManager from './pages/DeliveryZonesManager';
+import AuditLog from './pages/AuditLog';
 
 import ErrorBoundary from './components/ErrorBoundary';
 
@@ -88,6 +89,7 @@ function App() {
           <Route path="/analytics" element={<ProtectedLayout><Analytics /></ProtectedLayout>} />
           <Route path="/reports" element={<ProtectedLayout><Reports /></ProtectedLayout>} />
           <Route path="/settings" element={<ProtectedLayout><Settings /></ProtectedLayout>} />
+          <Route path="/audit" element={<ProtectedLayout><AuditLog /></ProtectedLayout>} />
         </Routes>
       </Router>
     </ThemeProvider>

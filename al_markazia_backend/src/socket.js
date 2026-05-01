@@ -56,12 +56,42 @@ module.exports = {
       }
     });
 
+    const trackingService = require('./services/trackingService');
+    const { SOCKET_ROOMS } = require('./shared/socketEvents');
+
     io.on('connection', (socket) => {
-      if (socket.user?.role === 'admin') {
+      const { id: userId, role } = socket.user;
+
+      if (role === 'admin') {
         socket.join(['admins', 'system-logs']);
         logger.debug('🛡️ Admin joined monitoring channels', { socketId: socket.id });
       }
+
+      // 🛰️ Join Tracking Room
+      socket.on('tracking:join', async ({ orderId }) => {
+        const canTrack = await trackingService.canTrackOrder(userId, orderId);
+        if (canTrack || role === 'admin') {
+          const room = SOCKET_ROOMS.ORDER_TRACKING(orderId);
+          socket.join(room);
+          logger.debug(`🛰️ User ${userId} joined tracking for order ${orderId}`);
+        } else {
+          socket.emit('error', { message: 'Unauthorized to track this order' });
+        }
+      });
+
+      // 🚚 Driver Location Update (From Driver App or Simulation)
+      socket.on('tracking:update_location', (data) => {
+        // Only allow if role is 'driver' or 'admin' (assuming 'admin' for simulation)
+        trackingService.updateDriverLocation(io, data);
+      });
     });
+
+    // 🕵️ System Audit: Monitor Active Sockets & Rooms every 5 mins
+    setInterval(() => {
+      const roomCount = io.sockets.adapter.rooms.size;
+      const clientCount = io.engine.clientsCount;
+      logger.debug('📡 [Socket Audit] Status', { activeClients: clientCount, activeRooms: roomCount });
+    }, 5 * 60 * 1000);
 
     // Mark as ready and notify all waiting promises
     isReady = true;

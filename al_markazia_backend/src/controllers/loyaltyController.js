@@ -187,5 +187,44 @@ class LoyaltyController {
       res.status(500).json({ success: false, error: err.message });
     }
   }
+  // 📱 App: Get My Loyalty Profile (Points + Tier Progress)
+  async getMyLoyaltyProfile(req, res) {
+    try {
+      const customer = await prisma.customer.findUnique({
+        where: { uuid: req.user.uuid },
+        select: { id: true, name: true, points: true, tier: true, totalOrders: true }
+      });
+
+      if (!customer) return res.status(404).json({ success: false, error: 'Customer not found' });
+
+      const config = await loyaltyService.getConfig();
+
+      // Calculate progress to next tier
+      let nextTier = 'GOLD';
+      let targetOrders = config.tierGoldMinOrders;
+      
+      if (customer.tier === 'GOLD') {
+        nextTier = 'PLATINUM';
+        targetOrders = config.tierPlatinumMinOrders;
+      } else if (customer.tier === 'PLATINUM') {
+        nextTier = 'MAX';
+        targetOrders = config.tierPlatinumMinOrders;
+      }
+
+      const progress = nextTier === 'MAX' ? 100 : (customer.totalOrders / targetOrders) * 100;
+
+      res.json({
+        success: true,
+        data: {
+          ...customer,
+          nextTier,
+          targetOrders,
+          progress: Math.min(100, Math.round(progress))
+        }
+      });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  }
 }
 module.exports = new LoyaltyController();

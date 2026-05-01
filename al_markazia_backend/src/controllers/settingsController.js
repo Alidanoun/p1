@@ -112,6 +112,53 @@ exports.updateSetting = async (req, res) => {
   }
 };
 
+/**
+ * 🛠️ Update Advanced System Config (JSON Blocks)
+ */
+exports.updateAdvancedConfig = async (req, res) => {
+  try {
+    const { type, data } = req.body; // type: 'business' | 'security'
+    const configService = require('../services/configService');
+
+    // 🎯 Target the Master Config record
+    const masterConfig = await prisma.systemSettings.upsert({
+      where: { key: 'system_config' },
+      update: {},
+      create: { key: 'system_config', value: 'active' }
+    });
+
+    const updateField = type === 'business' ? 'businessConfig' : 'securityConfig';
+    const oldConfig = masterConfig[updateField] || {};
+
+    const updated = await prisma.systemSettings.update({
+      where: { id: masterConfig.id },
+      data: {
+        [updateField]: { ...oldConfig, ...data }
+      }
+    });
+
+    // 📝 Log to System Audit
+    await prisma.systemAuditLog.create({
+      data: {
+        userId: req.user.uuid || req.user.id,
+        userRole: req.user.role,
+        action: `UPDATE_${type.toUpperCase()}_CONFIG`,
+        entityType: 'SystemSettings',
+        entityId: mainSettings.id.toString(),
+        metadata: { diff: data }
+      }
+    });
+
+    // ♻️ Refresh Cache
+    await configService.refreshCache();
+
+    res.json({ success: true, data: updated[updateField] });
+  } catch (error) {
+    logger.error('Update advanced config error', { error: error.message });
+    res.status(500).json({ error: 'Failed to update configuration' });
+  }
+};
+
 exports.updateBulkSettings = async (req, res) => {
   try {
     const settings = req.body;

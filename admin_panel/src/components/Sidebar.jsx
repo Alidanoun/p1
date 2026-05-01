@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, ListOrdered, MenuSquare, LogOut, Utensils, Settings, BarChart2, TrendingUp, Send, Star, XCircle, Stars, MapPin, Moon, Sun, Gift } from 'lucide-react';
+import { LayoutDashboard, ListOrdered, MenuSquare, LogOut, Utensils, Settings, BarChart2, TrendingUp, Send, Star, XCircle, Stars, MapPin, Moon, Sun, Gift, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { cn } from '../lib/utils';
@@ -21,6 +21,7 @@ const Sidebar = () => {
     { name: 'الإحصائيات المتقدمة', icon: TrendingUp, path: '/analytics' },
     { name: 'المالية والتقارير', icon: BarChart2, path: '/reports' },
     { name: 'مناطق التوصيل', icon: MapPin, path: '/delivery-zones' },
+    { name: 'سجل التدقيق', icon: ShieldCheck, path: '/audit' },
     { name: 'الإعدادات', icon: Settings, path: '/settings' },
   ];
 

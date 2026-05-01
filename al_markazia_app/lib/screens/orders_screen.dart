@@ -10,6 +10,7 @@ import 'cart_screen.dart';
 import 'checkout_screen.dart';
 import '../features/cart/cart_controller.dart';
 import 'cancel_order_reason_screen.dart';
+import 'live_tracking_screen.dart';
 
 
 class OrdersScreen extends StatefulWidget {
@@ -239,23 +240,43 @@ class _OrdersScreenState extends State<OrdersScreen> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    Flexible(
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: ElevatedButton.icon(
-                          onPressed: () => _showInvoice(order),
-                          icon: const Icon(Icons.receipt_long_rounded, size: 18, color: Colors.black),
-                          label: Text(l10n.invoiceDetails, 
-                            style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: primaryColor,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                            elevation: 0,
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    if (order.status == 'in_route')
+                      Flexible(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: ElevatedButton.icon(
+                            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => LiveTrackingScreen(order: order))),
+                            icon: const Icon(Icons.map_outlined, size: 18, color: Colors.white),
+                            label: const Text('تتبع الطلب', 
+                              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blueAccent,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                              elevation: 4,
+                              shadowColor: Colors.blueAccent.withOpacity(0.3),
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            ),
+                          ),
+                        ),
+                      )
+                    else
+                      Flexible(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: ElevatedButton.icon(
+                            onPressed: () => _showInvoice(order),
+                            icon: const Icon(Icons.receipt_long_rounded, size: 18, color: Colors.black),
+                            label: Text(l10n.invoiceDetails, 
+                              style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: primaryColor,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            ),
                           ),
                         ),
                       ),
-                    ),
                   ],
                 ),
 

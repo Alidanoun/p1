@@ -1,17 +1,15 @@
 import 'package:flutter/material.dart';
+import 'design_system.dart';
 
 class AppTheme {
-  // Premium Gold Accent (Replaces Red)
-  static const Color primaryColor = Color(0xFFDCA965); 
-  static const Color primaryDarkColor = Color(0xFFB8860B); 
+  static const Color primaryColor = DesignSystem.primary;
+  static const Color primaryDarkColor = DesignSystem.primaryDark;
   
-  // Premium pure black/dark grey for dark mode
-  static const Color darkBackground = Color(0xFF101010); // Very deep grey/black
-  static const Color darkSurface = Color(0xFF1A1A1A); // Slightly lighter for cards
+  static const Color darkBackground = DesignSystem.backgroundDark;
+  static const Color darkSurface = Color(0xFF1A1A1A); 
   
-  // Elegant Cream/Off-White for light mode
-  static const Color lightBackground = Color(0xFFFDFBF7); // Soft ivory/cream
-  static const Color lightSurface = Colors.white; // Pure white for cards to pop
+  static const Color lightBackground = DesignSystem.backgroundLight;
+  static const Color lightSurface = Colors.white; 
   
   static const String fontFamily = 'Cairo'; 
 

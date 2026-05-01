@@ -22,6 +22,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/auth':           apiProxy('http://localhost:5000'),
+      '/admin':          apiProxy('http://localhost:5000'),
       '/items':          apiProxy('http://localhost:5000'),
       '/orders':         apiProxy('http://localhost:5000'),
       '/categories':     apiProxy('http://localhost:5000'),

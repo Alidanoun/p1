@@ -475,6 +475,32 @@ class ApiService {
     throw Exception('Failed to fetch rewards store');
   }
 
+  Future<Map<String, dynamic>> fetchLoyaltyProfile() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/loyalty/profile'), 
+      headers: await _headers
+    ).timeout(const Duration(seconds: 10));
+    
+    if (response.statusCode == 200) {
+      final decoded = json.decode(utf8.decode(response.bodyBytes));
+      return decoded['data'];
+    }
+    throw Exception('Failed to fetch loyalty profile');
+  }
+
+  Future<Map<String, dynamic>> fetchSystemConfig() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/system/config'), 
+      headers: await _headers
+    ).timeout(const Duration(seconds: 10));
+    
+    if (response.statusCode == 200) {
+      final decoded = json.decode(utf8.decode(response.bodyBytes));
+      return decoded['data'];
+    }
+    throw Exception('Failed to fetch system config');
+  }
+
   Future<Map<String, dynamic>> claimReward(int rewardId) async {
     final response = await http.post(
       Uri.parse('$baseUrl/loyalty/store/claim'), 
