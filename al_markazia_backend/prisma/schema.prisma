@@ -21,6 +21,39 @@ model User {
   tokenVersion Int      @default(1)
   failedAttempts Int     @default(0)
   lockUntil      DateTime?
+
+  // Branch Integration
+  branchId     String?
+  branch       Branch?  @relation(fields: [branchId], references: [id])
+}
+
+model Branch {
+  id        String   @id @default(uuid())
+  name      String
+  code      String   @unique
+  isActive  Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users     User[]
+  orders    Order[]
+  branchItems BranchItem[]
+}
+
+model BranchItem {
+  id          String   @id @default(uuid())
+  branchId    String
+  itemId      Int
+  isAvailable Boolean  @default(true)
+
+  branch      Branch   @relation(fields: [branchId], references: [id])
+  item        Item     @relation(fields: [itemId], references: [id])
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([branchId, itemId])
 }
 
 model Category {
@@ -59,6 +92,7 @@ model Item {
   optionGroups      ItemOptionGroup[]
   orderItems        OrderItem[]
   reviews           Review[]
+  branchItems       BranchItem[]
 
   @@index([categoryId, isAvailable])
   @@index([isAvailable, createdAt])
@@ -97,6 +131,10 @@ model Order {
   customerName     String
   customerPhone    String
   customerId       Int?
+
+  // Branch Integration
+  branchId         String?
+  branch           Branch?  @relation(fields: [branchId], references: [id])
   orderType        String
   status           String             @default("pending")
   paymentStatus    String             @default("unpaid")
@@ -119,7 +157,6 @@ model Order {
   isRatingApproved       Boolean            @default(false)
   createdAt              DateTime           @default(now())
   updatedAt              DateTime           @updatedAt
-  branch                 String?
   version          Int                @default(1)
   deliveryMinOrder Decimal?           @db.Decimal(10, 2)
   deliveryZoneId   String?

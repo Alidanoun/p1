@@ -35,7 +35,11 @@ exports.getMyOrders = async (req, res) => {
  */
 exports.getOrders = async (req, res) => {
   try {
-    const result = await orderService.getOrders(req.query);
+    const result = await orderService.getOrders({
+      ...req.query,
+      userRole: req.user.role,
+      branchId: req.user.branchId
+    });
     res.json({
       success: true,
       data: result.orders,
@@ -58,7 +62,11 @@ exports.getOrders = async (req, res) => {
  */
 exports.getOrdersReport = async (req, res) => {
   try {
-    const result = await orderService.getOrdersReport(req.query);
+    const result = await orderService.getOrdersReport({
+      ...req.query,
+      userRole: req.user.role,
+      branchId: req.user.branchId
+    });
     res.json({
       success: true,
       data: result.orders,
@@ -239,26 +247,51 @@ exports.cancelOrder = async (req, res) => {
     }
 
     const contractGateway = require('../services/contractGateway');
-    const updatedOrder = await contractGateway.execute(orderId, 'CANCEL', {
+    const result = await contractGateway.execute(orderId, 'CANCEL', {
       reason,
-      managerPassword,
-      isRestaurantFault,
       idempotencyKey
     }, req.user);
 
-    return res.json(updatedOrder);
+    res.json(result);
   } catch (error) {
-    logger.error('cancelOrder failed', { error: error.message });
+    logger.error('cancelOrder error', { error: error.message });
+    if (error.message === 'ORDER_NOT_FOUND') return res.status(404).json({ error: 'الطلب غير موجود' });
+    if (error.message === 'ORDER_FORBIDDEN') return res.status(403).json({ error: 'غير مصرح لك بإلغاء هذا الطلب' });
+    if (error.message === 'CANCELLATION_ALREADY_REQUESTED') return res.status(400).json({ error: 'تم إرسال طلب إلغاء مسبقاً' });
+    res.status(500).json({ error: 'فشل عملية الإلغاء' });
+  }
+};
 
-    const errorMap = {
-      'ORDER_NOT_FOUND': ['الطلب غير موجود', 404],
-      'MANAGER_PASSWORD_REQUIRED': ['كلمة مرور المدير مطلوبة لإلغاء طلب نشط', 400],
-      'INVALID_MANAGER_PASSWORD': ['كلمة مرور المدير غير صحيحة', 401],
-      'CONCURRENCY_CONFLICT': ['تم تعديل الطلب من قبل مستخدم آخر، يرجى التحديث', 409]
-    };
+exports.approveCancellation = async (req, res) => {
+  try {
+    const orderId = parseInt(req.params.id);
+    const idempotencyKey = req.headers['idempotency-key'] || `approve_cancel_${orderId}_${Date.now()}`;
+    
+    const contractGateway = require('../services/contractGateway');
+    const result = await contractGateway.execute(orderId, 'APPROVE_CANCEL', { idempotencyKey }, req.user);
+    
+    res.json(result);
+  } catch (error) {
+    logger.error('approveCancellation error', { error: error.message });
+    if (error.message === 'CANCELLATION_NOT_FOUND') return res.status(404).json({ error: 'طلب الإلغاء غير موجود' });
+    if (error.message === 'ADMIN_APPROVAL_REQUIRED') return res.status(403).json({ error: 'موافقة الإدارة العامة مطلوبة لهذا الإلغاء' });
+    res.status(500).json({ error: 'فشل الموافقة على الإلغاء' });
+  }
+};
 
-    const [msg, status] = errorMap[error.message] || ['فشل إلغاء الطلب', 500];
-    return res.status(status).json({ error: msg });
+exports.rejectCancellation = async (req, res) => {
+  try {
+    const orderId = parseInt(req.params.id);
+    const { rejectionReason } = req.body;
+    const idempotencyKey = req.headers['idempotency-key'] || `reject_cancel_${orderId}_${Date.now()}`;
+    
+    const contractGateway = require('../services/contractGateway');
+    const result = await contractGateway.execute(orderId, 'REJECT_CANCEL', { rejectionReason, idempotencyKey }, req.user);
+    
+    res.json(result);
+  } catch (error) {
+    logger.error('rejectCancellation error', { error: error.message });
+    res.status(500).json({ error: 'فشل رفض طلب الإلغاء' });
   }
 };
 

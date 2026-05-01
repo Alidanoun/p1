@@ -18,6 +18,7 @@ import LoyaltyManager from './pages/LoyaltyManager';
 import RewardStoreManager from './pages/RewardStoreManager';
 import DeliveryZonesManager from './pages/DeliveryZonesManager';
 import AuditLog from './pages/AuditLog';
+import BranchMenu from './pages/BranchMenu';
 
 import ErrorBoundary from './components/ErrorBoundary';
 
@@ -80,6 +81,7 @@ function App() {
           <Route path="/" element={<ProtectedLayout><LiveDashboard /></ProtectedLayout>} />
           <Route path="/orders" element={<ProtectedLayout><LiveOrders /></ProtectedLayout>} />
           <Route path="/menu" element={<ProtectedLayout><MenuManager /></ProtectedLayout>} />
+          <Route path="/branch-menu" element={<ProtectedLayout><BranchMenu /></ProtectedLayout>} />
           <Route path="/broadcast" element={<ProtectedLayout><BroadcastNotifications /></ProtectedLayout>} />
           <Route path="/reviews" element={<ProtectedLayout><ReviewsManager /></ProtectedLayout>} />
           <Route path="/cancelled-orders" element={<ProtectedLayout><CancelledOrders /></ProtectedLayout>} />

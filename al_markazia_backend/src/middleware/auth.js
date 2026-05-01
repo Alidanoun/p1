@@ -64,6 +64,7 @@ const authenticateToken = async (req, res, next) => {
 const ROLE_LEVELS = {
   'super_admin': 3,
   'admin': 2,
+  'BRANCH_MANAGER': 2,
   'manager': 2,
   'staff': 1,
   'customer': 0

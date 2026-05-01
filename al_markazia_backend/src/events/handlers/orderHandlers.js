@@ -30,4 +30,4 @@ eventBus.subscribe(eventTypes.ORDER_CANCELLED, (event) => {
   });
 });
 
-console.log('[EventHandlers] Order Projections Initialized');
+// Projections Initialized

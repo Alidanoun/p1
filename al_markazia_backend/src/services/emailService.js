@@ -45,7 +45,6 @@ class EmailService {
       return true;
     } catch (error) {
       logger.error('❌ Failed to send OTP Email', { email, error: error.message });
-      console.log(`\n\n[DEV ONLY] OTP for ${email}: ${code}\n\n`);
       return false;
     }
   }
@@ -80,7 +79,6 @@ class EmailService {
       return true;
     } catch (error) {
       logger.error('❌ Failed to send Password Reset Email', { email, error: error.message });
-      console.log(`\n\n[DEV ONLY] Reset OTP for ${email}: ${code}\n\n`);
       return false;
     }
   }

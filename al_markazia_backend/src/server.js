@@ -25,6 +25,7 @@ const healthRoutes = require('./routes/health');
 const restaurantRoutes = require('./routes/restaurant');
 const loyaltyRoutes = require('./routes/loyalty');
 const orderModificationRoutes = require('./routes/orderModifications');
+const branchRoutes = require('./routes/branch');
 
 const http = require('http');
 const { initCronJobs } = require('./jobs/cronJobs');
@@ -154,8 +155,10 @@ async function startServer() {
 
     // Routes
     app.use('/auth', governorGuard('MISSION_CRITICAL'), authRoutes);
-    app.use('/admin/audit', require('./routes/audit'));
     app.use('/items', itemRoutes);
+    app.use('/api/audit', require('./routes/audit'));
+    app.use('/api/analytics', analyticsRoutes);
+    app.use('/api/reports', require('./routes/reports'));
     app.use('/orders', governorGuard('MISSION_CRITICAL'), IdempotencyService.guard(), orderRoutes);
     app.use('/categories', categoryRoutes);
     app.use('/notifications', notificationRoutes);
@@ -163,7 +166,6 @@ async function startServer() {
     app.use('/reviews', governorGuard('AUXILIARY'), reviewRoutes);
     app.use('/settings', settingsRoutes);
     app.use('/metrics', metricsRoutes);
-    app.use('/analytics', governorGuard('AUXILIARY'), analyticsRoutes);
     app.use('/system', systemRoutes);
     app.use('/delivery-zones', deliveryZoneRoutes);
     app.use('/dashboard', dashboardRoutes);
@@ -171,6 +173,7 @@ async function startServer() {
     app.use('/restaurant', restaurantRoutes);
     app.use('/loyalty', loyaltyRoutes);
     app.use('/order-modifications', governorGuard('MISSION_CRITICAL'), IdempotencyService.guard(), orderModificationRoutes);
+    app.use('/branch', branchRoutes);
     app.get('/health/external', externalProbeController.pings);
 
     // 🚨 Global Error Handler (Centralized Survival Layer)

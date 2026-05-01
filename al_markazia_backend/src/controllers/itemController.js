@@ -47,7 +47,11 @@ exports.getAllItems = async (req, res) => {
             options: { where: { isAvailable: true }, orderBy: { sortOrder: 'asc' } }
           },
           orderBy: { sortOrder: 'asc' }
-        }
+        },
+        branchItems: req.query.branchId ? {
+          where: { branchId: req.query.branchId },
+          select: { isAvailable: true, branchId: true }
+        } : false
       },
       orderBy: [
         { isFeatured: 'desc' },
@@ -55,13 +59,25 @@ exports.getAllItems = async (req, res) => {
       ]
     });
 
-    res.json({
-      success: true,
-      data: items.map(item => ({
+    // 🧠 Dynamic Availability Merging
+    const mappedItems = items.map(item => {
+      let finalAvailability = item.isAvailable;
+      
+      // If branch record exists, it overrides the global state
+      if (item.branchItems && item.branchItems.length > 0) {
+        finalAvailability = item.branchItems[0].isAvailable;
+      }
+
+      return {
         ...item,
-        image: formatImageUrl(item.image)
-      }))
+        isAvailable: finalAvailability,
+        image: formatImageUrl(item.image),
+        basePrice: toNumber(item.basePrice),
+        branchItems: undefined // Clean up response
+      };
     });
+
+    res.json({ success: true, data: mappedItems });
   } catch (error) {
     logger.error('Failed to fetch items', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to fetch items' });
