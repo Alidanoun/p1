@@ -48,10 +48,18 @@ exports.getAllItems = async (req, res) => {
           },
           orderBy: { sortOrder: 'asc' }
         },
-        branchItems: req.query.branchId ? {
-          where: { branchId: req.query.branchId },
-          select: { isAvailable: true, branchId: true }
-        } : false
+        branchItems: (() => {
+          const { getContext } = require('../utils/securityContext');
+          const user = getContext();
+          const targetBranch = (user?.role !== 'super_admin') ? user?.branchId : req.query.branchId;
+          
+          if (!targetBranch) return false;
+          
+          return {
+            where: { branchId: targetBranch },
+            select: { isAvailable: true, branchId: true }
+          };
+        })()
       },
       orderBy: [
         { isFeatured: 'desc' },

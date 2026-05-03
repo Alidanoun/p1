@@ -35,9 +35,10 @@ class OrderService {
     }
     if (status) where.status = status;
 
-    // 🏢 Multi-Branch Isolation (v2.1: Hardened CBAC)
-    const branchPolicy = require('../policies/branchPolicy');
-    const isolationFilter = await branchPolicy.getHardenedFilter(query.userId, query.branchId);
+    // 🏢 Multi-Branch Isolation (v3.0: SecurityPolicyService)
+    const SecurityPolicyService = require('./securityPolicyService');
+    const { getContext } = require('../utils/securityContext');
+    const isolationFilter = await SecurityPolicyService.getHardenedFilter(getContext());
 
     Object.assign(where, isolationFilter);
 
@@ -117,9 +118,10 @@ class OrderService {
       ];
     }
 
-    // 🏢 Multi-Branch Isolation (v2.1: Hardened CBAC)
-    const branchPolicy = require('../policies/branchPolicy');
-    const isolationFilter = await branchPolicy.getHardenedFilter(query.userId, query.branchId);
+    // 🏢 Multi-Branch Isolation (v3.0: SecurityPolicyService)
+    const SecurityPolicyService = require('./securityPolicyService');
+    const { getContext } = require('../utils/securityContext');
+    const isolationFilter = await SecurityPolicyService.getHardenedFilter(getContext());
 
     Object.assign(where, isolationFilter);
 

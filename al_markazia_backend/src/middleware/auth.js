@@ -43,7 +43,8 @@ const authenticateToken = async (req, res, next) => {
       jti: jti
     };
     
-    next();
+    const { runInContext } = require('../utils/securityContext');
+    runInContext(req.user, () => next());
   } catch (error) {
     const isExpired = error.message === 'TOKEN_EXPIRED';
     const errorCode = isExpired ? 'TOKEN_EXPIRED' : 'INVALID_TOKEN';
@@ -123,35 +124,37 @@ const optionalAuth = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
 
-  // 1. Guest Case: No token provided at all
-  if (!token) {
-    req.user = null;
-    return next();
-  }
+    const { runInContext } = require('../utils/securityContext');
 
-  // 2. Token Provided: MUST be valid
-  try {
-    const decoded = TokenService.verifyAccessToken(token);
-    const { id: userId, jti } = decoded;
-
-    // 🛡️ JTI Revocation Check
-    if (jti) {
-      const sessionExists = await redis.exists(`session:${userId}:${jti}`);
-      if (!sessionExists) {
-        req.user = null; // Treat as guest if session revoked
-        return next();
-      }
+    // 1. Guest Case: No token provided at all
+    if (!token) {
+      req.user = null;
+      return runInContext(null, () => next());
     }
 
-    req.user = {
-      id: userId,
-      phone: decoded.phone,
-      role: (decoded.role || '').toLowerCase(),
-      branchId: decoded.branchId || null,
-      jti: jti
-    };
-    next();
-  } catch (error) {
+    // 2. Token Provided: MUST be valid
+    try {
+      const decoded = TokenService.verifyAccessToken(token);
+      const { id: userId, jti } = decoded;
+
+      // 🛡️ JTI Revocation Check
+      if (jti) {
+        const sessionExists = await redis.exists(`session:${userId}:${jti}`);
+        if (!sessionExists) {
+          req.user = null; // Treat as guest if session revoked
+          return runInContext(null, () => next());
+        }
+      }
+
+      req.user = {
+        id: userId,
+        phone: decoded.phone,
+        role: (decoded.role || '').toLowerCase(),
+        branchId: decoded.branchId || null,
+        jti: jti
+      };
+      runInContext(req.user, () => next());
+    } catch (error) {
     const isExpired = error.message === 'TOKEN_EXPIRED';
     const errorCode = isExpired ? 'TOKEN_EXPIRED' : 'INVALID_TOKEN';
     const message = isExpired ? 'الجلسة منتهية، يرجى تسجيل الدخول مجدداً' : 'رمز الدخول غير صالح';
