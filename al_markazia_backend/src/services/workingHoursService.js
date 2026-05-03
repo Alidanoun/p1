@@ -41,6 +41,15 @@ class WorkingHoursService {
 
       const now = DateTime.now().setZone(settings.timezone);
 
+      // 🛠️ Define Helper Variables early
+      const getM = (t) => {
+        if (!t) return 0;
+        const [h, m] = t.split(':').map(Number);
+        return h * 60 + m;
+      };
+      const nowM = now.hour * 60 + now.minute;
+      const graceM = settings.lastOrderMinutesBeforeClose || 0;
+
       // 3. Check Emergency Closure (Hard Close)
       if (settings.isEmergencyClosed) {
         // 🛡️ Auto-Reopen Logic: Check if timed closure has expired
@@ -72,6 +81,29 @@ class WorkingHoursService {
         }
       }
 
+      // ✅ [SHIFT-FIX] Part A: Check Yesterday's Late-Night Shift
+      const yesterday = now.minus({ days: 1 });
+      const yesterdayDayOfWeek = yesterday.weekday === 7 ? 0 : yesterday.weekday;
+      const yesterdaySchedule = schedule.find(s => s.dayOfWeek === yesterdayDayOfWeek);
+
+      if (yesterdaySchedule && !yesterdaySchedule.isClosed) {
+        const yOpenM = getM(yesterdaySchedule.openTime);
+        const yCloseM = getM(yesterdaySchedule.closeTime);
+        
+        // If the shift crossed midnight AND we are still before the closing time
+        if (yOpenM > yCloseM && nowM < (yCloseM - graceM)) {
+          const status = { 
+            isOpen: true, 
+            closingAt: yesterdaySchedule.closeTime,
+            source: 'yesterday_shift',
+            isLateNight: true
+          };
+          nodeCache.set(this.CACHE_KEY, status, this.CACHE_TTL);
+          return status;
+        }
+      }
+
+      // ✅ [SHIFT-FIX] Part B: Check Today's Regular Shift
       const dayOfWeek = now.weekday === 7 ? 0 : now.weekday; 
       const todaySchedule = schedule.find(s => s.dayOfWeek === dayOfWeek);
 
@@ -81,20 +113,12 @@ class WorkingHoursService {
         return status;
       }
 
-      // 4. Calculate Opening/Closing using MSM (Minutes Since Midnight)
-      const nowM = now.hour * 60 + now.minute;
-      const getM = (t) => {
-        const [h, m] = t.split(':').map(Number);
-        return h * 60 + m;
-      };
-
       const openM = getM(todaySchedule.openTime);
       const closeM = getM(todaySchedule.closeTime);
-      const graceM = settings.lastOrderMinutesBeforeClose || 0;
 
       let isOpen = false;
       if (openM > closeM) {
-        // Midnight crossing
+        // Today's shift crosses into tomorrow
         isOpen = (nowM >= openM || nowM < (closeM - graceM));
       } else {
         isOpen = (nowM >= openM && nowM < (closeM - graceM));
@@ -108,7 +132,6 @@ class WorkingHoursService {
       return status;
     } catch (error) {
       logger.error('[WORKING_HOURS_FAIL_CLOSE] reason=CALCULATION_ERROR. Blocking orders.', { error: error.message });
-      // 🛡️ Fail-Close: DO NOT CACHE error responses. Always return false on uncertainty.
       return { 
         isOpen: false, 
         reason: 'المطعم مغلق حالياً لإجراء صيانة تقنية سريعة',
@@ -125,11 +148,15 @@ class WorkingHoursService {
     return true;
   }
 
+  /**
+   * 📡 Generate Dynamic Closed Status
+   * Replaces hardcoded strings with real schedule data.
+   */
   async _getClosedStatus(now, schedule, settings) {
     const isEmergency = settings.isEmergencyClosed && !(settings.reopenAt && now >= DateTime.fromJSDate(settings.reopenAt).setZone(settings.timezone));
     
-    let reason = 'المطعم مغلق حالياً. نعتذر عن استقبال الطلبات.';
-    let reasonEn = 'The restaurant is currently closed. We apologize for not receiving orders.';
+    let reason = 'المطعم مغلق حالياً.';
+    let reasonEn = 'The restaurant is currently closed.';
     let nextOpenAt = null;
     let closureType = 'end_of_day';
 
@@ -144,25 +171,31 @@ class WorkingHoursService {
         nextOpenAt = openAt.toISO();
       } else {
         closureType = 'emergency';
-        reason = "نعتذر عن الإزعاج، المطعم مغلق حالياً لأعمال صيانة وتحسينات لضمان أفضل جودة لكم. سنفتح قريباً!";
-        reasonEn = "We apologize for the inconvenience, the restaurant is currently closed for maintenance and improvements to ensure the best quality for you. We will open soon!";
+        reason = settings.closureReason || "نعتذر عن الإزعاج، المطعم مغلق حالياً لأعمال صيانة وتحسينات لضمان أفضل جودة لكم. سنفتح قريباً!";
+        reasonEn = "The restaurant is currently closed for maintenance. We will open soon!";
       }
     } else {
       closureType = 'end_of_day';
-      reason = "نعتذر منك، مطعم المركزية مغلق حالياً. نسعد باستقبال طلباتك يومياً من الساعة 9:00 صباحاً وحتى 11:00 مساءً.";
-      reasonEn = "We apologize, Al-Markazia is currently closed. We are happy to receive your orders daily from 9:00 AM to 11:00 PM.";
-      
+      const arabicDays = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+      const englishDays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+      // Find the next available working day
       for (let i = 0; i < 7; i++) {
         const checkDate = now.plus({ days: i });
         const checkDay = checkDate.weekday === 7 ? 0 : checkDate.weekday;
-        const dayData = schedule.find(s => s.dayOfWeek === checkDay);
+        const dayData = schedule.find(s => s.dayOfWeek === checkDay && !s.isClosed);
         
-        if (dayData && !dayData.isClosed) {
+        if (dayData) {
           const [h, m] = dayData.openTime.split(':').map(Number);
           const opening = checkDate.set({ hour: h, minute: m, second: 0, millisecond: 0 });
           
           if (opening > now) {
             nextOpenAt = opening.toISO();
+            const dayNameAr = i === 0 ? 'اليوم' : arabicDays[checkDay];
+            const dayNameEn = i === 0 ? 'today' : englishDays[checkDay];
+            
+            reason = `نعتذر منك، مطعم المركزية مغلق حالياً. نسعد باستقبال طلباتك ${dayNameAr} من الساعة ${dayData.openTime} وحتى ${dayData.closeTime}.`;
+            reasonEn = `Sorry, we are closed. We are happy to receive your orders ${dayNameEn} from ${dayData.openTime} to ${dayData.closeTime}.`;
             break;
           }
         }
