@@ -79,7 +79,10 @@ const refreshToken = async (req, res) => {
   }
 
   try {
-    const oldRefreshToken = req.cookies.refreshToken;
+    // 🛡️ Enhanced Token Retrieval: Support both Cookie (Web) and Body (Mobile)
+    const rawToken = req.cookies?.refreshToken || req.body?.refreshToken;
+    const oldRefreshToken = sanitizeToken(rawToken);
+
     if (!oldRefreshToken) throw new Error('MISSING_REFRESH_TOKEN');
 
     const clientIp = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;

@@ -94,9 +94,11 @@ class WorkingHoursService {
         if (yOpenM > yCloseM && nowM < (yCloseM - graceM)) {
           const status = { 
             isOpen: true, 
-            closingAt: yesterdaySchedule.closeTime,
+            isClosed: false,
+            isEmergency: false,
+            closingAt: yesterdaySchedule.closeTime, 
             source: 'yesterday_shift',
-            isLateNight: true
+            isLateNight: true 
           };
           nodeCache.set(this.CACHE_KEY, status, this.CACHE_TTL);
           return status;
@@ -125,7 +127,12 @@ class WorkingHoursService {
       }
 
       const status = isOpen 
-        ? { isOpen: true, closingAt: todaySchedule.closeTime }
+        ? { 
+            isOpen: true, 
+            isClosed: false,
+            isEmergency: false,
+            closingAt: todaySchedule.closeTime 
+          }
         : await this._getClosedStatus(now, schedule, settings);
 
       nodeCache.set(this.CACHE_KEY, status, this.CACHE_TTL);
@@ -204,6 +211,7 @@ class WorkingHoursService {
 
     return {
       isOpen: false,
+      isClosed: true,
       isEmergency: isEmergency,
       closureType: closureType,
       reason: reason,
