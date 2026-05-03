@@ -112,6 +112,7 @@ const requireRoles = (allowedRolesOrMinRole) => (req, res, next) => {
 
 const isAdmin = requireRoles('admin');
 const isSuperAdmin = requireRoles('super_admin');
+const isManager = requireRoles(['admin', 'super_admin', 'branch_manager', 'manager']);
 const isStaff = requireRoles('staff');
 
 /**
@@ -168,6 +169,7 @@ module.exports = {
   authenticateToken, 
   isAdmin, 
   isSuperAdmin,
+  isManager,
   isStaff,
   requireRoles,
   optionalAuth

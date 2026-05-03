@@ -4,8 +4,10 @@ const IdempotencyService = require('../services/idempotencyService');
 const { 
   authenticateToken: authMiddleware, 
   isAdmin: adminMiddleware,
+  isManager: managerMiddleware,
   optionalAuth
 } = require('../middleware/auth');
+const { requireBranchAccess, ensureBranchId } = require('../middleware/branchAuth');
 const { healthGuard } = require('../middleware/healthGuard');
 const workingHoursGuard = require('../middleware/workingHoursGuard');
 const { 
@@ -46,22 +48,22 @@ router.post('/', optionalAuth, healthGuard('db'), workingHoursGuard, orderLimite
 router.get('/my-orders', authMiddleware, getMyOrders);
 
 // Report endpoint with date filtering (no row limit)
-router.get('/report', authMiddleware, adminMiddleware, getOrdersReport);
+router.get('/report', authMiddleware, adminMiddleware, requireBranchAccess, getOrdersReport);
 
-// Only admin can view and update
-router.get('/', authMiddleware, adminMiddleware, getOrders);
-router.post('/accept-all', authMiddleware, adminMiddleware, acceptAllNewOrders);
-router.patch('/:id/status', authMiddleware, adminMiddleware, healthGuard('db'), validateId(), updateOrderStatus);
-router.patch('/:id/timer', authMiddleware, adminMiddleware, validateId(), updateOrderTimer);
-router.patch('/:id/prep-time', authMiddleware, adminMiddleware, validateId(), updatePreparationTime);
+// Only admin/manager can view and update
+router.get('/', authMiddleware, managerMiddleware, requireBranchAccess, getOrders);
+router.post('/accept-all', authMiddleware, managerMiddleware, requireBranchAccess, acceptAllNewOrders);
+router.patch('/:id/status', authMiddleware, managerMiddleware, healthGuard('db'), validateId(), updateOrderStatus);
+router.patch('/:id/timer', authMiddleware, managerMiddleware, validateId(), updateOrderTimer);
+router.patch('/:id/prep-time', authMiddleware, managerMiddleware, validateId(), updatePreparationTime);
 router.patch('/:id/rate', authMiddleware, validateId(), submitOrderRating);
 
 // 🛡️ Cancellation Engine Endpoints
 router.post('/:id/cancel', authMiddleware, IdempotencyService.guard(), cancelOrder);
-router.post('/:id/approve-cancel', authMiddleware, adminMiddleware, IdempotencyService.guard(), approveCancellation);
-router.post('/:id/reject-cancel', authMiddleware, adminMiddleware, IdempotencyService.guard(), rejectCancellation);
+router.post('/:id/approve-cancel', authMiddleware, managerMiddleware, requireBranchAccess, IdempotencyService.guard(), approveCancellation);
+router.post('/:id/reject-cancel', authMiddleware, managerMiddleware, requireBranchAccess, IdempotencyService.guard(), rejectCancellation);
 
-router.post('/:id/handle-cancellation', authMiddleware, adminMiddleware, validateId(), handleCancellationRequest);
+router.post('/:id/handle-cancellation', authMiddleware, managerMiddleware, requireBranchAccess, validateId(), handleCancellationRequest);
 
 // --- Partial Cancellation ---
 
@@ -78,7 +80,8 @@ router.post(
 router.post(
   "/:orderId/handle-partial-cancel",
   authMiddleware,
-  adminMiddleware,
+  managerMiddleware,
+  requireBranchAccess,
   validateId('orderId'),
   validateHandlePartialCancel,
   handlePartialCancelRequest
@@ -88,7 +91,8 @@ router.post(
 router.get(
   "/pending-partial-cancels",
   authMiddleware,
-  adminMiddleware,
+  managerMiddleware,
+  requireBranchAccess,
   getPendingPartialCancels
 );
 

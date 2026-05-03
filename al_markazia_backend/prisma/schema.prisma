@@ -25,20 +25,39 @@ model User {
   // Branch Integration
   branchId     String?
   branch       Branch?  @relation(fields: [branchId], references: [id])
+  managedBranches UserBranch[]
+
+  @@index([branchId])
+}
+
+model UserBranch {
+  id        String   @id @default(uuid())
+  userId    Int
+  branchId  String
+  user      User     @relation(fields: [userId], references: [id])
+  branch    Branch   @relation(fields: [branchId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([userId, branchId])
 }
 
 model Branch {
   id        String   @id @default(uuid())
   name      String
   code      String   @unique
+  address   String?
+  phone     String?
   isActive  Boolean  @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   users     User[]
+  managedUsers UserBranch[]
   orders    Order[]
   branchItems BranchItem[]
+  financialLedger FinancialLedger[]
+  snapshots      DailyFinancialSnapshot[] @relation("BranchSnapshots")
 }
 
 model BranchItem {
@@ -54,6 +73,7 @@ model BranchItem {
   updatedAt   DateTime @updatedAt
 
   @@unique([branchId, itemId])
+  @@index([branchId])
 }
 
 model Category {
@@ -178,6 +198,8 @@ model Order {
   @@index([orderNumber])
   @@index([createdAt])
   @@index([tenantId])
+  @@index([branchId])
+  @@index([branchId, status])
 }
 
 model Event {
@@ -295,6 +317,8 @@ model Notification {
   retryCount    Int      @default(0)
   socketSent    Boolean  @default(false)
   status        String   @default("PENDING")
+  severity      String   @default("INFO") // INFO, WARN, CRITICAL
+  alertType     String?  // FINANCIAL_HIGH_RISK, TRANSACTION_FAILURE, SECURITY_BREACH
   updatedAt     DateTime @default(now()) @updatedAt
 
   @@index([customerPhone])
@@ -574,20 +598,42 @@ model FinancialLedger {
   id              Int      @id @default(autoincrement())
   customerId      Int?
   orderId         Int?
-  type            String   // DEBIT, CREDIT
-  category        String   // ORDER_PAYMENT, REFUND, WALLET_TOPUP, COMPENSATION, CANCELLATION_FEE
+  branchId        String?
+  type            String   // DEBIT (Money Out), CREDIT (Money In)
+  category        String   // ORDER_PAYMENT, REFUND, WALLET_CREDIT, ADJUSTMENT
   amount          Decimal  @db.Decimal(10, 2)
   balanceBefore   Decimal  @db.Decimal(10, 2)
   balanceAfter    Decimal  @db.Decimal(10, 2)
-  method          String   // CASH, WALLET, CARD, POINTS
-  referenceId     String?  // External transaction ID or Order Number
+  method          String   @default("CASH") // CASH, WALLET, CARD
+  idempotencyKey  String?  @unique
+  referenceId     String?  // Order Number or Transaction ID
   description     String?
   metadata        Json?
   createdAt       DateTime @default(now())
 
+  branch          Branch?  @relation(fields: [branchId], references: [id])
   @@index([customerId])
   @@index([orderId])
+  @@index([branchId])
   @@index([createdAt])
+}
+
+model FinancialApproval {
+  id              String   @id @default(uuid())
+  operationType   String   // REFUND, PRICE_OVERRIDE, CANCELLATION
+  entityId        String   // Order ID or Ledger ID
+  requestedBy     Int
+  requestedByRole String
+  payload         Json     // Stores the intended change
+  status          String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  approvedBy      Int?
+  rejectionReason String?
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([status])
+  @@index([operationType])
 }
 
 model OrderModificationEvent {
@@ -659,4 +705,25 @@ model CustomerReward {
 
   @@index([customerId, status])
   @@index([code])
+}
+
+model DailyFinancialSnapshot {
+  id              String   @id @default(uuid())
+  date            DateTime // The day this snapshot represents
+  branchId        String?
+  totalRevenue    Decimal  @db.Decimal(10, 2)
+  netRevenue      Decimal  @db.Decimal(10, 2)
+  taxTotal        Decimal  @db.Decimal(10, 2)
+  discountTotal   Decimal  @db.Decimal(10, 2)
+  orderCount      Int
+  cancelledCount  Int
+  lossTotal       Decimal  @db.Decimal(10, 2)
+  isFrozen        Boolean  @default(true) // Snapshots are immutable by default
+  createdAt       DateTime @default(now())
+
+  branch          Branch?  @relation("BranchSnapshots", fields: [branchId], references: [id])
+  
+  @@unique([date, branchId])
+  @@index([date])
+  @@index([branchId])
 }

@@ -40,6 +40,7 @@ import {
 import Header from '../components/Header';
 import { useAuth } from '../contexts/AuthContext';
 import { useSocket } from '../contexts/SocketContext';
+import FinancialApprovalWidget from '../components/FinancialApprovalWidget';
 
 import { formatCurrencyArabic, formatNumberArabic } from '../lib/formatters';
 import { cn } from '../lib/utils';
@@ -230,38 +231,68 @@ const LiveDashboard = () => {
         className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6"
       >
         <KPICard 
-          title="الإيرادات الحية" 
-          subtitle="Confirmed+"
-          value={liveMetrics.revenue.live} 
+          title="إجمالي المبيعات" 
+          subtitle="Gross Revenue"
+          value={liveMetrics.financials.grossRevenue} 
           icon={Activity} 
-          trend={getTrendData('revenue.live')} 
+          trend={getTrendData('financials.grossRevenue')} 
           color="blue" 
           isCurrency
         />
         <KPICard 
-          title="الإيرادات المحققة" 
-          subtitle="Delivered"
-          value={liveMetrics.revenue.real} 
+          title="صافي الإيرادات" 
+          subtitle="Net Revenue"
+          value={liveMetrics.financials.netRevenue} 
           icon={DollarSign} 
-          trend={getTrendData('revenue.real')} 
+          trend={getTrendData('financials.netRevenue')} 
           color="emerald" 
           isCurrency
         />
         <KPICard 
           title="إجمالي طلبات اليوم" 
-          value={liveMetrics.revenue.orderCount} 
+          value={liveMetrics.counts.total} 
           icon={ShoppingBag} 
-          trend={getTrendData('revenue.orderCount')} 
+          trend={getTrendData('counts.total')} 
           color="purple" 
         />
         <KPICard 
-          title="متوسط قيمة الطلب" 
-          subtitle="AOV"
-          value={liveMetrics.revenue.liveOrderCount > 0 ? (liveMetrics.revenue.live / liveMetrics.revenue.liveOrderCount) : 0} 
-          icon={TrendingUp} 
-          trend={getTrendData('revenue.live')}
-          color="cyan" 
+          title="التسرب المالي" 
+          subtitle="Loss (Cancelled)"
+          value={liveMetrics.financials.cancelledTotal} 
+          icon={AlertCircle} 
+          trend={getTrendData('financials.cancelledTotal')}
+          color="red" 
           isCurrency
+        />
+      </motion.div>
+
+      {/* 📊 Financial Breakdown Row */}
+      <motion.div 
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+        className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6"
+      >
+        <FinancialStat 
+            label="الضرائب المجموعة" 
+            value={liveMetrics.financials.taxTotal} 
+            color="amber"
+        />
+        <FinancialStat 
+            label="رسوم التوصيل" 
+            value={liveMetrics.financials.deliveryTotal} 
+            color="cyan"
+        />
+        <FinancialStat 
+            label="إجمالي الخصومات" 
+            value={liveMetrics.financials.discountTotal} 
+            color="rose"
+        />
+        <FinancialStat 
+            label="متوسط الفاتورة" 
+            value={liveMetrics.financials.avgTicket} 
+            color="indigo"
+            isCurrency
         />
       </motion.div>
 
@@ -333,6 +364,11 @@ const LiveDashboard = () => {
         {/* ===== RIGHT: Activity Feed & System Health (4 cols) ===== */}
         <div className="lg:col-span-4 space-y-4">
           
+          {/* 🛰️ Financial Control Tower (New Widget) */}
+          <motion.div variants={itemVariants} initial="hidden" animate="visible">
+            <FinancialApprovalWidget />
+          </motion.div>
+
           {/* Activity Feed */}
           <motion.div 
             variants={itemVariants} 
@@ -490,9 +526,10 @@ const KPICard = ({ title, subtitle, value, icon: Icon, trend, color, isCurrency 
     blue: { bg: 'bg-blue-500/10', border: 'border-blue-500/20', text: 'text-blue-400', glow: 'from-blue-500/5' },
     emerald: { bg: 'bg-emerald-500/10', border: 'border-emerald-500/20', text: 'text-emerald-400', glow: 'from-emerald-500/5' },
     purple: { bg: 'bg-purple-500/10', border: 'border-purple-500/20', text: 'text-purple-400', glow: 'from-purple-500/5' },
-    cyan: { bg: 'bg-cyan-500/10', border: 'border-cyan-500/20', text: 'text-cyan-400', glow: 'from-cyan-500/5' }
+    cyan: { bg: 'bg-cyan-500/10', border: 'border-cyan-500/20', text: 'text-cyan-400', glow: 'from-cyan-500/5' },
+    red: { bg: 'bg-red-500/10', border: 'border-red-500/20', text: 'text-red-400', glow: 'from-red-500/5' }
   };
-  const c = colorMap[color];
+  const c = colorMap[color] || colorMap.blue;
 
   return (
     <motion.div 
@@ -535,6 +572,28 @@ const KPICard = ({ title, subtitle, value, icon: Icon, trend, color, isCurrency 
       </div>
     </motion.div>
   );
+};
+
+const FinancialStat = ({ label, value, color, isCurrency = true }) => {
+    const colors = {
+        amber: 'text-amber-500 bg-amber-500/5 border-amber-500/10',
+        cyan: 'text-cyan-500 bg-cyan-500/5 border-cyan-500/10',
+        rose: 'text-rose-500 bg-rose-500/5 border-rose-500/10',
+        indigo: 'text-indigo-500 bg-indigo-500/5 border-indigo-500/10'
+    };
+    const c = colors[color] || colors.amber;
+
+    return (
+        <motion.div 
+            variants={itemVariants}
+            className={cn("p-4 rounded-2xl border flex flex-col justify-center items-center text-center", c)}
+        >
+            <span className="text-[9px] font-bold opacity-60 uppercase mb-1">{label}</span>
+            <span className="text-sm font-mono font-bold">
+                {isCurrency ? formatCurrencyArabic(value) : formatNumberArabic(value)}
+            </span>
+        </motion.div>
+    );
 };
 
 const CustomTooltip = ({ active, payload }) => {

@@ -30,4 +30,8 @@ eventBus.subscribe(eventTypes.ORDER_CANCELLED, (event) => {
   });
 });
 
-// Projections Initialized
+// 🛠️ [AUDIT-FIX] Handle Modifications
+eventBus.subscribe(eventTypes.MODIFICATION_APPLIED, (event) => {
+  orderProjection.upsertOrder(event.payload.order);
+  analyticsProjection.handleModified(event.payload);
+});

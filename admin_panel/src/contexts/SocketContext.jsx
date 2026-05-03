@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import api, { unwrap } from '../api/client';
 import { tokenStore } from '../api/tokenStore';
 import { useAuth } from './AuthContext';
+import { useDebounce } from '../hooks/useDebounce';
 
 const SocketContext = createContext();
 
@@ -156,21 +157,24 @@ export const SocketProvider = ({ children }) => {
     setSocket(newSocket);
   }, []);
 
+  const debouncedBranchId = useDebounce(selectedBranchId, 300);
+
   useEffect(() => {
-    if (socketRef.current) {
-      // 🔄 Switch Rooms without full reconnect if possible, 
-      // but for simplicity, we'll just re-fetch and re-emit join
-      if (selectedBranchId) {
-        socketRef.current.emit('leave:dashboard');
-        socketRef.current.emit('join:branch:dashboard', { branchId: selectedBranchId });
+    if (socketRef.current && debouncedBranchId !== undefined) {
+      // 🔄 Switch Rooms without full reconnect
+      socketRef.current.emit('leave:dashboard');
+      socketRef.current.emit('leave:branch:dashboard');
+
+      if (debouncedBranchId) {
+        socketRef.current.emit('join:branch:dashboard', { branchId: debouncedBranchId });
       } else {
-        socketRef.current.emit('leave:branch:dashboard');
         socketRef.current.emit('join:dashboard');
       }
+      
       setLiveMetrics(null); // Clear while fetching
       fetchLiveMetrics();
     }
-  }, [selectedBranchId, fetchLiveMetrics]);
+  }, [debouncedBranchId, fetchLiveMetrics]);
 
   useEffect(() => {
     // 🛡️ Initialization: Try to connect with whatever is in store
@@ -198,6 +202,20 @@ export const SocketProvider = ({ children }) => {
       }
     };
   }, [connectSocket]);
+
+  // 🏥 Socket Health Check: Auto-reconnect if dropped
+  useEffect(() => {
+    if (!socketRef.current) return;
+    
+    const healthCheck = setInterval(() => {
+      if (socketRef.current && !socketRef.current.connected) {
+        console.warn('[Socket] Disconnected, attempting proactive reconnect...');
+        socketRef.current.connect();
+      }
+    }, 30000); // Check every 30s
+    
+    return () => clearInterval(healthCheck);
+  }, []);
 
   const markAsRead = async (id) => {
     try {

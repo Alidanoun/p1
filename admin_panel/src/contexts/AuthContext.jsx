@@ -43,7 +43,38 @@ export const AuthProvider = ({ children }) => {
     bootstrap();
   }, []);
 
-  const [selectedBranchId, setSelectedBranchId] = useState(null);
+  const [selectedBranchId, setSelectedBranchId] = useState(() => {
+    const saved = sessionStorage.getItem('selectedBranchId');
+    return saved && saved !== 'null' ? saved : null;
+  });
+
+  // 🔄 Cross-Tab Synchronization: Sync branch change across all open tabs
+  useEffect(() => {
+    const channel = new BroadcastChannel('branch_sync');
+    
+    channel.onmessage = (event) => {
+      if (event.data.type === 'BRANCH_CHANGED') {
+        setSelectedBranchId(event.data.branchId);
+      }
+    };
+
+    return () => channel.close();
+  }, []);
+
+  const changeBranch = (branchId) => {
+    setSelectedBranchId(branchId);
+    const channel = new BroadcastChannel('branch_sync');
+    channel.postMessage({ type: 'BRANCH_CHANGED', branchId });
+    channel.close();
+  };
+
+  useEffect(() => {
+    if (selectedBranchId) {
+      sessionStorage.setItem('selectedBranchId', selectedBranchId);
+    } else {
+      sessionStorage.removeItem('selectedBranchId');
+    }
+  }, [selectedBranchId]);
 
   const login = async (email, password) => {
     try {
@@ -56,7 +87,8 @@ export const AuthProvider = ({ children }) => {
       setUser(user);
       
       // Reset branch context on login
-      setSelectedBranchId(null);
+      changeBranch(null);
+      sessionStorage.removeItem('selectedBranchId');
 
       return { success: true };
     } catch (error) {

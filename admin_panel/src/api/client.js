@@ -1,4 +1,5 @@
 import axios from 'axios';
+import axiosRetry from 'axios-retry';
 import { tokenStore } from './tokenStore';
 
 const getBaseUrl = () => {
@@ -37,6 +38,23 @@ const api = axios.create({
   timeout: 15000,
   headers: {
     'Content-Type': 'application/json'
+  }
+});
+
+// ✅ Advanced Retry Logic: Recover from network glitches & 5xx errors
+axiosRetry(api, {
+  retries: 3,
+  retryDelay: (retryCount) => {
+    return retryCount * 1000; // 1s, 2s, 3s
+  },
+  retryCondition: (error) => {
+    // Retry on network errors, timeouts, or 5xx server errors
+    return axiosRetry.isNetworkOrIdempotentRequestError(error) 
+      || (error.response && error.response.status >= 500)
+      || error.code === 'ECONNABORTED'; // Timeout recovery
+  },
+  onRetry: (retryCount, error, requestConfig) => {
+    console.warn(`[API] Retry attempt #${retryCount} for: ${requestConfig.url}`, { error: error.message });
   }
 });
 

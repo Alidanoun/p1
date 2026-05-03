@@ -26,4 +26,18 @@ router.post('/config/refresh', async (req, res) => {
   }
 });
 
+/**
+ * 📊 Frontend Error Logging
+ * Receives crashes from ErrorBoundary.jsx
+ */
+router.post('/logs/frontend-error', async (req, res) => {
+  const logger = require('../utils/logger');
+  logger.error('[FRONTEND_CRASH]', {
+    ...req.body,
+    ip: req.ip,
+    timestamp: new Date().toISOString()
+  });
+  res.json({ success: true });
+});
+
 module.exports = router;

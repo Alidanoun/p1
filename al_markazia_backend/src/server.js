@@ -1,4 +1,4 @@
-const express = require('express');
+const express = require('express'); // Heartbeat: 2026-05-02 01:57
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
@@ -114,8 +114,8 @@ async function startServer() {
       });
     });
 
-    const { globalLimiter } = require('./middleware/rateLimiter');
-    app.use(globalLimiter);
+    const { apiLimiter } = require('./middleware/advancedRateLimiter');
+    app.use(apiLimiter);
     
     // CORS Setup
     const allowedOrigins = (process.env.CORS_ORIGIN || '').split(',').map(o => o.trim()).filter(Boolean);
@@ -156,7 +156,7 @@ async function startServer() {
     // Routes
     app.use('/auth', governorGuard('MISSION_CRITICAL'), authRoutes);
     app.use('/items', itemRoutes);
-    app.use('/api/audit', require('./routes/audit'));
+    app.use('/admin/audit', require('./routes/audit'));
     app.use('/api/analytics', analyticsRoutes);
     app.use('/orders', governorGuard('MISSION_CRITICAL'), IdempotencyService.guard(), orderRoutes);
     app.use('/categories', categoryRoutes);
@@ -168,7 +168,11 @@ async function startServer() {
     app.use('/system', systemRoutes);
     app.use('/delivery-zones', deliveryZoneRoutes);
     app.use('/dashboard', dashboardRoutes);
-    app.use('/health', healthRoutes);
+    const financialRoutes = require('./routes/financial');
+
+    // API Routes
+    app.use('/api/financial', financialRoutes);
+    app.use('/api/auth', authRoutes);
     app.use('/restaurant', restaurantRoutes);
     app.use('/loyalty', loyaltyRoutes);
     app.use('/order-modifications', governorGuard('MISSION_CRITICAL'), IdempotencyService.guard(), orderModificationRoutes);
@@ -197,6 +201,13 @@ async function startServer() {
       logger.info(`🚀 Backend Server is running on port ${PORT}`);
       
       // Post-startup Warmup
+      // 🛡️ [SAFETY-LAYER] Financial Integrity Handshake
+      const { runIntegrityTests } = require('./tests/financialIntegrity');
+      const integrityPassed = runIntegrityTests();
+      if (!integrityPassed) {
+        logger.warn('🧪 Safety Alert: System started with financial integrity warnings.');
+      }
+
       warmupService.run().catch(e => logger.error('Warmup Error', { error: e.message }));
       
       const analyticsProjection = require('./projections/analyticsProjection');

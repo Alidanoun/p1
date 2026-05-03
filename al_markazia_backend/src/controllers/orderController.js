@@ -38,7 +38,8 @@ exports.getOrders = async (req, res) => {
     const result = await orderService.getOrders({
       ...req.query,
       userRole: req.user.role,
-      branchId: req.query.branchId || req.user.branchId
+      userBranchId: req.user.branchId,
+      branchId: req.query.branchId
     });
     res.json({
       success: true,
@@ -65,7 +66,8 @@ exports.getOrdersReport = async (req, res) => {
     const result = await orderService.getOrdersReport({
       ...req.query,
       userRole: req.user.role,
-      branchId: req.query.branchId || req.user.branchId
+      userBranchId: req.user.branchId,
+      branchId: req.query.branchId
     });
     res.json({
       success: true,
@@ -150,8 +152,7 @@ exports.createOrder = async (req, res) => {
  */
 exports.acceptAllNewOrders = async (req, res) => {
   try {
-    const adminEmail = req.user?.email || 'Admin';
-    const result = await orderService.batchAcceptOrders(adminEmail);
+    const result = await orderService.batchAcceptOrders(req.user);
     res.json({ success: true, ...result });
   } catch (error) {
     logger.error('Batch accept error', { error: error.message });

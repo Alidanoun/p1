@@ -1,5 +1,6 @@
 const prisma = require('../lib/prisma');
 const logger = require('../utils/logger');
+const { sanitizeForAudit } = require('../utils/auditSanitizer');
 
 /**
  * 🕵️ Enterprise Audit Service
@@ -23,6 +24,9 @@ class AuditService {
     } = params;
 
     try {
+      // ✅ Sanitize metadata before saving
+      const cleanMetadata = sanitizeForAudit(metadata);
+
       const logEntry = {
         userId,
         userRole,
@@ -31,7 +35,7 @@ class AuditService {
         entityId: entityId?.toString(),
         status,
         severity,
-        metadata,
+        metadata: cleanMetadata,
         ip: req?.ip || req?.headers['x-forwarded-for'] || null,
         userAgent: req?.headers['user-agent'] || null
       };
