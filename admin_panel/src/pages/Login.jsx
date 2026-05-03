@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Lock, Mail, Utensils } from 'lucide-react';
 
@@ -8,7 +9,13 @@ const Login = () => {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   
-  const { login } = useAuth();
+  const { user, login } = useAuth();
+  const location = useLocation();
+
+  // 🛡️ Stateful Redirect: Return user to intended destination or dashboard
+  if (user) {
+    return <Navigate to={location.state?.from || '/'} replace />;
+  }
 
   const handleLogin = async (e) => {
     e.preventDefault();

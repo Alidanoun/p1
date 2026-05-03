@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import { SocketProvider } from './contexts/SocketContext';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
@@ -25,6 +25,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 const ProtectedLayout = ({ children }) => {
   const { user, loading } = useAuth();
   const { theme } = useTheme();
+  const location = useLocation();
   
   if (loading) return (
     <div className="h-screen w-full flex flex-col items-center justify-center bg-background gap-4">
@@ -34,7 +35,8 @@ const ProtectedLayout = ({ children }) => {
   );
   
   if (!user) {
-    return <Navigate to="/login" replace />;
+    // 🛡️ Preserve the intended destination URL
+    return <Navigate to="/login" state={{ from: location.pathname }} replace />;
   }
 
   return (
@@ -75,7 +77,7 @@ function App() {
         <Routes>
           <Route 
             path="/login" 
-            element={user ? <Navigate to="/" replace /> : <Login />} 
+            element={<Login />} 
           />
           
           <Route path="/" element={<ProtectedLayout><LiveDashboard /></ProtectedLayout>} />

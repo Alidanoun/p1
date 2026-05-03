@@ -320,32 +320,44 @@ const LiveOrders = () => {
       }, 2000);
     };
 
-    // 🔄 Standardized Status Updates
-    const handleStatusUpdate = (updatedOrder) => {
+    // 🔄 Standardized Status Updates (Canonical Sync)
+    const handleStatusUpdate = (canonicalOrder) => {
       setOrders(prev => {
-        const index = prev.findIndex(o => o.id === updatedOrder.id || o.id === updatedOrder.orderId);
+        const orderId = canonicalOrder.id;
+        const index = prev.findIndex(o => o.id === orderId);
+        
         if (index === -1) {
-          fetchOrders();
-          return prev;
+          // If order is missing, it might have been archived or is new
+          return [canonicalOrder, ...prev];
         }
 
         const currentOrder = prev[index];
-        const incomingTime = new Date(updatedOrder.updatedAt || new Date()).getTime();
-        const currentTime = new Date(currentOrder.updatedAt || currentOrder.createdAt).getTime();
 
-        if (incomingTime < currentTime) return prev;
+        // 🛡️ [CSS-LAYER] Strict Version Ordering
+        if ((canonicalOrder.version || 0) < (currentOrder.version || 0)) {
+          console.warn(`[CSS] Ignored stale update for #${canonicalOrder.orderNumber}: Incoming v${canonicalOrder.version} < Current v${currentOrder.version}`);
+          return prev;
+        }
 
+        // 🧠 Canonical Overwrite (Source of Truth)
         const newOrders = [...prev];
-        newOrders[index] = { ...newOrders[index], ...updatedOrder };
+        newOrders[index] = canonicalOrder; // Absolute Overwrite
         return newOrders;
       });
 
-      const element = document.getElementById(`order-${updatedOrder.id || updatedOrder.orderId}`);
+      const element = document.getElementById(`order-${canonicalOrder.id}`);
       if (element) {
         element.classList.add('ring-2', 'ring-primary', 'scale-[1.02]');
         setTimeout(() => element.classList.remove('ring-2', 'ring-primary', 'scale-[1.02]'), 2000);
       }
     };
+
+    // 🏥 Periodic State Reconciliation (Catch Drift)
+    const reconciliationInterval = setInterval(() => {
+      console.debug('[CSS] Running periodic state reconciliation...');
+      fetchOrders();
+    }, 30000); // 30s Safety Poll
+
 
     // 🛑 Cancellation Request Alert
     const handleCancellationRequest = ({ order: updatedOrder, level }) => {
@@ -369,6 +381,7 @@ const LiveOrders = () => {
     socket.on('order:cancellation_requested', handleCancellationRequest);
 
     return () => {
+      clearInterval(reconciliationInterval);
       socket.off('order:created', handleNewOrder);
       socket.off('order:updated', handleStatusUpdate);
       socket.off('order:cancellation_requested', handleCancellationRequest);

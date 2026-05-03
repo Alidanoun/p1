@@ -112,6 +112,16 @@ class TokenService {
 
       if (!oldJti) throw new Error('MALFORMED_TOKEN');
 
+      // 🛡️ [PHASE 2] Rate Limit Check: Max 10 refresh attempts per 60 seconds
+      const refreshRateLimitKey = `refresh:rate:${userId}`;
+      const refreshAttempts = await redis.incr(refreshRateLimitKey);
+      if (refreshAttempts === 1) await redis.expire(refreshRateLimitKey, 60);
+
+      if (refreshAttempts > 10) {
+        logger.security('REFRESH_RATE_LIMIT_EXCEEDED', { userId });
+        throw new Error('TOO_MANY_REFRESH_ATTEMPTS');
+      }
+
       // 2. Redis Session Lookup (Source of Truth)
       const sessionKey = `session:${userId}:${oldJti}`;
       const sessionDataRaw = await redis.get(sessionKey);
@@ -163,12 +173,22 @@ class TokenService {
       if (sessionData.status === 'ROTATED') {
         // 🛡️ IP Check: Only allow grace period if the IP matches the one that rotated it
         if (sessionData.rotatedIp !== clientIp) {
-          logger.security('[REFRESH_REUSE_DETECTED] Warning: Rotated token used from different IP.', { userId, oldJti, originalIp: sessionData.rotatedIp, newIp: clientIp });
+          logger.security('[REFRESH_REUSE_FROM_DIFFERENT_IP] Critical: Rotated token used from different IP.', { 
+            userId, 
+            oldJti, 
+            originalIp: sessionData.rotatedIp, 
+            newIp: clientIp 
+          });
           await this.revokeAllSessions(userId);
           throw new Error('SECURITY_BREACH');
         }
 
-        logger.info('[REFRESH_GRACE_ACCEPTED] Race condition handled. Returning idempotent response.', { userId, oldJti });
+        logger.info('[REFRESH_GRACE_ACCEPTED] Idempotent retry handled successfully.', { 
+          userId, 
+          oldJti,
+          withinGracePeriod: true,
+          gracePeriodSeconds: 30
+        });
         return { 
           accessToken: sessionData.idempotentResponse.accessToken, 
           newRefreshToken: { token: sessionData.idempotentResponse.refreshToken },

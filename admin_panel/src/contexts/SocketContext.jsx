@@ -19,7 +19,7 @@ export const SocketProvider = ({ children }) => {
   const [metricsHistory, setMetricsHistory] = useState([]);
   const socketRef = useRef(null);
 
-  const fetchNotifications = async () => {
+  const fetchNotifications = useCallback(async () => {
     try {
       const response = await api.get('/notifications');
       const notificationsList = unwrap(response) || [];
@@ -30,7 +30,7 @@ export const SocketProvider = ({ children }) => {
     } catch (err) {
       console.error('Failed to fetch notifications:', err);
     }
-  };
+  }, []);
 
   const fetchLiveMetrics = useCallback(async () => {
     try {
@@ -51,7 +51,7 @@ export const SocketProvider = ({ children }) => {
     }
   }, [selectedBranchId]);
 
-  const _playBeep = () => {
+  const _playBeep = useCallback(() => {
     try {
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       const oscillator = audioCtx.createOscillator();
@@ -64,14 +64,28 @@ export const SocketProvider = ({ children }) => {
       oscillator.start();
       setTimeout(() => oscillator.stop(), 300);
     } catch(e) { console.error('Audio beep failed', e); }
-  };
+  }, []);
+
+  // 🛡️ Deep Cleanup Utility: Ensures no listeners or ghost connections remain
+  const cleanupSocket = useCallback(() => {
+    if (socketRef.current) {
+      console.log('🔌 [Socket] Deep Cleanup: Removing listeners and disconnecting...');
+      socketRef.current.removeAllListeners();
+      socketRef.current.disconnect();
+      socketRef.current = null;
+      setSocket(null);
+    }
+  }, []);
 
   // 🔄 Create and connect socket with the current token from MEMORY
   const connectSocket = useCallback((token) => {
-    if (socketRef.current) {
-      socketRef.current.close();
-      socketRef.current = null;
+    // 🛡️ [GUARD] Singleton Check: Don't reconnect if we already have a valid connection with the SAME token
+    if (socketRef.current?.connected && socketRef.current.auth?.token === token) {
+      return;
     }
+
+    // 🧹 Kill any existing instance before creating a new one
+    cleanupSocket();
 
     if (!token) return;
 
@@ -85,25 +99,31 @@ export const SocketProvider = ({ children }) => {
       transports: ['websocket']        // Stability optimization
     });
     
+    // 🧪 Debug Exposure: Allow inspection in Console
+    window.socket = newSocket;
+
     newSocket.on('connect', () => {
       console.log('Socket connected:', newSocket.id);
       newSocket.emit('join:admin'); 
       
-      // 🏢 Join Dashboard Context
-      if (selectedBranchId) {
-        newSocket.emit('join:branch:dashboard', { branchId: selectedBranchId });
-      } else {
-        newSocket.emit('join:dashboard');
-      }
+      // 🏢 Join Dashboard Context using unified branch:switch
+      newSocket.emit('branch:switch', { branchId: selectedBranchId }, (response) => {
+        if (response?.success) {
+          console.log(`[Socket] Branch context established: ${response.branchId}`);
+          fetchLiveMetrics();
+        } else {
+          console.error('[Socket] Branch context switch failed:', response?.error);
+        }
+      });
 
       fetchNotifications();
-      fetchLiveMetrics();
     });
 
     newSocket.on('connect_error', (err) => {
       console.error('Socket connection error:', err.message);
-      // We don't manually refresh here anymore. 
-      // The tokenStore listener or next API call will trigger rotation if needed.
+      if (err.message === 'Unauthorized' || err.message === 'UNAUTHORIZED_OR_INACTIVE') {
+         toast.error('فشل الاتصال: الجلسة غير صالحة. يرجى إعادة تسجيل الدخول.');
+      }
     });
 
     // 🧠 LIVE COMMAND CENTER LISTENER
@@ -117,9 +137,10 @@ export const SocketProvider = ({ children }) => {
 
     newSocket.on('reconnect', () => {
       newSocket.emit('join:admin'); 
-      newSocket.emit('join:dashboard');
+      newSocket.emit('branch:switch', { branchId: selectedBranchId }, (res) => {
+        if (res?.success) fetchLiveMetrics();
+      });
       fetchNotifications();
-      fetchLiveMetrics(); 
     });
 
     // 📡 Standardized System Notifications
@@ -153,64 +174,78 @@ export const SocketProvider = ({ children }) => {
       _playBeep();
     });
 
+    // 🛡️ Real-Time Authorization Sync (Force Refresh)
+    newSocket.on('permissions:updated', () => {
+      console.warn('[Socket] Permissions updated on server. Syncing...');
+      newSocket.emit('permissions:refresh', (res) => {
+        if (res?.success) console.log('[Socket] Permissions synced successfully.');
+      });
+    });
+
+    // 🚫 Access Revoked Handler
+    newSocket.on('force:branch:reset', ({ reason }) => {
+      console.error('[Socket] ACCESS REVOKED:', reason);
+      toast.error('تم سحب صلاحية الوصول لهذا الفرع', {
+        description: 'سيتم تحويلك الآن إلى الواجهة الرئيسية.',
+        duration: 8000
+      });
+      setLiveMetrics(null);
+      // Logic to redirect or reset branch state in UI could go here
+      window.location.reload(); // Hard reset for safety
+    });
+
     socketRef.current = newSocket;
     setSocket(newSocket);
-  }, []);
+  }, [selectedBranchId, fetchLiveMetrics, fetchNotifications, cleanupSocket]);
 
   const debouncedBranchId = useDebounce(selectedBranchId, 300);
 
   useEffect(() => {
     if (socketRef.current && debouncedBranchId !== undefined) {
-      // 🔄 Switch Rooms without full reconnect
-      socketRef.current.emit('leave:dashboard');
-      socketRef.current.emit('leave:branch:dashboard');
-
-      if (debouncedBranchId) {
-        socketRef.current.emit('join:branch:dashboard', { branchId: debouncedBranchId });
-      } else {
-        socketRef.current.emit('join:dashboard');
-      }
-      
+      // 🔄 Switch Rooms dynamically using the unified branch:switch event
       setLiveMetrics(null); // Clear while fetching
-      fetchLiveMetrics();
+      
+      socketRef.current.emit('branch:switch', { branchId: debouncedBranchId }, (response) => {
+        if (response?.success) {
+          console.log(`[Socket] Dynamic branch switch successful: ${debouncedBranchId}`);
+          fetchLiveMetrics();
+        } else {
+          console.error('[Socket] Dynamic branch switch failed:', response?.error);
+        }
+      });
     }
   }, [debouncedBranchId, fetchLiveMetrics]);
 
   useEffect(() => {
     // 🛡️ Initialization: Try to connect with whatever is in store
     const initialToken = tokenStore.get();
-    if (initialToken) connectSocket(initialToken);
-
+    if (initialToken) {
+      connectSocket(initialToken);
+      fetchLiveMetrics(); // 🚀 [UI-FIX] Boot metrics via HTTP immediately to avoid stuck UI
+    }
+    
     // 🔄 Reactive Synchronization: Reconnect whenever the token rotates in memory
     const unsubscribe = tokenStore.subscribe((newToken) => {
       if (newToken) {
         console.log('🔄 Socket Context: Token rotated, reconnecting...');
         connectSocket(newToken);
+        // 🚀 [FIX] fetchLiveMetrics() removed here to prevent infinite refresh loops
       } else {
-        if (socketRef.current) {
-          socketRef.current.close();
-          socketRef.current = null;
-          setSocket(null);
-        }
+        cleanupSocket();
       }
     });
 
     return () => {
       unsubscribe();
-      if (socketRef.current) {
-        socketRef.current.close();
-      }
+      cleanupSocket();
     };
-  }, [connectSocket]);
+  }, [connectSocket, cleanupSocket]);
 
-  // 🏥 Socket Health Check: Auto-reconnect if dropped
+  // 🏥 Socket Health Check: Passive monitoring (Let engine handle reconnection)
   useEffect(() => {
-    if (!socketRef.current) return;
-    
     const healthCheck = setInterval(() => {
       if (socketRef.current && !socketRef.current.connected) {
-        console.warn('[Socket] Disconnected, attempting proactive reconnect...');
-        socketRef.current.connect();
+        console.warn('[Socket] Connection lost. Built-in engine is handling retry...');
       }
     }, 30000); // Check every 30s
     

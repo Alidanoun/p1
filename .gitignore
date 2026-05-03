@@ -17,3 +17,6 @@ al_markazia_backend/*.json
 !al_markazia_backend/package-lock.json
 firebase-service-account.json
 **/firebase-service-account.json
+scratch/
+*.log
+test_security.js

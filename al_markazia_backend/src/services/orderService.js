@@ -925,25 +925,50 @@ class OrderService {
    * 🏢 Helper: Resolves a branch ID from various inputs (ID, code, or fallback to default)
    */
   async _resolveBranchId(input) {
+    if (!input) {
+      throw new Error('BRANCH_REQUIRED: Order creation requires a valid branch context.');
+    }
+
     // 1. If it's already a valid UUID of an existing branch
-    if (input && input.length > 30) {
+    if (input.length > 30) {
       const branch = await prisma.branch.findUnique({ where: { id: input }, select: { id: true } });
+      logger.debug(`[_resolveBranchId] UUID check result for ${input}:`, { branch });
       if (branch) return branch.id;
     }
 
-    // 2. If it's a code (e.g. 'MAIN_BRANCH' or 'CITY_STREET')
-    if (input && typeof input === 'string') {
-      const branch = await prisma.branch.findUnique({ where: { code: input }, select: { id: true } });
+    // 2. If it's a code (e.g. 'KHALDA' or 'CITY')
+    if (typeof input === 'string') {
+      let branch = await prisma.branch.findUnique({ where: { code: input }, select: { id: true } });
+      
+      // 🕵️ Fallback: Search by Name if code doesn't match (handles Arabic names from app)
+      if (!branch) {
+        logger.debug(`[_resolveBranchId] Code mismatch for "${input}", trying Name lookup...`);
+        branch = await prisma.branch.findFirst({ 
+          where: { 
+            OR: [
+              { name: { contains: input, mode: 'insensitive' } },
+              { name: input }
+            ]
+          }, 
+          select: { id: true } 
+        });
+      }
+
+      // 🕵️ Extreme Fallback: Handle "فرع ..." prefix if app sends it
+      if (!branch && input.includes('فرع')) {
+        const cleanName = input.replace('فرع', '').trim();
+        branch = await prisma.branch.findFirst({
+          where: { name: { contains: cleanName, mode: 'insensitive' } },
+          select: { id: true }
+        });
+      }
+
+      logger.debug(`[_resolveBranchId] Resolution result for "${input}":`, { branch });
       if (branch) return branch.id;
     }
 
-    // 3. Fallback to MAIN_BRANCH
-    const defaultBranch = await prisma.branch.findFirst({ 
-      where: { code: 'MAIN_BRANCH' }, 
-      select: { id: true } 
-    });
-
-    return defaultBranch?.id || null;
+    // 🚫 Strict Branch Context: If not found, reject order.
+    throw new Error('INVALID_BRANCH: The specified branch does not exist.');
   }
 
   /**

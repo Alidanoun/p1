@@ -113,7 +113,7 @@ class MaintenanceService {
             level: 'danger',
             type: 'NOTIFICATION_FAILURE'
           };
-          io.to('admins').emit('system_alert', alert);
+          io.to('room:admin:global').emit('system_alert', alert);
           logger.warn('System Alert Triggered: High Notification Failure');
         }
 
@@ -125,7 +125,7 @@ class MaintenanceService {
             level: 'warning',
             type: 'CANCELLATION_SPIKE'
           };
-          io.to('admins').emit('system_alert', alert);
+          io.to('room:admin:global').emit('system_alert', alert);
           logger.warn('System Alert Triggered: Cancellation Spike');
         }
       }

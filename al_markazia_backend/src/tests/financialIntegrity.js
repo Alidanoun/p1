@@ -8,6 +8,7 @@ const logger = require('../utils/logger');
  */
 function runIntegrityTests() {
   logger.info('🧪 Running Financial Safety Layer Handshake...');
+  const results = [];
   
   // Phase 1: Property Tests (Math Consistency)
   const accountingPassed = runAccountingTests();

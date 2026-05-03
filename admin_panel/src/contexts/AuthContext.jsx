@@ -60,24 +60,8 @@ export const AuthProvider = ({ children }) => {
     return saved && saved !== 'null' ? saved : null;
   });
 
-  // 🔄 Cross-Tab Synchronization: Sync branch change across all open tabs
-  useEffect(() => {
-    const channel = new BroadcastChannel('branch_sync');
-    
-    channel.onmessage = (event) => {
-      if (event.data.type === 'BRANCH_CHANGED') {
-        setSelectedBranchId(event.data.branchId);
-      }
-    };
-
-    return () => channel.close();
-  }, []);
-
   const changeBranch = (branchId) => {
     setSelectedBranchId(branchId);
-    const channel = new BroadcastChannel('branch_sync');
-    channel.postMessage({ type: 'BRANCH_CHANGED', branchId });
-    channel.close();
   };
 
   useEffect(() => {
