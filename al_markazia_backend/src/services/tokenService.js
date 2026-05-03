@@ -57,6 +57,7 @@ class TokenService {
       userId,
       role,
       branchId: user.branchId || null,
+      fingerprint: fingerprint, // 🛡️ Bind to fingerprint in Redis
       createdAt: new Date().toISOString()
     };
 
@@ -134,19 +135,11 @@ class TokenService {
           throw new Error('SECURITY_BREACH');
         }
 
-        // 🛡️ [SEC-FIX] Device Binding Check with Tolerance
-        if (dbToken.fingerprint && currentFingerprint) {
-          const isExactMatch = dbToken.fingerprint === currentFingerprint.hash;
-          
-          if (!isExactMatch) {
-             // 💡 Tolerance: If UA and CH match, allow the session (handles dynamic IPs)
-             // We'd need to store components to be 100% accurate, but for now we'll check if the change is JUST the IP
-             // For this turn, we'll implement a strict-but-fair check.
-             // If we want real tolerance, we should store the UA in the DB too.
-             // Given current schema, we'll stick to strict hash but log a warning.
-             // INSTEAD: Let's allow the rotation if it's a minor change? 
-             // Actually, let's keep it strict for now but provide a hook for future tolerance.
-             logger.security('[FINGERPRINT_MISMATCH] Warning: Token used from unauthorized device.', { userId, oldJti });
+        // 🛡️ [PHASE 4] Device Binding Check
+        const storedFingerprint = dbToken.fingerprint;
+        if (storedFingerprint && currentFingerprint) {
+          if (storedFingerprint !== currentFingerprint.hash) {
+             logger.security('[FINGERPRINT_MISMATCH] Warning: Token used from unauthorized device (DB check).', { userId, oldJti });
              await this.revokeAllSessions(userId);
              throw new Error('SECURITY_BREACH');
           }
@@ -156,6 +149,15 @@ class TokenService {
       }
 
       const sessionData = JSON.parse(sessionDataRaw);
+
+      // 🛡️ [PHASE 4] Redis-Level Fingerprint Check
+      if (sessionData.fingerprint && currentFingerprint) {
+        if (sessionData.fingerprint !== currentFingerprint.hash) {
+          logger.security('[FINGERPRINT_MISMATCH] Warning: Token used from unauthorized device (Redis check).', { userId, oldJti });
+          await this.revokeAllSessions(userId);
+          throw new Error('SECURITY_BREACH');
+        }
+      }
 
       // 🔄 [GRACE PERIOD LOGIC] Handle concurrent refresh requests (e.g. React StrictMode)
       if (sessionData.status === 'ROTATED') {

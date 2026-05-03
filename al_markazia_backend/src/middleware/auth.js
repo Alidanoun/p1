@@ -42,6 +42,25 @@ const authenticateToken = async (req, res, next) => {
       branchId: decoded.branchId || null,
       jti: jti
     };
+
+    // 🛡️ [PHASE 3] User Integrity Check (High-Speed)
+    const SecurityPolicyService = require('../services/securityPolicyService');
+    const FeatureFlagsService = require('../services/featureFlagsService');
+
+    if (await FeatureFlagsService.isEnabled('ENFORCE_USER_STATUS_CHECK')) {
+      try {
+        const status = await SecurityPolicyService.checkUserStatus(userId);
+        if (status.isBlacklisted || !status.isActive) {
+          logger.security('BANNED_USER_ACCESS_ATTEMPT', { userId, status, ip: req.ip });
+          return responseError(res, 'تم إيقاف حسابك، يرجى التواصل مع الإدارة', 'USER_SUSPENDED', 403);
+        }
+      } catch (err) {
+        if (err.message === 'IDENTITY_NOT_FOUND') {
+          return responseError(res, 'المستخدم غير موجود', 'USER_NOT_FOUND', 401);
+        }
+        logger.error('[AuthIntegrity] Status check failed, falling back to permissive', { error: err.message });
+      }
+    }
     
     const { runInContext } = require('../utils/securityContext');
     runInContext(req.user, () => next());

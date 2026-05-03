@@ -207,27 +207,27 @@ class NotificationService {
         this.io.emit(SOCKET_EVENTS.NOTIFICATION_NEW, payload);
       }
       
-      // 🛡️ [v2:POLICY-LAYER] Strict Event Ownership Dispatch
-      const branchPolicy = require('../policies/branchPolicy');
+      // 🛡️ [PHASE 2] Real-Time Isolation Layer
+      const SecurityPolicyService = require('./securityPolicyService');
       
       const eventMeta = {
         type: notif.type,
         branchId: order?.branchId,
         customerUuid: order?.customer?.uuid || order?.customerId
       };
-
-      const targetRooms = await branchPolicy.getTargetRooms(eventMeta);
-      const wrappedPayload = branchPolicy.wrapPayload(payload, 1);
-
+ 
+      const targetRooms = await SecurityPolicyService.getTargetRooms(eventMeta);
+      const wrappedPayload = SecurityPolicyService.wrapPayload(payload);
+ 
       if (target.isToAdmin) {
         const eventName = notif.type === 'order_created' 
           ? SOCKET_EVENTS.ORDER_CREATED 
           : SOCKET_EVENTS.ORDER_UPDATED;
         
         targetRooms.forEach(room => {
-          if (room.startsWith('room:admin') || room.startsWith('room:branch')) {
+          if (room.includes('admin') || room.includes('branch')) {
             this.io.to(room).emit(eventName, wrappedPayload);
-            logger.debug(`[POLICY v2] Event '${eventName}' routed to: ${room}`);
+            logger.debug(`[SecurityPolicy] Event '${eventName}' routed to: ${room}`);
           }
         });
       }

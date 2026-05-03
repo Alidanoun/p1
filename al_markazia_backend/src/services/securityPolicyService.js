@@ -64,6 +64,67 @@ class SecurityPolicyService {
   }
 
   /**
+   * Identifies target Socket.IO rooms for a user or an event.
+   * @param {Object} context - User object or Event metadata.
+   * @returns {Promise<string[]>} List of room identifiers.
+   */
+  static async getTargetRooms(context) {
+    const rooms = new Set();
+
+    // Case 1: Context is a User (for joining rooms on connect)
+    if (context.id && context.role) {
+      rooms.add(`room:user:${context.id}`);
+      
+      if (['super_admin', 'admin'].includes(context.role)) {
+        rooms.add('room:admin:global');
+      }
+
+      if (context.branchId) {
+        rooms.add(`room:admin:branch:${context.branchId}`);
+      }
+      
+      // If user has linked branches, join those too
+      const cacheKey = `user:branches:${context.id}`;
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        JSON.parse(cached).forEach(bid => rooms.add(`room:admin:branch:${bid}`));
+      }
+    } 
+    
+    // Case 2: Context is an Event (for emitting notifications)
+    else {
+      const { branchId, customerUuid } = context;
+      
+      // Always notify global admins
+      rooms.add('room:admin:global');
+
+      if (branchId) {
+        rooms.add(`room:admin:branch:${branchId}`);
+      }
+
+      if (customerUuid) {
+        rooms.add(`room:user:${customerUuid}`);
+      }
+    }
+
+    return Array.from(rooms);
+  }
+
+  /**
+   * Wraps a payload with security metadata.
+   */
+  static wrapPayload(data, version = '3.0') {
+    return {
+      metadata: {
+        version,
+        timestamp: Date.now(),
+        policy: 'EnterpriseSecurity:Harden:v3'
+      },
+      data
+    };
+  }
+
+  /**
    * Performs a high-speed status check for a user.
    * @param {string} userId - UUID of the user.
    * @returns {Promise<Object>} Status details { isActive, isBlacklisted }.
