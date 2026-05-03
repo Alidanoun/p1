@@ -40,6 +40,13 @@ class WorkingHoursService {
       }
 
       const now = DateTime.now().setZone(settings.timezone);
+      const nowJordan = now.setZone('Asia/Amman'); // 🇯🇴 Explicit Jordan Time
+      
+      logger.debug('[WorkingHours] check', { 
+        now: nowJordan.toFormat('yyyy-MM-dd HH:mm:ss'),
+        day: nowJordan.weekday === 7 ? 0 : nowJordan.weekday,
+        timezone: settings.timezone 
+      });
 
       // 🛠️ Define Helper Variables early
       const getM = (t) => {
@@ -47,13 +54,14 @@ class WorkingHoursService {
         const [h, m] = t.split(':').map(Number);
         return h * 60 + m;
       };
-      const nowM = now.hour * 60 + now.minute;
+      const nowM = nowJordan.hour * 60 + nowJordan.minute;
       const graceM = settings.lastOrderMinutesBeforeClose || 0;
 
       // 3. Check Emergency Closure (Hard Close)
       if (settings.isEmergencyClosed) {
         // 🛡️ Auto-Reopen Logic: Check if timed closure has expired
-        const hasReopened = settings.reopenAt && now >= DateTime.fromJSDate(settings.reopenAt).setZone(settings.timezone);
+        const reopenAtJordan = settings.reopenAt ? DateTime.fromJSDate(settings.reopenAt).setZone('Asia/Amman') : null;
+        const hasReopened = reopenAtJordan && nowJordan >= reopenAtJordan;
         
         if (!hasReopened) {
           const status = {
@@ -61,7 +69,7 @@ class WorkingHoursService {
             isEmergency: true,
             closureType: settings.reopenAt ? 'temporary' : 'emergency',
             reason: settings.closureReason || 'المطعم مغلق حالياً لأسباب فنية',
-            nextOpenAt: settings.reopenAt ? DateTime.fromJSDate(settings.reopenAt).toISO() : null
+            nextOpenAt: reopenAtJordan ? reopenAtJordan.toISO() : null
           };
           nodeCache.set(this.CACHE_KEY, status, this.CACHE_TTL);
           return status;
@@ -82,7 +90,7 @@ class WorkingHoursService {
       }
 
       // ✅ [SHIFT-FIX] Part A: Check Yesterday's Late-Night Shift
-      const yesterday = now.minus({ days: 1 });
+      const yesterday = nowJordan.minus({ days: 1 });
       const yesterdayDayOfWeek = yesterday.weekday === 7 ? 0 : yesterday.weekday;
       const yesterdaySchedule = schedule.find(s => s.dayOfWeek === yesterdayDayOfWeek);
 
@@ -96,7 +104,13 @@ class WorkingHoursService {
             isOpen: true, 
             isClosed: false,
             isEmergency: false,
-            closingAt: yesterdaySchedule.closeTime, 
+            // 🛡️ Format Fix: Flutter expects ISO String for DateTime.parse
+            closingAt: nowJordan.set({ 
+              hour: Number(yesterdaySchedule.closeTime.split(':')[0]), 
+              minute: Number(yesterdaySchedule.closeTime.split(':')[1]),
+              second: 0,
+              millisecond: 0
+            }).toISO(),
             source: 'yesterday_shift',
             isLateNight: true 
           };
@@ -106,11 +120,11 @@ class WorkingHoursService {
       }
 
       // ✅ [SHIFT-FIX] Part B: Check Today's Regular Shift
-      const dayOfWeek = now.weekday === 7 ? 0 : now.weekday; 
+      const dayOfWeek = nowJordan.weekday === 7 ? 0 : nowJordan.weekday; 
       const todaySchedule = schedule.find(s => s.dayOfWeek === dayOfWeek);
 
       if (!todaySchedule || todaySchedule.isClosed) {
-        const status = await this._getClosedStatus(now, schedule, settings);
+        const status = await this._getClosedStatus(nowJordan, schedule, settings);
         nodeCache.set(this.CACHE_KEY, status, this.CACHE_TTL);
         return status;
       }
@@ -131,9 +145,15 @@ class WorkingHoursService {
             isOpen: true, 
             isClosed: false,
             isEmergency: false,
-            closingAt: todaySchedule.closeTime 
+            // 🛡️ Format Fix: Flutter expects ISO String for DateTime.parse
+            closingAt: nowJordan.set({ 
+              hour: Number(todaySchedule.closeTime.split(':')[0]), 
+              minute: Number(todaySchedule.closeTime.split(':')[1]),
+              second: 0,
+              millisecond: 0
+            }).toISO()
           }
-        : await this._getClosedStatus(now, schedule, settings);
+        : await this._getClosedStatus(nowJordan, schedule, settings);
 
       nodeCache.set(this.CACHE_KEY, status, this.CACHE_TTL);
       return status;

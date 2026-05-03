@@ -293,6 +293,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final checkout = context.watch<CheckoutController>();
+    final auth = context.watch<AuthController>(); // 🛡️ Watch auth state for reactive UI updates
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
       appBar: AppBar(title: Text(AppLocalizations.of(context)!.confirmOrder)),
@@ -737,11 +739,26 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: (checkout.isLoading || !checkout.isMinOrderSatisfied) ? null : _confirmOrder,
-                  style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
+                  onPressed: (checkout.isLoading || !checkout.isMinOrderSatisfied) 
+                    ? null 
+                    : () {
+                        if (!auth.isAuthenticated) {
+                          // 🔐 Redirect to login if session lost
+                          Navigator.push(context, MaterialPageRoute(builder: (_) => const AuthScreen()));
+                        } else {
+                          _confirmOrder();
+                        }
+                      },
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    backgroundColor: auth.isAuthenticated ? null : Colors.orange.shade700, // 🛡️ Visual cue for login needed
+                  ),
                   child: checkout.isLoading 
                     ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
-                    : Text(l10n.confirmOrderNow, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    : Text(
+                        auth.isAuthenticated ? l10n.confirmOrderNow : l10n.loginTitle, 
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)
+                      ),
                 ),
               )
             ],

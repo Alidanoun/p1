@@ -20,7 +20,7 @@ module.exports = {
     const connections = new Map();
 
     // --- 🛡️ SECURITY: JWT Handshake Middleware ---
-    io.use((socket, next) => {
+    io.use(async (socket, next) => {
       try {
         const token = socket.handshake.auth?.token || socket.handshake.headers['x-auth-token'];
         if (!token) {
@@ -32,6 +32,18 @@ module.exports = {
         const { ROLES } = require('./shared/socketEvents');
         const role = (decoded.role || ROLES.CUSTOMER).toLowerCase();
         const userId = decoded.id;
+        const prisma = require('./lib/prisma');
+        
+        // 🛡️ [SEC-FIX] DB is the Truth: Validate user existence and status
+        const dbUser = await prisma.user.findUnique({ 
+          where: { uuid: userId },
+          select: { id: true, isActive: true, branchId: true, role: true }
+        });
+
+        if (!dbUser || !dbUser.isActive) {
+          logger.security('🔌 [Socket] Connection rejected: User not found or inactive', { userId });
+          return next(new Error('UNAUTHORIZED_OR_INACTIVE'));
+        }
 
         // 🛡️ [SEC-FIX] Concurrent Connection Limit
         const userConnections = connections.get(userId) || 0;
@@ -41,7 +53,12 @@ module.exports = {
         }
 
         connections.set(userId, userConnections + 1);
-        socket.user = { id: userId, phone: decoded.phone, role };
+        socket.user = { 
+          id: userId, 
+          dbId: dbUser.id,
+          role: dbUser.role.toLowerCase(), 
+          branchId: dbUser.branchId 
+        };
 
         socket.on('disconnect', () => {
           const current = connections.get(userId) || 1;
@@ -58,14 +75,32 @@ module.exports = {
 
     const trackingService = require('./services/trackingService');
     const { SOCKET_ROOMS } = require('./shared/socketEvents');
+    const branchPolicy = require('./policies/branchPolicy');
 
-    io.on('connection', (socket) => {
-      const { id: userId, role } = socket.user;
+    io.on('connection', async (socket) => {
+      const { id: userId, role, branchId } = socket.user;
 
-      if (role === 'admin') {
-        socket.join(['admins', 'system-logs']);
-        logger.debug('🛡️ Admin joined monitoring channels', { socketId: socket.id });
+      // 🛡️ [v2:POLICY-LAYER] Dynamic Boundary Management
+      // Use policy to determine which admin/branch rooms to join
+      const rooms = await branchPolicy.getTargetRooms({ branchId });
+      
+      rooms.forEach(room => {
+        // Super admin joins global, managers join branch-only
+        if (role === 'super_admin' || role === 'admin') {
+          socket.join(room);
+        } else if ((role === 'branch_manager' || role === 'manager') && room.includes(branchId)) {
+          socket.join(room);
+        }
+      });
+
+      if (role === 'super_admin' || role === 'admin') {
+        socket.join('room:system:logs');
       }
+
+      // 👤 Private User Room (The ultimate boundary)
+      socket.join(`room:user:${userId}`);
+      
+      logger.debug(`🛡️ v2 Boundary Sync Complete for user ${userId} [${role}]`);
 
       // 🛰️ Join Tracking Room
       socket.on('tracking:join', async ({ orderId }) => {

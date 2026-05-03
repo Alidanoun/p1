@@ -176,7 +176,9 @@ class TokenService {
 
       // 3. Resolve Identity (Only if not rotated)
       let user;
-      if (role === 'admin' || role === 'super_admin') {
+      const isAdminRole = ['admin', 'super_admin', 'branch_manager', 'manager'].includes(role);
+      
+      if (isAdminRole) {
         user = await prisma.user.findFirst({ where: { uuid: userId } });
       } else {
         user = await prisma.customer.findFirst({ where: { uuid: userId } });
@@ -221,8 +223,8 @@ class TokenService {
         });
       }
 
-      // 🕒 MARK AS ROTATED (Grace Period: 30s)
-      // Instead of deleting, we keep it as a 'ghost' session to handle idempotent retries
+      // 🕒 MARK AS ROTATED (Grace Period: 60s)
+      // Increased from 30s to 60s to handle slow networks/proxies
       const gracePeriodData = {
         status: 'ROTATED',
         rotatedAt: new Date().toISOString(),
@@ -232,9 +234,14 @@ class TokenService {
           refreshToken: newRefreshTokenString
         }
       };
-      await redis.set(sessionKey, JSON.stringify(gracePeriodData), 'EX', 30);
+      await redis.set(sessionKey, JSON.stringify(gracePeriodData), 'EX', 60);
 
-      logger.info('[REFRESH_ROTATION] Token successfully rotated.', { userId, oldJti, newJti });
+      logger.info('[REFRESH_ROTATION] Token successfully rotated.', { 
+        userId, 
+        oldJti, 
+        newJti,
+        ip: clientIp 
+      });
 
       return { 
         accessToken, 

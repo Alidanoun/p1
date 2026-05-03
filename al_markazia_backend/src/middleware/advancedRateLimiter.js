@@ -15,7 +15,7 @@ const refreshTokenLimiter = rateLimit({
     prefix: 'rl:refresh:',
   }),
   windowMs: 15 * 60 * 1000, // 15 دقيقة
-  max: 15, // 15 محاولات فقط
+  max: 100, // تم الرفع من 15 إلى 100 لتفادي مشاكل الـ Refresh المتكرر في التطوير
   message: {
     success: false,
     error: 'كثرة محاولات تجديد الجلسة، يرجى الانتظار',
@@ -23,7 +23,7 @@ const refreshTokenLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  validate: { xForwardedForHeader: false, ip: false }, // Suppress IPv6 warnings if behind proxy
+  validate: false, // 🛡️ Fix for ERR_ERL_KEY_GEN_IPV6
   keyGenerator: (req) => {
     const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
     const ua = req.headers['user-agent'] || 'unknown';
@@ -53,7 +53,7 @@ const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 دقيقة
   max: 10, // 10 محاولات فقط
   skipSuccessfulRequests: true,
-  validate: { ip: false },
+  validate: false,
   keyGenerator: (req) => {
     const email = req.body.email || 'unknown';
     const ip = req.ip || 'unknown';
@@ -81,7 +81,7 @@ const otpLimiter = rateLimit({
   }),
   windowMs: 60 * 60 * 1000, // ساعة واحدة
   max: 5, // 5 محاولات فقط
-  validate: { ip: false },
+  validate: false,
   keyGenerator: (req) => {
     return req.body.email || req.ip || 'unknown';
   },
@@ -107,7 +107,7 @@ const apiLimiter = rateLimit({
   }),
   windowMs: 1 * 60 * 1000, // دقيقة واحدة
   max: 200, // 200 طلب في الدقيقة
-  validate: { ip: false },
+  validate: false,
   keyGenerator: (req) => {
     if (req.user && req.user.id) {
       return `user:${req.user.id}`;
@@ -137,7 +137,7 @@ const uploadLimiter = rateLimit({
   }),
   windowMs: 60 * 60 * 1000, // ساعة واحدة
   max: 30, // 30 تحميل في الساعة
-  validate: { ip: false },
+  validate: false,
   keyGenerator: (req) => {
     return req.user?.id || req.ip || 'unknown';
   }

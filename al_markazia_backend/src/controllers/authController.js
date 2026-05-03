@@ -49,13 +49,9 @@ const refreshCookieOptions = (req) => {
 
 // ── Helper: Clear Cookie with same options ──
 const clearRefreshCookie = (req, res) => {
-  const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https';
-  res.clearCookie('refreshToken', { 
-    path: '/auth/refresh',
-    httpOnly: true,
-    secure: isSecure,
-    sameSite: isSecure ? 'none' : 'lax'
-  });
+  const options = refreshCookieOptions(req);
+  delete options.maxAge; // Not needed for clear
+  res.clearCookie('refreshToken', options);
 };
 
 
@@ -81,6 +77,11 @@ const refreshToken = async (req, res) => {
   try {
     // 🛡️ Enhanced Token Retrieval: Support both Cookie (Web) and Body (Mobile)
     const rawToken = req.cookies?.refreshToken || req.body?.refreshToken;
+    logger.debug('Refresh attempt received', { 
+      hasCookie: !!req.cookies?.refreshToken, 
+      cookieKeys: Object.keys(req.cookies || {}),
+      ip: req.ip 
+    });
     const oldRefreshToken = sanitizeToken(rawToken);
 
     if (!oldRefreshToken) throw new Error('MISSING_REFRESH_TOKEN');
@@ -91,13 +92,7 @@ const refreshToken = async (req, res) => {
     const { accessToken, newRefreshToken, user } = await TokenService.validateAndRotate(oldRefreshToken, clientIp, currentFingerprint);
 
     // 🛡️ Cookie Hardening
-    res.cookie('refreshToken', newRefreshToken.token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'Strict',
-      path: '/auth/refresh',
-      maxAge: 7 * 24 * 60 * 60 * 1000
-    });
+    res.cookie('refreshToken', newRefreshToken.token, refreshCookieOptions(req));
 
     await auditService.log({
       userId: user.uuid,
@@ -136,7 +131,10 @@ const login = async (req, res) => {
     // 🛡️ [SEC-FIX] Lockout Key: IP + Email to prevent global user DoS
     const lockoutKey = `${req.ip}_${cleanEmail}`;
     
-    const user = await prisma.user.findUnique({ where: { email: cleanEmail } });
+    const user = await prisma.user.findUnique({ 
+      where: { email: cleanEmail },
+      include: { branch: true }
+    });
     const customer = !user ? await prisma.customer.findUnique({ where: { email: cleanEmail } }) : null;
     const account = user || customer;
 
@@ -231,13 +229,7 @@ const login = async (req, res) => {
     const accessToken = TokenService.generateAccessToken(account, jti);
 
     // 🛡️ Cookie Hardening (Level 5 Security)
-    res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'Strict', // Standard Strict for same-domain SPAs
-      path: '/auth/refresh', // Restricted path
-      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-    });
+    res.cookie('refreshToken', refreshToken, refreshCookieOptions(req));
 
     await auditService.log({
       userId: account.uuid,
@@ -256,7 +248,8 @@ const login = async (req, res) => {
         name: account.name,
         phone: account.phone,
         role: account.role || 'customer',
-        branchId: account.branchId || null
+        branchId: account.branchId || null,
+        branchName: user?.branch?.name || null
       } 
     });
   } catch (error) {
@@ -287,7 +280,10 @@ const getMe = async (req, res) => {
     let user = null;
     const isAdminRole = ['admin', 'super_admin', 'branch_manager', 'manager'].includes(req.user.role);
     if (isAdminRole) {
-      user = await prisma.user.findUnique({ where: { uuid: req.user.id } });
+      user = await prisma.user.findUnique({ 
+        where: { uuid: req.user.id },
+        include: { branch: true }
+      });
     } else {
       user = await prisma.customer.findUnique({ where: { uuid: req.user.id } });
     }
@@ -305,6 +301,7 @@ const getMe = async (req, res) => {
         name: user.name || null,
         role: user.role || 'customer',
         branchId: user.branchId || null,
+        branchName: user.branch?.name || null,
         points: user.points ?? 0,
         tier: user.tier || 'SILVER'
       } 

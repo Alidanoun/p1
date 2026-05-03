@@ -37,9 +37,7 @@ exports.getOrders = async (req, res) => {
   try {
     const result = await orderService.getOrders({
       ...req.query,
-      userRole: req.user.role,
-      userBranchId: req.user.branchId,
-      branchId: req.query.branchId
+      userId: req.user.id
     });
     res.json({
       success: true,
@@ -65,9 +63,7 @@ exports.getOrdersReport = async (req, res) => {
   try {
     const result = await orderService.getOrdersReport({
       ...req.query,
-      userRole: req.user.role,
-      userBranchId: req.user.branchId,
-      branchId: req.query.branchId
+      userId: req.user.id
     });
     res.json({
       success: true,

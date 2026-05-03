@@ -29,36 +29,38 @@ class ApiService {
 
   /// 🏥 Fetch Restaurant Operational Status
   Future<RestaurantStatus> fetchRestaurantStatus() async {
-    try {
+    return _withRetry(() async {
       final response = await http.get(Uri.parse('$baseUrl/restaurant/status'))
-          .timeout(const Duration(seconds: 5));
+          .timeout(const Duration(seconds: 8));
       
       if (response.statusCode == 200) {
         final decoded = json.decode(utf8.decode(response.bodyBytes));
         return RestaurantStatus.fromJson(decoded['data']);
       }
-      // 🛡️ Fail-Close: If status is uncertain, assume closed
-      return RestaurantStatus(isOpen: false, isEmergency: true, reason: 'عذراً، لا يمكن التحقق من حالة المطعم حالياً');
-    } catch (e) {
-      debugPrint('🚨 [Fail-Close] Restaurant status check failed: $e');
-      return RestaurantStatus(isOpen: false, isEmergency: true, reason: 'لا يوجد اتصال بالسيرفر');
-    }
+      
+      // If we get an error but not a timeout/network issue, we still return a fallback
+      // but _withRetry will handle retries for network issues.
+      return RestaurantStatus(
+        isOpen: false, 
+        isEmergency: true, 
+        reason: 'تعذر الحصول على حالة المطعم (خطأ ${response.statusCode})'
+      );
+    }, maxAttempts: 2);
   }
 
   /// 🎁 Fetch Happy Hour / Loyalty Status
   Future<Map<String, dynamic>> fetchLoyaltyStatus() async {
-    try {
-      final response = await http.get(Uri.parse('$baseUrl/loyalty/status'))
-          .timeout(const Duration(seconds: 5));
+    return _withRetry(() async {
+      final heads = await _headers;
+      final response = await http.get(Uri.parse('$baseUrl/loyalty/status'), headers: heads)
+          .timeout(const Duration(seconds: 8));
       
       if (response.statusCode == 200) {
         final decoded = json.decode(utf8.decode(response.bodyBytes));
         return decoded['data'] ?? {};
       }
-    } catch (e) {
-      debugPrint('Loyalty Status Error: $e');
-    }
-    return {'isHappyHourEnabled': false};
+      return {'isHappyHourEnabled': false};
+    }, maxAttempts: 2);
   }
 
   Future<bool> subscribeToReopening(String fcmToken, String nextOpenAt) async {

@@ -35,17 +35,11 @@ class OrderService {
     }
     if (status) where.status = status;
 
-    // 🏢 Multi-Branch Isolation (Hardened)
-    const normalizedRole = query.userRole?.toLowerCase();
-    const isAdmin = ["admin", "super_admin"].includes(normalizedRole);
-    const isBranchManager = normalizedRole === "branch_manager" || normalizedRole === "manager";
-    
-    if (isBranchManager) {
-      // Force manager to their own branch
-      where.branchId = query.userBranchId || 'NONE'; 
-    } else if (isAdmin && query.branchId) {
-      where.branchId = query.branchId;
-    }
+    // 🏢 Multi-Branch Isolation (v2.1: Hardened CBAC)
+    const branchPolicy = require('../policies/branchPolicy');
+    const isolationFilter = await branchPolicy.getHardenedFilter(query.userId, query.branchId);
+
+    Object.assign(where, isolationFilter);
 
     const pageNum = page ? Math.max(1, parseInt(page)) : null;
     const limitNum = limit ? Math.min(1000, parseInt(limit)) : 500;
@@ -123,17 +117,11 @@ class OrderService {
       ];
     }
 
-    // 🏢 Multi-Branch Isolation (Hardened)
-    const normalizedRole = query.userRole?.toLowerCase();
-    const isAdmin = ["admin", "super_admin"].includes(normalizedRole);
-    const isBranchManager = normalizedRole === "branch_manager" || normalizedRole === "manager";
+    // 🏢 Multi-Branch Isolation (v2.1: Hardened CBAC)
+    const branchPolicy = require('../policies/branchPolicy');
+    const isolationFilter = await branchPolicy.getHardenedFilter(query.userId, query.branchId);
 
-    if (isBranchManager) {
-      // Force manager to their own branch
-      where.branchId = query.userBranchId || 'NONE';
-    } else if (isAdmin && query.branchId) {
-      where.branchId = query.branchId;
-    }
+    Object.assign(where, isolationFilter);
 
     const [orders, total, statusCounts] = await Promise.all([
       prisma.order.findMany({
@@ -820,11 +808,13 @@ class OrderService {
       type: eventTypes.ORDER_CREATED,
       aggregateId: mappedOrder.id,
       payload: {
-        ...mappedOrder,
-        id: newOrder.id,
-        customerId: newOrder.customerId,
-        customerPhone: newOrder.customer?.phone || null,
-        customer: newOrder.customer
+        order: {
+          ...mappedOrder,
+          id: newOrder.id,
+          customerId: newOrder.customerId,
+          customerPhone: newOrder.customer?.phone || null,
+          customer: newOrder.customer
+        }
       },
       version: 1,
       tenantId: mappedOrder.tenantId

@@ -71,32 +71,41 @@ class AuthController extends ChangeNotifier {
 
       // 1. Check for existing access token
       if (await session.hasSession) {
+        debugPrint('✅ [Auth] Valid session found in storage.');
         _status = AuthStatus.authenticated;
         _prefetchData();
       } 
-      // 2. 🔄 Silent Refresh Attempt: Try to restore session if we have a refresh token
+      // 🛡️ Silent Restoration Flow (Refresh Token exists but Access Token is missing/expired)
       else if (await session.refreshToken != null || (storage.isBiometricEnabled && await session.biometricToken != null)) {
         debugPrint('🔄 [Auth] Access token missing. Attempting silent session restoration...');
-        final success = await ApiService.instance.refreshTokens() != null;
         
-        if (success) {
-          _status = AuthStatus.authenticated;
-          _prefetchData();
-        } else {
+        try {
+          final success = await ApiService.instance.refreshTokens() != null;
+          if (success) {
+            _status = AuthStatus.authenticated;
+            _prefetchData();
+          } else {
+            // 🚨 Refresh failed definitively (e.g., 401 or 403 on refresh)
+            _status = _getUnauthStatus(storage);
+          }
+        } catch (e) {
+          // ⚠️ Network error during refresh - don't log out yet, just stay unauthenticated but allow retry
+          debugPrint('⚠️ [Auth] Network error during session restoration: $e');
           _status = _getUnauthStatus(storage);
         }
-      }
-      // 3. Unauthenticated
+      } 
       else {
         _status = _getUnauthStatus(storage);
       }
-    } catch (e) {
-      debugPrint('⚠️ Auth Init Error: $e');
-      _status = AuthStatus.unauthenticated;
+    } finally {
+      _initialized = true;
+      await _refreshBiometricState();
+      notifyListeners();
     }
+  }
 
-    await _refreshBiometricState();
-    notifyListeners();
+  AuthStatus _getUnauthStatus(StorageService storage) {
+    return storage.isBiometricEnabled ? AuthStatus.biometricRequired : AuthStatus.unauthenticated;
   }
 
   Future<void> _refreshBiometricState() async {
@@ -364,16 +373,6 @@ class AuthController extends ChangeNotifier {
   }
 
   // ── Private Helpers ──────────────────────────────────────
-
-  AuthStatus _getUnauthStatus(StorageService storage) {
-    final hasEmail = storage.userEmail != null;
-    final biometricActive = storage.isBiometricEnabled;
-    
-    if (hasEmail && biometricActive) {
-      return AuthStatus.biometricRequired;
-    }
-    return AuthStatus.unauthenticated;
-  }
 
   void _setLoading(bool val) {
     isLoading = val;
