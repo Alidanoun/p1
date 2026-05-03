@@ -253,7 +253,11 @@ const Header = ({ title, subtitle, action }) => {
         {/* Profile */}
         <div className="flex items-center gap-3 bg-background border border-slate-700/50 pl-2 pr-4 py-1.5 rounded-full">
           <div className="text-right">
-            <p className="text-sm font-bold text-white">المدير العام</p>
+            <p className="text-sm font-bold text-white">
+              {(user?.role === 'super_admin' || user?.role === 'admin') 
+                ? 'المدير العام' 
+                : (user?.branchName ? `فرع ${user.branchName}` : 'مدير الفرع')}
+            </p>
             <p className="text-xs text-text-muted">{user?.email || 'admin@almarkazia.com'}</p>
           </div>
           <div className="w-9 h-9 bg-primary/20 border border-primary/30 rounded-full flex items-center justify-center text-primary">
