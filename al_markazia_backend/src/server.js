@@ -86,21 +86,18 @@ async function startServer() {
     
     app.use(cookieParser());
     
-    // 🛡️ CSRF Protection (Double Cookie Method)
+    // 🛡️ CSRF Protection (Double Cookie Method - Strict Mode)
     const csrfProtection = csrf({ 
       cookie: {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax'
+        sameSite: 'strict' // 🔒 Level 5 Security: Block cross-site session leaking
       }
     });
     
     // Apply CSRF protection selectively
     app.use((req, res, next) => {
-      // 🛡️ [SEC-FIX] Explicitly skip CSRF for:
-      // 1. All Auth routes (Login, Register, Refresh, Verify)
-      // 2. Mobile app requests (using Authorization header)
-      const isAuthRoute = req.path.startsWith('/auth');
+      const isAuthRoute = req.path.startsWith('/auth') || req.path.startsWith('/api/auth');
       const hasAuthHeader = req.headers.authorization;
       
       if (isAuthRoute || hasAuthHeader) {
@@ -109,7 +106,10 @@ async function startServer() {
       
       csrfProtection(req, res, (err) => {
         if (err) return next(err);
-        res.cookie('XSRF-TOKEN', req.csrfToken());
+        res.cookie('XSRF-TOKEN', req.csrfToken(), {
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'strict'
+        });
         next();
       });
     });

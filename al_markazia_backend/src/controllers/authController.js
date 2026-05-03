@@ -41,7 +41,7 @@ const refreshCookieOptions = (req) => {
   return {
     httpOnly: true,
     secure: isSecure,                                // Auto-detect HTTPS
-    sameSite: isSecure ? 'none' : 'lax',             // 'none' for cross-site HTTPS, 'lax' for local/HTTP
+    sameSite: 'strict',                              // 🔒 Hardened for Enterprise
     path: '/',
     maxAge: REFRESH_TOKEN_EXPIRY_MS
   };

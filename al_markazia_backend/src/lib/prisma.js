@@ -38,7 +38,7 @@ prisma.$use(async (params, next) => {
   if (!isEnforced) return next(params);
 
   // 2. Identify models and actions requiring isolation
-  const modelsToSecure = ['Order', 'BranchItem', 'Branch', 'Category', 'Customer'];
+  const modelsToSecure = ['Order', 'BranchItem', 'Branch', 'FinancialLedger', 'DailyFinancialSnapshot'];
   const actionsToSecure = ['findMany', 'findFirst', 'findUnique', 'count', 'update', 'delete', 'updateMany', 'deleteMany'];
 
   if (modelsToSecure.includes(params.model) && actionsToSecure.includes(params.action)) {

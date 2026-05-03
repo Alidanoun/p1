@@ -74,23 +74,16 @@ module.exports = {
     });
 
     const trackingService = require('./services/trackingService');
-    const { SOCKET_ROOMS } = require('./shared/socketEvents');
-    const branchPolicy = require('./policies/branchPolicy');
-
     io.on('connection', async (socket) => {
-      const { id: userId, role, branchId } = socket.user;
+      const { id: userId } = socket.user;
 
-      // 🛡️ [v2:POLICY-LAYER] Dynamic Boundary Management
-      // Use policy to determine which admin/branch rooms to join
-      const rooms = await branchPolicy.getTargetRooms({ branchId });
+      // 🛡️ [PHASE 2] Real-Time Isolation Layer
+      const SecurityPolicyService = require('./services/securityPolicyService');
+      const rooms = await SecurityPolicyService.getTargetRooms(socket.user);
       
       rooms.forEach(room => {
-        // Super admin joins global, managers join branch-only
-        if (role === 'super_admin' || role === 'admin') {
-          socket.join(room);
-        } else if ((role === 'branch_manager' || role === 'manager') && room.includes(branchId)) {
-          socket.join(room);
-        }
+        socket.join(room);
+        logger.debug(`[Socket] User ${userId} joined room: ${room}`);
       });
 
       if (role === 'super_admin' || role === 'admin') {
