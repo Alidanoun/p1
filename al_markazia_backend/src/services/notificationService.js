@@ -207,27 +207,35 @@ class NotificationService {
         this.io.emit(SOCKET_EVENTS.NOTIFICATION_NEW, payload);
       }
       
+      // 🛡️ [v2:POLICY-LAYER] Strict Event Ownership Dispatch
+      const branchPolicy = require('../policies/branchPolicy');
+      
+      const eventMeta = {
+        type: notif.type,
+        branchId: order?.branchId,
+        customerUuid: order?.customer?.uuid || order?.customerId
+      };
+
+      const targetRooms = await branchPolicy.getTargetRooms(eventMeta);
+      const wrappedPayload = branchPolicy.wrapPayload(payload, 1);
+
       if (target.isToAdmin) {
         const eventName = notif.type === 'order_created' 
           ? SOCKET_EVENTS.ORDER_CREATED 
           : SOCKET_EVENTS.ORDER_UPDATED;
-        this.io.to(SOCKET_ROOMS.ADMIN).emit(eventName, payload);
+        
+        targetRooms.forEach(room => {
+          if (room.startsWith('room:admin') || room.startsWith('room:branch')) {
+            this.io.to(room).emit(eventName, wrappedPayload);
+            logger.debug(`[POLICY v2] Event '${eventName}' routed to: ${room}`);
+          }
+        });
       }
       
-      if (target.isToCustomer && (order.customer?.uuid || order.customerId)) {
-        let uuid = order.customer?.uuid;
-        if (!uuid) {
-          const customerRecord = await prisma.customer.findUnique({
-            where: { id: order.customerId },
-            select: { uuid: true }
-          });
-          uuid = customerRecord?.uuid;
-        }
-        
-        if (uuid) {
-          const room = SOCKET_ROOMS.CUSTOMER(uuid);
-          this.io.to(room).emit(SOCKET_EVENTS.ORDER_UPDATED, payload);
-        }
+      if (target.isToCustomer && eventMeta.customerUuid) {
+        const customerRoom = `room:user:${eventMeta.customerUuid}`;
+        this.io.to(customerRoom).emit(SOCKET_EVENTS.ORDER_UPDATED, wrappedPayload);
+        logger.debug(`[POLICY v2] Event routed to private user boundary: ${customerRoom}`);
       }
       return true;
     } catch (err) {

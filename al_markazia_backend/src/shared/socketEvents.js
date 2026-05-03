@@ -23,6 +23,7 @@ const SOCKET_EVENTS = {
 const SOCKET_ROOMS = {
   ADMIN: 'room:admin',
   DASHBOARD: 'room:dashboard',
+  BRANCH_ADMIN: (id) => `room:admin:branch:${id}`,
   // Helper to generate dynamic rooms
   CUSTOMER: (id) => `room:customer:${id}`,
   ORDER_TRACKING: (id) => `room:tracking:order:${id}`,

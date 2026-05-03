@@ -67,10 +67,11 @@ const mapOrderResponse = (order) => {
     cartItems: mapOrderItems(order.orderItems),
     cancellation: order.cancellation || null,
     customer: order.customer ? {
-      id:    order.customer.id,
-      uuid:  order.customer.uuid,
-      name:  order.customer.name,
-      phone: order.customer.phone,
+      id:       order.customer.id,
+      uuid:     order.customer.uuid,
+      name:     order.customer.name,
+      phone:    order.customer.phone,
+      fcmToken: order.customer.fcmToken, // 🔔 Essential for NotificationService
     } : null,
   };
 };
