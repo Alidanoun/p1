@@ -413,15 +413,20 @@ const LiveOrders = () => {
   };
 
   const onAdjustTimer = async (id, delta) => {
-    try {
-      const order = orders.find(o => o.id === id);
-      if (!order) return;
-      
-      const currentPrep = order.preparationTimeMinutes || 20;
-      const newPrep = Math.max(5, currentPrep + delta); // Minimum 5 mins
+    const previousOrders = [...orders];
+    const order = orders.find(o => o.id === id);
+    if (!order) return;
+    
+    const currentPrep = order.preparationTimeMinutes || 20;
+    const newPrep = Math.max(5, currentPrep + delta); // Minimum 5 mins
 
+    // 1. 🚀 Optimistic update
+    setOrders(prev => prev.map(o => o.id === id ? { ...o, preparationTimeMinutes: newPrep } : o));
+
+    try {
       const { data } = await api.patch(`/orders/${id}/prep-time`, { minutes: newPrep });
       
+      // 2. ✅ Sync with server metadata
       setOrders(prev => prev.map(o => o.id === id ? { 
         ...o, 
         preparationTimeMinutes: data.preparationTimeMinutes,
@@ -431,26 +436,43 @@ const LiveOrders = () => {
       
       toast.success(`تم تحديث وقت التجهيز إلى ${newPrep} دقيقة`);
     } catch (err) {
+      // 3. 🔄 Rollback
+      setOrders(previousOrders);
       console.error('Timer Update Error:', err);
       toast.error('فشل تحديث الوقت');
     }
   };
 
   const onUpdateStatus = async (id, status, version) => {
+    // 1. 🚀 Optimistic UI Update: Move the order immediately
+    const previousOrders = [...orders];
+    const orderToUpdate = orders.find(o => o.id === id);
+    const oldStatus = orderToUpdate?.status;
+
+    setOrders(prev => prev.map(o => 
+      o.id === id ? { ...o, status } : o
+    ));
+
     try {
       const idempotencyKey = `manual_upd_${id}_${status}_${Date.now()}`;
       const { data } = await api.patch(`/orders/${id}/status`, 
         { status, version },
         { headers: { 'idempotency-key': idempotencyKey } }
       );
+      
+      // 2. ✅ Final Sync: Update with actual server data (for versioning)
       setOrders(prev => prev.map(o => o.id === id ? { ...o, status: data.status, version: data.version } : o));
       toast.success('تم تحديث الحالة');
     } catch (err) {
+      // 3. 🔄 Rollback on error
+      setOrders(previousOrders);
+      
       if (err.response?.status === 409) {
         toast.error('⚠️ تضارب في البيانات: تم تحديث هذا الطلب مسبقاً من قبل موظف آخر. جاري التحديث...');
         fetchOrders();
       } else {
         toast.error('فشل تحديث الحالة');
+        console.error('Status Update Error:', err);
       }
     }
   };

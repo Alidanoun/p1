@@ -1,23 +1,26 @@
-/**
- * 📈 Analytics Projection
- * Builds real-time business metrics by aggregating events.
- * Zero Database reads during calculation.
- */
-
-const { toNumber } = require('../utils/number');
+const { DateTime } = require('luxon');
+const { toNumber, toMoney } = require('../utils/number');
+const accountingService = require('../services/accountingService');
 
 const branchMap = new Map();
+let activeBranchIds = new Set();
 
 function getInitialMetrics() {
   return {
-    revenue: {
-      live: 0,
-      real: 0,
-      orderCount: 0,
-      liveOrderCount: 0,
-      delivery: 0,
-      takeaway: 0,
-      deliveryFees: 0
+    financials: {
+      grossRevenue: 0,   // الإجمالي شامل كل شيء (Subtotal + Delivery - Discount)
+      netRevenue: 0,     // الصافي (Base - Discount)
+      taxTotal: 0,       // إجمالي الضرائب المستخرجة (16%)
+      deliveryTotal: 0,  // إجمالي رسوم التوصيل
+      discountTotal: 0,  // إجمالي الخصومات
+      cancelledTotal: 0, // التسرب المالي (الطلبات الملغية)
+      avgTicket: 0       // متوسط قيمة الفاتورة الناجحة
+    },
+    counts: {
+      total: 0,
+      delivered: 0,
+      cancelled: 0,
+      active: 0
     },
     statusDistribution: {
       pending: 0,
@@ -40,23 +43,32 @@ function getInitialMetrics() {
 }
 
 function getBranchMetrics(branchId) {
-  if (!branchId) return null;
-  if (!branchMap.has(branchId)) {
-    branchMap.set(branchId, getInitialMetrics());
+  const key = branchId || 'SYSTEM_DEFAULT';
+  if (!branchMap.has(key)) {
+    branchMap.set(key, getInitialMetrics());
   }
-  return branchMap.get(branchId);
+  return branchMap.get(key);
 }
 
 function getGlobalMetrics() {
   const global = getInitialMetrics();
-  for (const metrics of branchMap.values()) {
-    global.revenue.live += metrics.revenue.live;
-    global.revenue.real += metrics.revenue.real;
-    global.revenue.orderCount += metrics.revenue.orderCount;
-    global.revenue.liveOrderCount += metrics.revenue.liveOrderCount;
-    global.revenue.delivery += metrics.revenue.delivery;
-    global.revenue.takeaway += metrics.revenue.takeaway;
-    global.revenue.deliveryFees += metrics.revenue.deliveryFees;
+  
+  for (const [branchId, metrics] of branchMap.entries()) {
+    if (branchId === 'SYSTEM_DEFAULT') continue;
+    if (!activeBranchIds.has(branchId)) continue;
+
+    // Aggregate Financials with Rounding Safety
+    global.financials.grossRevenue = toMoney(global.financials.grossRevenue + metrics.financials.grossRevenue);
+    global.financials.netRevenue = toMoney(global.financials.netRevenue + metrics.financials.netRevenue);
+    global.financials.taxTotal = toMoney(global.financials.taxTotal + metrics.financials.taxTotal);
+    global.financials.deliveryTotal = toMoney(global.financials.deliveryTotal + metrics.financials.deliveryTotal);
+    global.financials.discountTotal = toMoney(global.financials.discountTotal + metrics.financials.discountTotal);
+    global.financials.cancelledTotal = toMoney(global.financials.cancelledTotal + metrics.financials.cancelledTotal);
+
+    global.counts.total += metrics.counts.total;
+    global.counts.delivered += metrics.counts.delivered;
+    global.counts.cancelled += metrics.counts.cancelled;
+    global.counts.active += metrics.counts.active;
 
     Object.keys(global.statusDistribution).forEach(status => {
       global.statusDistribution[status] += (metrics.statusDistribution[status] || 0);
@@ -66,6 +78,11 @@ function getGlobalMetrics() {
       global.typeDistribution[type] += (metrics.typeDistribution[type] || 0);
     });
   }
+
+  if (global.counts.delivered > 0) {
+    global.financials.avgTicket = toMoney(global.financials.grossRevenue / global.counts.delivered);
+  }
+
   global.lastUpdated = new Date();
   return global;
 }
@@ -78,9 +95,36 @@ function handleCreated(payload) {
   const metrics = getBranchMetrics(payload.branchId);
   if (!metrics) return;
 
-  metrics.revenue.orderCount += 1;
+  metrics.counts.total += 1;
+  metrics.counts.active += 1;
   metrics.statusDistribution.pending += 1;
   metrics.typeDistribution[payload.orderType || 'takeaway'] += 1;
+  metrics.lastUpdated = new Date();
+  metrics.sequence += 1;
+}
+
+/**
+ * 🛠️ [SAFETY-LAYER] Handle Order Modifications via AccountingService
+ */
+function handleModified(payload) {
+  const { order, event } = payload;
+  const metrics = getBranchMetrics(order.branchId);
+  if (!metrics) return;
+
+  const { oldSummary, newSummary } = event.payload;
+  if (!oldSummary || !newSummary) return;
+
+  if (isRevenueStatus(order.status)) {
+    const { deltaTotal, deltaNet, deltaTax, deltaDelivery, deltaDiscount } = 
+      accountingService.validateDelta(oldSummary, newSummary);
+
+    metrics.financials.grossRevenue = toMoney(metrics.financials.grossRevenue + deltaTotal);
+    metrics.financials.netRevenue = toMoney(metrics.financials.netRevenue + deltaNet);
+    metrics.financials.taxTotal = toMoney(metrics.financials.taxTotal + deltaTax);
+    metrics.financials.deliveryTotal = toMoney(metrics.financials.deliveryTotal + deltaDelivery);
+    metrics.financials.discountTotal = toMoney(metrics.financials.discountTotal + deltaDiscount);
+  }
+
   metrics.lastUpdated = new Date();
   metrics.sequence += 1;
 }
@@ -90,36 +134,59 @@ function handleStatusChange(payload) {
   const metrics = getBranchMetrics(order.branchId);
   if (!metrics) return;
 
-  const amount = toNumber(order.total || 0);
+  // 🛡️ Use AccountingService for all component extraction
+  const summary = accountingService.calculateOrderSummary(
+    [], // Mock items as we use the stored total/subtotal
+    toNumber(order.deliveryFee),
+    toNumber(order.discount)
+  );
+  
+  // Actually, since we have subtotal, we extract tax from it directly
+  const subtotal = toNumber(order.subtotal || 0);
+  const { base, tax } = accountingService.extractTax(subtotal);
+  const total = toNumber(order.total || 0);
+  const discount = toNumber(order.discount || 0);
+  const deliveryFee = toNumber(order.deliveryFee || 0);
+  const netRevenue = toMoney(base - discount);
 
-  // 1. Update Distribution
   if (previousStatus && metrics.statusDistribution[previousStatus] > 0) {
     metrics.statusDistribution[previousStatus] -= 1;
   }
   metrics.statusDistribution[newStatus] = (metrics.statusDistribution[newStatus] || 0) + 1;
 
-  // 2. Revenue Logic
   const wasRevenue = isRevenueStatus(previousStatus);
   const isRevenue = isRevenueStatus(newStatus);
 
   if (!wasRevenue && isRevenue) {
-    metrics.revenue.live += amount;
-    metrics.revenue.liveOrderCount += 1;
-    
-    if (order.orderType === 'delivery') {
-        metrics.revenue.delivery += toNumber(order.subtotal || 0);
-        metrics.revenue.deliveryFees += toNumber(order.deliveryFee || 0);
-    } else {
-        metrics.revenue.takeaway += toNumber(order.subtotal || 0);
-    }
+    metrics.financials.grossRevenue = toMoney(metrics.financials.grossRevenue + total);
+    metrics.financials.netRevenue = toMoney(metrics.financials.netRevenue + netRevenue);
+    metrics.financials.taxTotal = toMoney(metrics.financials.taxTotal + tax);
+    metrics.financials.deliveryTotal = toMoney(metrics.financials.deliveryTotal + deliveryFee);
+    metrics.financials.discountTotal = toMoney(metrics.financials.discountTotal + discount);
   } 
   else if (wasRevenue && !isRevenue) {
-    metrics.revenue.live -= amount;
-    metrics.revenue.liveOrderCount = Math.max(0, metrics.revenue.liveOrderCount - 1);
+    metrics.financials.grossRevenue = toMoney(metrics.financials.grossRevenue - total);
+    metrics.financials.netRevenue = toMoney(metrics.financials.netRevenue - netRevenue);
+    metrics.financials.taxTotal = toMoney(metrics.financials.taxTotal - tax);
+    metrics.financials.deliveryTotal = toMoney(metrics.financials.deliveryTotal - deliveryFee);
+    metrics.financials.discountTotal = toMoney(metrics.financials.discountTotal - discount);
   }
 
   if (newStatus === 'delivered') {
-    metrics.revenue.real += amount;
+    metrics.counts.delivered += 1;
+    metrics.counts.active = Math.max(0, metrics.counts.active - 1);
+  }
+
+  if (newStatus === 'cancelled') {
+    metrics.counts.cancelled += 1;
+    metrics.counts.active = Math.max(0, metrics.counts.active - 1);
+    if (wasRevenue) {
+        metrics.financials.cancelledTotal = toMoney(metrics.financials.cancelledTotal + total);
+    }
+  }
+
+  if (metrics.counts.delivered > 0) {
+    metrics.financials.avgTicket = toMoney(metrics.financials.grossRevenue / metrics.counts.delivered);
   }
 
   metrics.lastUpdated = new Date();
@@ -129,44 +196,68 @@ function handleStatusChange(payload) {
 const prisma = require('../lib/prisma');
 
 async function replay() {
-  const todayStart = new Date();
-  todayStart.setUTCHours(0, 0, 0, 0);
+  const ammanNow = DateTime.now().setZone('Asia/Amman');
+  const ammanStartOfDay = ammanNow.startOf('day').toJSDate();
+
+  const activeBranches = await prisma.branch.findMany({
+    where: { isActive: true },
+    select: { id: true }
+  });
+  activeBranchIds = new Set(activeBranches.map(b => b.id));
 
   const orders = await prisma.order.findMany({
     where: { 
-        createdAt: { gte: todayStart },
+        createdAt: { gte: ammanStartOfDay },
         isDeleted: false
     },
-    select: { branchId: true, total: true, status: true, orderType: true, subtotal: true, deliveryFee: true }
+    select: { branchId: true, total: true, status: true, orderType: true, subtotal: true, deliveryFee: true, discount: true, tax: true }
   });
 
   reset();
   
   for (const order of orders) {
-    const metrics = getBranchMetrics(order.branchId);
-    if (!metrics) continue;
+    if (!order.branchId || !activeBranchIds.has(order.branchId)) continue;
 
-    metrics.revenue.orderCount += 1;
+    const metrics = getBranchMetrics(order.branchId);
+    
+    // 🛡️ Tax-Inclusive Extraction for Replay
+    const subtotal = toNumber(order.subtotal || 0);
+    const { base, tax } = accountingService.extractTax(subtotal);
+    const total = toNumber(order.total || 0);
+    const discount = toNumber(order.discount || 0);
+    const deliveryFee = toNumber(order.deliveryFee || 0);
+    const netRevenue = toMoney(base - discount);
+
+    metrics.counts.total += 1;
     metrics.statusDistribution[order.status] = (metrics.statusDistribution[order.status] || 0) + 1;
     metrics.typeDistribution[order.orderType || 'takeaway'] += 1;
 
     if (isRevenueStatus(order.status)) {
-        const amount = toNumber(order.total || 0);
-        metrics.revenue.live += amount;
-        metrics.revenue.liveOrderCount += 1;
-        
-        if (order.orderType === 'delivery') {
-            metrics.revenue.delivery += toNumber(order.subtotal || 0);
-            metrics.revenue.deliveryFees += toNumber(order.deliveryFee || 0);
-        } else {
-            metrics.revenue.takeaway += toNumber(order.subtotal || 0);
-        }
+        metrics.financials.grossRevenue = toMoney(metrics.financials.grossRevenue + total);
+        metrics.financials.netRevenue = toMoney(metrics.financials.netRevenue + netRevenue);
+        metrics.financials.taxTotal = toMoney(metrics.financials.taxTotal + tax);
+        metrics.financials.deliveryTotal = toMoney(metrics.financials.deliveryTotal + deliveryFee);
+        metrics.financials.discountTotal = toMoney(metrics.financials.discountTotal + discount);
 
         if (order.status === 'delivered') {
-            metrics.revenue.real += amount;
+            metrics.counts.delivered += 1;
+        } else {
+            metrics.counts.active += 1;
         }
+    } else if (order.status === 'pending') {
+        metrics.counts.active += 1;
     }
-    metrics.sequence += 1;
+
+    if (order.status === 'cancelled') {
+        metrics.counts.cancelled += 1;
+        metrics.financials.cancelledTotal = toMoney(metrics.financials.cancelledTotal + total);
+    }
+  }
+
+  for (const metrics of branchMap.values()) {
+    if (metrics.counts.delivered > 0) {
+      metrics.financials.avgTicket = toMoney(metrics.financials.grossRevenue / metrics.counts.delivered);
+    }
   }
 }
 
@@ -176,6 +267,7 @@ function reset() {
 
 module.exports = {
   handleCreated,
+  handleModified,
   handleStatusChange,
   reset,
   replay,

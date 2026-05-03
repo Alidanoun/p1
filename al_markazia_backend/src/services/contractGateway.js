@@ -100,7 +100,7 @@ class ContractGateway {
               return await orderService.rejectCancellation(orderId, actor, context.rejectionReason);
             } else if (action === 'UPDATE_STATUS') {
               const orderService = require('./orderService');
-              return await orderService.updateOrderStatus(orderId, context.status, context.version);
+              return await orderService.updateOrderStatus(orderId, context.status, context.version, actor);
             }
             break;
           

@@ -56,16 +56,20 @@ exports.getDashboardStats = async (req, res) => {
     const orders = await prisma.order.findMany({
       where: {
         createdAt: { gte: startDate },
-        status: { notIn: ['cancelled', 'waiting_cancellation', 'waiting_cancellation_admin'] }
+        // 🛡️ [AUDIT-FIX] Exclude 'pending' and 'cancelled' to align with Projection revenue logic
+        status: { 
+          notIn: ['pending', 'cancelled', 'waiting_cancellation', 'waiting_cancellation_admin'] 
+        },
+        isDeleted: false
       },
       include: { orderItems: true }
     });
 
-    const { toNumber } = require('../utils/number');
+    const { toNumber, toMoney } = require('../utils/number');
 
     const totalOrders = orders.length;
-    const totalRevenue = orders.reduce((sum, o) => sum + toNumber(o.total || o.totalPrice), 0);
-    const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+    const totalRevenue = toMoney(orders.reduce((sum, o) => sum + toNumber(o.total), 0));
+    const avgOrderValue = totalOrders > 0 ? toMoney(totalRevenue / totalOrders) : 0;
 
     // Chart Data (Aggregating by Hour for 'today', Day for others)
     const chartMap = {};

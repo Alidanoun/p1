@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Download, FileText, Table as TableIcon, Calendar, TrendingUp, DollarSign, RefreshCw } from 'lucide-react';
+import { Download, FileText, Table as TableIcon, Calendar, TrendingUp, DollarSign, RefreshCw, Lock, Archive } from 'lucide-react';
 import { toast } from 'sonner';
 import Header from '../components/Header';
 import api, { unwrap } from '../api/client';
@@ -43,7 +43,10 @@ const Reports = () => {
 
   const getTopItemsForPeriod = () => {
     const itemCounts = {};
-    data.forEach(order => {
+    // 🛡️ Logic Fix: Only count items from DELIVERED orders to match Total Revenue
+    const successfulOrders = data.filter(order => order.status === 'delivered');
+    
+    successfulOrders.forEach(order => {
       if (order.cartItems && Array.isArray(order.cartItems)) {
         order.cartItems.forEach(item => {
           const key = item.itemName || item.title || 'صنف غير معروف';
@@ -99,6 +102,21 @@ const Reports = () => {
     toast.success('تم تصدير ملف PDF بنجاح');
   };
 
+  const handleCloseDay = async () => {
+    if (!window.confirm('⚠️ هل أنت متأكد من إغلاق اليوم محاسبياً؟ سيتم تجميد الأرقام ولا يمكن تعديل مبيعات هذا اليوم لاحقاً.')) return;
+    
+    try {
+      setLoading(true);
+      await api.post('/financial/close-day', { date: new Date().toISOString().split('T')[0] });
+      toast.success('تم إغلاق اليوم بنجاح وتجميد البيانات المالية');
+      fetchReportData();
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'فشل إغلاق اليوم');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const statusLabel = (status) => {
     const map = {
       'delivered': { text: 'مكتمل', style: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' },
@@ -108,6 +126,8 @@ const Reports = () => {
       'preparing': { text: 'قيد التجهيز', style: 'bg-purple-500/10 text-purple-500 border-purple-500/20' },
       'ready': { text: 'جاهز', style: 'bg-cyan-500/10 text-cyan-500 border-cyan-500/20' },
       'in_route': { text: 'في الطريق', style: 'bg-indigo-500/10 text-indigo-500 border-indigo-500/20' },
+      'waiting_cancellation': { text: 'طلب إلغاء', style: 'bg-rose-500/10 text-rose-500 border-rose-500/20' },
+      'waiting_cancellation_admin': { text: 'إلغاء (إدارة)', style: 'bg-orange-500/10 text-orange-500 border-orange-500/20' },
     };
     return map[status] || { text: status, style: 'bg-white/5 text-text-muted border-white/10' };
   };
@@ -121,10 +141,12 @@ const Reports = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-10">
           <div className="bg-card/40 backdrop-blur-md p-6 rounded-2xl border border-white/5 flex flex-col justify-center">
-            <p className="text-text-muted text-xs font-bold mb-1">إجمالي المبيعات المحققة</p>
-            <div className="flex items-center gap-2">
-               <DollarSign className="text-primary w-5 h-5" />
-               <span className="text-2xl font-bold font-mono text-white tracking-tight">{formatCurrencyArabic(summary.totalSales)}</span>
+            <p className="text-text-muted text-[10px] font-black uppercase tracking-widest mb-2 opacity-60">إجمالي المبيعات المحققة</p>
+            <div className="flex items-center gap-3">
+               <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
+                  <TrendingUp className="w-5 h-5" />
+               </div>
+               <span className="text-3xl font-black font-mono text-white tracking-tighter">{formatCurrencyArabic(summary.totalSales)}</span>
             </div>
          </div>
          <div className="bg-card/40 backdrop-blur-md p-6 rounded-2xl border border-white/5 flex flex-col justify-center">
@@ -176,6 +198,13 @@ const Reports = () => {
             </div>
 
             <div className="flex items-center gap-3">
+               <button 
+                 onClick={handleCloseDay}
+                 className="flex items-center gap-2 px-5 py-2.5 bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white border border-rose-500/20 rounded-xl font-bold text-xs transition-all active:scale-[0.98]"
+               >
+                  <Lock className="w-3.5 h-3.5" />
+                  إغلاق اليوم (Freeze)
+               </button>
                <button 
                  onClick={exportToExcel}
                  className="flex items-center gap-2 px-4 py-2 bg-[#1d6f42] text-white rounded-xl text-sm font-bold shadow-lg shadow-emerald-900/20 hover:opacity-90 active:scale-95 transition-all"
@@ -253,8 +282,8 @@ const Reports = () => {
                            <tr key={order.id} className="hover:bg-white/5 transition-colors group">
                               <td className="px-6 py-4 text-sm font-mono text-text-muted">{order.orderNumber}</td>
                               <td className="px-6 py-4 text-sm font-bold text-white group-hover:text-primary transition-colors">{order.customerName}</td>
-                              <td className="px-6 py-4 text-sm text-text-muted">{new Date(order.createdAt).toLocaleDateString('en-US')}</td>
-                              <td className="px-6 py-4 text-sm font-bold text-primary font-mono">{formatCurrencyArabic(order.totalPrice)}</td>
+                              <td className="px-6 py-4 text-sm text-text-muted opacity-60">{new Date(order.createdAt).toLocaleDateString('en-US')}</td>
+                              <td className="px-6 py-4 text-sm font-black text-primary font-mono text-left whitespace-nowrap">{formatCurrencyArabic(order.totalPrice)}</td>
                               <td className="px-6 py-4 text-center">
                                  <span className={cn(
                                     "inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase border",

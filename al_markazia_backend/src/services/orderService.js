@@ -35,9 +35,15 @@ class OrderService {
     }
     if (status) where.status = status;
 
-    // 🏢 Multi-Branch Isolation
-    const normalizedRole = query.userRole?.toLowerCase(); const isAdmin = ["admin", "super_admin"].includes(normalizedRole);
-    if ((normalizedRole === "branch_manager" || normalizedRole === "manager") && query.branchId) { where.branchId = query.branchId; } else if (isAdmin && query.branchId) {
+    // 🏢 Multi-Branch Isolation (Hardened)
+    const normalizedRole = query.userRole?.toLowerCase();
+    const isAdmin = ["admin", "super_admin"].includes(normalizedRole);
+    const isBranchManager = normalizedRole === "branch_manager" || normalizedRole === "manager";
+    
+    if (isBranchManager) {
+      // Force manager to their own branch
+      where.branchId = query.userBranchId || 'NONE'; 
+    } else if (isAdmin && query.branchId) {
       where.branchId = query.branchId;
     }
 
@@ -70,12 +76,16 @@ class OrderService {
    * 📉 Optimized DB-level aggregation for reports
    */
   async _calculateReportSummary(where) {
-    const [aggregates, deliveredCount] = await Promise.all([
+    const [aggregates, realizedAggregates, deliveredCount] = await Promise.all([
       prisma.order.aggregate({
         where,
         _sum: { total: true },
         _count: { id: true },
         _avg: { total: true }
+      }),
+      prisma.order.aggregate({
+        where: { ...where, status: 'delivered' },
+        _sum: { total: true }
       }),
       prisma.order.count({
         where: { ...where, status: 'delivered' }
@@ -83,7 +93,8 @@ class OrderService {
     ]);
 
     return {
-      totalRevenue: toNumber(aggregates._sum.total),
+      totalRevenue: toNumber(realizedAggregates._sum.total), // Only count delivered for "Realized"
+      grossRevenue: toNumber(aggregates._sum.total),     // All orders (excluding cancelled which are 0)
       orderCount: aggregates._count.id,
       averageOrderValue: toNumber(aggregates._avg.total),
       deliveredCount
@@ -112,9 +123,15 @@ class OrderService {
       ];
     }
 
-    // 🏢 Multi-Branch Isolation
-    const normalizedRole = query.userRole?.toLowerCase(); const isAdmin = ["admin", "super_admin"].includes(normalizedRole);
-    if ((normalizedRole === "branch_manager" || normalizedRole === "manager") && query.branchId) { where.branchId = query.branchId; } else if (isAdmin && query.branchId) {
+    // 🏢 Multi-Branch Isolation (Hardened)
+    const normalizedRole = query.userRole?.toLowerCase();
+    const isAdmin = ["admin", "super_admin"].includes(normalizedRole);
+    const isBranchManager = normalizedRole === "branch_manager" || normalizedRole === "manager";
+
+    if (isBranchManager) {
+      // Force manager to their own branch
+      where.branchId = query.userBranchId || 'NONE';
+    } else if (isAdmin && query.branchId) {
       where.branchId = query.branchId;
     }
 
@@ -374,7 +391,7 @@ class OrderService {
     } else {
       // Reject — restore previous status
       const previousStatus = order.cancellation?.previousStatus || 'preparing';
-      const result = await this.updateOrderStatus(orderId, previousStatus);
+      const result = await this.updateOrderStatus(orderId, previousStatus, null, user);
       if (order.cancellation) {
         await prisma.orderCancellation.update({
           where: { orderId },
@@ -520,6 +537,35 @@ class OrderService {
         update: { status: 'pending', reason: reason || 'Customer requested', cancelledBy: user?.role || 'customer' },
         create: { orderId: order.id, reason: reason || 'Customer requested', cancelledBy: user?.role || 'customer', previousStatus, status: 'pending' }
       });
+
+      // 🛰️ [CONTROL-TOWER] Integrate with FinancialApproval if HIGH risk
+      if (level === 'HIGH') {
+        await tx.financialApproval.create({
+          data: {
+            operationType: 'CANCELLATION',
+            entityId: order.id.toString(),
+            requestedBy: (user?.role === 'customer' ? 0 : user?.id) || 0,
+            requestedByRole: user?.role || 'customer',
+            payload: { reason, level, orderNumber: order.orderNumber, total: order.total },
+            expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
+          }
+        });
+
+        // 🚨 [HARDENING] Alert for high-value cancellation
+        if (toNumber(order.total) > 100) {
+           await tx.notification.create({
+             data: {
+               title: '🚨 تنبيه: إلغاء طلب ضخم!',
+               message: `طلب إلغاء للطلب #${order.orderNumber} بقيمة ${toNumber(order.total)} د.أ.`,
+               severity: 'CRITICAL',
+               alertType: 'FINANCIAL_HIGH_RISK',
+               orderId: order.id,
+               targetRoute: '/operations'
+             }
+           });
+        }
+      }
+
       return updated;
     });
 
@@ -1092,13 +1138,23 @@ class OrderService {
   /**
    * ⚡ Atomic Status Update & State Machine Validation
    */
-  async updateOrderStatus(orderId, newStatus, version = null) {
+  async updateOrderStatus(orderId, newStatus, version = null, user = null) {
     const order = await prisma.order.findUnique({
       where: { id: orderId },
       include: { customer: true }
     });
 
-    if (!order || order.status === newStatus) return null;
+    if (!order) return null;
+
+    // 🏢 Branch Isolation
+    if (user) {
+      const role = user.role?.toLowerCase();
+      if ((role === 'branch_manager' || role === 'manager') && order.branchId !== user.branchId) {
+        throw new Error('ORDER_FORBIDDEN');
+      }
+    }
+
+    if (order.status === newStatus) return mapOrderResponse(order);
 
     // 🛡️ [SEC-FIX] Optimistic Locking Validation
     if (version !== null && version !== undefined && order.version !== parseInt(version)) {
@@ -1167,17 +1223,23 @@ class OrderService {
     return { ...mappedOrder, _outboxId };
   }
 
-  /**
-   * Existing Batch Operation Logic
-   */
-  async batchAcceptOrders(adminEmail) {
-  const results = { accepted: 0, skipped: 0 };
+  async batchAcceptOrders(user) {
+    const results = { accepted: 0, skipped: 0 };
+    const adminEmail = user?.email || 'Admin';
 
-  // 1. Fetch pending orders atomically
-  const pendingOrders = await prisma.order.findMany({
-    where: { status: 'pending' },
-    include: ORDER_INCLUDE_FULL
-  });
+    const where = { status: 'pending' };
+
+    // 🏢 Branch Isolation
+    const role = user?.role?.toLowerCase();
+    if (role === 'branch_manager' || role === 'manager') {
+      where.branchId = user.branchId || 'NONE';
+    }
+
+    // 1. Fetch pending orders atomically
+    const pendingOrders = await prisma.order.findMany({
+      where,
+      include: ORDER_INCLUDE_FULL
+    });
 
   for (const order of pendingOrders) {
     try {

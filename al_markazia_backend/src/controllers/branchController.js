@@ -31,12 +31,13 @@ exports.toggleItemAvailability = async (req, res) => {
     }
 
     // 2. 📝 Validation
-    if (!itemId || typeof isAvailable !== 'boolean') {
+    const parsedItemId = parseInt(itemId);
+    if (isNaN(parsedItemId) || typeof isAvailable !== 'boolean') {
       return response.error(res, 'بيانات غير صالحة', 'INVALID_PAYLOAD', 400);
     }
 
     // 3. 🔍 Verify Item Existence
-    const item = await prisma.item.findUnique({ where: { id: parseInt(itemId) } });
+    const item = await prisma.item.findUnique({ where: { id: parsedItemId } });
     if (!item) {
       return response.error(res, 'الصنف غير موجود', 'ITEM_NOT_FOUND', 404);
     }

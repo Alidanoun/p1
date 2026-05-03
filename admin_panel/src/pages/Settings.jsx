@@ -56,48 +56,49 @@ const Settings = () => {
     security: {}
   });
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [settingsData, scheduleData, logsData, sysConfigData] = await Promise.all([
-          api.get('/settings').then(unwrap).catch(() => ({})),
-          api.get('/restaurant/schedule').then(unwrap).catch(() => ({ schedule: [] })),
-          api.get('/settings/audit').then(unwrap).catch(() => []),
-          api.get('/system/config').then(unwrap).catch(() => null),
-          api.get('/branch').then(unwrap).catch(() => [])
-        ]);
-        
-        if (settingsData) {
-          setSettings(prev => ({ ...prev, ...settingsData }));
-        }
-
-        if (branchesData && branchesData.length > 0) {
-          setBranches(branchesData);
-          setBranchCredentials(prev => ({ ...prev, branchId: branchesData[0].id }));
-        }
-        
-        if (scheduleData && scheduleData.schedule) {
-          const fullSchedule = DAYS.map(d => {
-            const existing = scheduleData.schedule.find(s => s.dayOfWeek === d.id);
-            return existing || { dayOfWeek: d.id, openTime: '09:00', closeTime: '23:00', isClosed: false };
-          });
-          setSchedule(fullSchedule);
-        }
-        
-        if (logsData) {
-          setAuditLogs(logsData);
-        }
-
-        if (sysConfigData) {
-          setAdvancedConfig(sysConfigData);
-        }
-      } catch (error) {
-        toast.error('فشل في تحميل الإعدادات');
-        console.error('Fetch error:', error);
-      } finally {
-        setLoading(false);
+  const fetchData = async () => {
+    try {
+      const [settingsData, scheduleData, logsData, sysConfigData, branchesData] = await Promise.all([
+        api.get('/settings').then(unwrap).catch(() => ({})),
+        api.get('/restaurant/schedule').then(unwrap).catch(() => ({ schedule: [] })),
+        api.get('/settings/audit').then(unwrap).catch(() => []),
+        api.get('/system/config').then(unwrap).catch(() => null),
+        api.get('/branch').then(unwrap).catch(() => [])
+      ]);
+      
+      if (settingsData) {
+        setSettings(prev => ({ ...prev, ...settingsData }));
       }
-    };
+
+      if (branchesData && branchesData.length > 0) {
+        setBranches(branchesData);
+        setBranchCredentials(prev => ({ ...prev, branchId: branchesData[0].id }));
+      }
+      
+      if (scheduleData && scheduleData.schedule) {
+        const fullSchedule = DAYS.map(d => {
+          const existing = scheduleData.schedule.find(s => s.dayOfWeek === d.id);
+          return existing || { dayOfWeek: d.id, openTime: '09:00', closeTime: '23:00', isClosed: false };
+        });
+        setSchedule(fullSchedule);
+      }
+      
+      if (logsData) {
+        setAuditLogs(logsData);
+      }
+
+      if (sysConfigData) {
+        setAdvancedConfig(sysConfigData);
+      }
+    } catch (error) {
+      toast.error('فشل في تحميل الإعدادات');
+      console.error('Fetch error:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchData();
   }, []);
 
