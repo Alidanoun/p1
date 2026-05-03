@@ -92,7 +92,7 @@ class BranchPolicy {
 
     // Notify Branch Boundary (only if it exists)
     if (branchId) {
-      rooms.push(`room:branch:${branchId}`);
+      rooms.push(`room:admin:branch:${branchId}`);
     }
 
     if (customerUuid) {

@@ -113,8 +113,10 @@ class NotificationService {
         try {
           // Fetch order context for retry
           if (!notif.orderId || isNaN(parseInt(notif.orderId))) {
-            logger.warn(`[NotificationService] ⚠️ Skipping repair for #${notif.id}: Invalid orderId`, { orderId: notif.orderId });
-            await prisma.notification.update({ where: { id: notif.id }, data: { status: 'DEAD', lastError: 'Invalid orderId' } });
+            await prisma.notification.update({ 
+              where: { id: notif.id }, 
+              data: { status: 'DLQ', lastError: 'Invalid orderId', dlqMovedAt: new Date() } 
+            });
             continue;
           }
 
@@ -124,13 +126,33 @@ class NotificationService {
           });
           
           if (!order) {
-            await prisma.notification.update({ where: { id: notif.id }, data: { status: 'DEAD', lastError: 'Order not found' } });
+            await prisma.notification.update({ 
+              where: { id: notif.id }, 
+              data: { status: 'DLQ', lastError: 'Order not found', dlqMovedAt: new Date() } 
+            });
             continue;
           }
 
           await this.dispatch(notif, order);
         } catch (err) {
           logger.error(`[NotificationService] ❌ Reconciliation failed for #${notif.id}`, { error: err.message });
+          const currentRetry = (notif.retryCount || 0) + 1;
+          if (currentRetry >= this.MAX_RETRIES) {
+            await prisma.notification.update({
+              where: { id: notif.id },
+              data: {
+                status: 'DLQ',
+                lastError: err.message,
+                retryCount: currentRetry,
+                dlqMovedAt: new Date()
+              }
+            });
+          } else {
+            await prisma.notification.update({
+              where: { id: notif.id },
+              data: { retryCount: { increment: 1 }, lastError: err.message }
+            });
+          }
         }
       }
     }
@@ -183,8 +205,6 @@ class NotificationService {
     }
   }
 
-  // --- Internal Delivery Methods ---
-
   async _attemptSocketEmit(notif, order, target) {
     if (!this.io) this._loadSocket();
     if (!this.io) return false;
@@ -212,36 +232,114 @@ class NotificationService {
       
       const eventMeta = {
         type: notif.type,
-        branchId: order?.branchId,
-        customerUuid: order?.customer?.uuid || order?.customerId
+        branchId: order?.branchId || null,
+        customerUuid: order?.customer?.uuid || order?.customerId,
+        priority: this._getPriority(notif.type)
       };
- 
-      const targetRooms = await SecurityPolicyService.getTargetRooms(eventMeta);
-      const wrappedPayload = SecurityPolicyService.wrapPayload(payload);
- 
-      if (target.isToAdmin) {
-        const eventName = notif.type === 'order_created' 
-          ? SOCKET_EVENTS.ORDER_CREATED 
-          : SOCKET_EVENTS.ORDER_UPDATED;
-        
-        targetRooms.forEach(room => {
-          if (room.includes('admin') || room.includes('branch')) {
-            this.io.to(room).emit(eventName, wrappedPayload);
-            logger.debug(`[SecurityPolicy] Event '${eventName}' routed to: ${room}`);
-          }
-        });
-      }
+
+      // 1. 🛡️ [DEDUPLICATION-LAYER] Prevent Duplicate Broadcasts
+      const eventHash = require('crypto').createHash('md5')
+        .update(`${notif.type}:${order?.id || 'GLOBAL'}:${notif.content}`)
+        .digest('hex');
       
-      if (target.isToCustomer && eventMeta.customerUuid) {
-        const customerRoom = `room:user:${eventMeta.customerUuid}`;
-        this.io.to(customerRoom).emit(SOCKET_EVENTS.ORDER_UPDATED, wrappedPayload);
-        logger.debug(`[POLICY v2] Event routed to private user boundary: ${customerRoom}`);
+      if (await this._isDuplicate(eventHash)) {
+        logger.debug(`[GNE] 🛡️ Duplicate event ignored: ${eventHash}`);
+        return;
       }
-      return true;
+
+      // 2. 🛡️ [THROTTLE-LAYER] Backpressure Control
+      if (eventMeta.priority === 'LOW' && await this._isSystemOverloaded()) {
+        logger.warn('[GNE] 📉 System overloaded. Dropping LOW priority UI update.');
+        return;
+      }
+  
+      // 🛡️ Fail-safe: Prevent global broadcast for branch-specific events
+      if (!eventMeta.branchId && !['broadcast', 'system_alert'].includes(notif.type)) {
+        logger.warn('[NotificationService] Blocked possible leak: No branchId for targeted event', { 
+          orderId: order?.id, 
+          type: notif.type 
+        });
+        return;
+      }
+
+      const targetRooms = await SecurityPolicyService.getTargetRooms(eventMeta);
+      
+      try {
+        const circuitBreaker = require('./circuitBreakerService');
+        if (await circuitBreaker.isOpen('SOCKET_ENGINE')) {
+          throw new Error('CIRCUIT_OPEN');
+        }
+
+        if (target.isToAdmin) {
+          const StateAuthority = require('./stateAuthority');
+          const canonicalOrder = await StateAuthority.getCanonicalOrder(order?.id);
+          
+          if (!canonicalOrder) {
+            logger.warn('[NotificationService] Skipping broadcast: Canonical state not found', { orderId: order?.id });
+            return;
+          }
+
+          const eventName = notif.type === 'order_created' 
+            ? SOCKET_EVENTS.ORDER_CREATED 
+            : SOCKET_EVENTS.ORDER_UPDATED;
+          
+          // 🧠 Canonical State Sync (Overwrite Layer)
+          const finalPayload = SecurityPolicyService.wrapPayload(canonicalOrder);
+
+          targetRooms.forEach(room => {
+            if (room.includes('admin') || room.includes('branch')) {
+              this.io.to(room).emit(eventName, finalPayload);
+              logger.debug(`[CanonicalSync] Event '${eventName}' broadcasted canonical state to: ${room}`);
+            }
+          });
+        }
+        
+        if (target.isToCustomer && eventMeta.customerUuid) {
+          const wrappedPayload = SecurityPolicyService.wrapPayload(payload);
+          const customerRoom = `room:user:${eventMeta.customerUuid}`;
+          this.io.to(customerRoom).emit(SOCKET_EVENTS.ORDER_UPDATED, wrappedPayload);
+          logger.debug(`[POLICY v2] Event routed to private user boundary: ${customerRoom}`);
+        }
+        
+        await circuitBreaker.recordSuccess('SOCKET_ENGINE');
+        return true;
+      } catch (err) {
+        const circuitBreaker = require('./circuitBreakerService');
+        await circuitBreaker.recordFailure('SOCKET_ENGINE');
+        logger.error(`[GNE] ❌ Socket Emit Failed: ${err.message}`);
+        return false;
+      }
     } catch (err) {
-      logger.error(`[GNE] ❌ Socket Emit Failed: ${err.message}`);
+      logger.error(`[GNE] ❌ Critical Failure in _attemptSocketEmit: ${err.message}`);
       return false;
     }
+  }
+
+  _getPriority(type) {
+    const PRIORITIES = {
+      'order_created': 'HIGH',
+      'order_cancelled': 'HIGH',
+      'status_change': 'MEDIUM',
+      'broadcast': 'LOW',
+      'system_alert': 'HIGH'
+    };
+    return PRIORITIES[type] || 'LOW';
+  }
+
+  async _isDuplicate(hash) {
+    const redis = require('../lib/redis');
+    try {
+      const exists = await redis.get(`notif:dup:${hash}`);
+      if (exists) return true;
+      await redis.set(`notif:dup:${hash}`, '1', 'EX', 60); // 60s window
+      return false;
+    } catch (err) { return false; }
+  }
+
+  async _isSystemOverloaded() {
+    // Simple load check: if socket is disconnected or memory is high
+    const memUsage = process.memoryUsage().heapUsed / 1024 / 1024;
+    return memUsage > 500; // Over 500MB
   }
 
   async _attemptFCMPush(notif, order, target) {

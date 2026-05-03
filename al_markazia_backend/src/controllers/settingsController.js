@@ -1,6 +1,7 @@
 const bcrypt = require('bcrypt');
 const prisma = require('../lib/prisma');
 const logger = require('../utils/logger');
+const SecurityPolicyService = require('../services/securityPolicyService');
 
 const BOOLEAN_KEYS = ['notificationsEnabled', 'autoAcceptOrders'];
 
@@ -84,6 +85,8 @@ exports.updateAdminCredentials = async (req, res) => {
           metadata: { emailChanged: !!updateData.email, passwordChanged: !!updateData.password }
         }
       });
+      // 🛡️ [SEC-FIX] Invalidate permissions cache immediately
+      await SecurityPolicyService.invalidateUserPermissions(adminId);
     }
 
     res.json({ success: true, message: 'تم تحديث بيانات الدخول بنجاح' });
@@ -136,6 +139,9 @@ exports.updateBranchCredentials = async (req, res) => {
         metadata: { branchId, managerId: manager.id, emailChanged: !!updateData.email }
       }
     });
+
+    // 🛡️ [SEC-FIX] Invalidate permissions cache immediately
+    await SecurityPolicyService.invalidateUserPermissions(manager.uuid);
 
     res.json({ success: true, message: 'تم تحديث بيانات الفرع بنجاح' });
   } catch (error) {

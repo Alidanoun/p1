@@ -23,10 +23,12 @@ class SecurityLogger {
 
     logger.security(`[BRANCH_VIOLATION] Unauthorized access attempt by user ${userId} to branch ${requestedBranchId}`, logData);
 
-    // Track attempt frequency in Redis to trigger auto-block (Brute-force protection)
+    // Track attempt frequency in Redis to trigger auto-block
     const key = `security:violations:${userId}`;
     const violations = await redis.incr(key);
-    if (violations === 1) await redis.expire(key, 3600); // 1 hour window
+    if (violations === 1) {
+      await redis.expire(key, 3600); // 1 hour window
+    }
 
     if (violations >= 10) {
       logger.security(`[SUSPICIOUS_ACTIVITY] User ${userId} exceeded violation threshold!`, { userId, violations });

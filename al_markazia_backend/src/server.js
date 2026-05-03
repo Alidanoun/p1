@@ -68,12 +68,14 @@ async function startServer() {
       contentSecurityPolicy: {
         directives: {
           defaultSrc: ["'self'"],
-          scriptSrc: ["'self'", "'unsafe-inline'"], // unsafe-inline for some legacy admin scripts, ideally remove later
+          scriptSrc: ["'self'"], 
           styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
           fontSrc: ["'self'", "https://fonts.gstatic.com"],
-          imgSrc: ["'self'", "data:", "blob:", "*"], // Allow images from any source for now (CDN/Uploads)
+          imgSrc: ["'self'", "data:", "blob:", "https://*.cloudinary.com", "https://*.googleusercontent.com"], 
           objectSrc: ["'none'"],
-          upgradeInsecureRequests: []
+          upgradeInsecureRequests: [],
+          baseUri: ["'self'"],
+          formAction: ["'self'"]
         }
       }
     }));
@@ -212,8 +214,13 @@ async function startServer() {
       
       const analyticsProjection = require('./projections/analyticsProjection');
       const orderProjection = require('./projections/orderProjection');
-      await Promise.all([analyticsProjection.replay(), orderProjection.replay()])
-        .catch(e => logger.error('Rehydration Failed', { error: e.message }));
+      const SecurityPolicyService = require('./services/securityPolicyService');
+      
+      await Promise.all([
+        analyticsProjection.replay(), 
+        orderProjection.replay(),
+        SecurityPolicyService.warmupSecurityCache()
+      ]).catch(e => logger.error('Rehydration Failed', { error: e.message }));
     });
 
   } catch (err) {

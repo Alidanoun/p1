@@ -75,7 +75,8 @@ module.exports = {
 
     const trackingService = require('./services/trackingService');
     io.on('connection', async (socket) => {
-      const { id: userId } = socket.user;
+      const { id: userId, role, branchId } = socket.user;
+      const { SOCKET_ROOMS, ROLES } = require('./shared/socketEvents');
 
       // 🛡️ [PHASE 2] Real-Time Isolation Layer
       const SecurityPolicyService = require('./services/securityPolicyService');
@@ -111,6 +112,90 @@ module.exports = {
       socket.on('tracking:update_location', (data) => {
         // Only allow if role is 'driver' or 'admin' (assuming 'admin' for simulation)
         trackingService.updateDriverLocation(io, data);
+      });
+
+      // 🏢 Dynamic Branch Context Switching
+      socket.on('branch:switch', async ({ branchId }, ack) => {
+        try {
+          // 🔐 Verify permission (only super_admin/admin can dynamically switch contexts)
+          if (!['super_admin', 'admin'].includes(role)) {
+            logger.warn(`[Socket] Unauthorized branch switch attempt by ${userId} [${role}]`);
+            if (ack) ack({ success: false, error: 'Unauthorized' });
+            return;
+          }
+
+          // 🧹 Clean up previous branch rooms (Hard Cleanup)
+          const currentRooms = Array.from(socket.rooms);
+          for (const room of currentRooms) {
+            if (room.startsWith('room:admin:branch:')) {
+              await socket.leave(room);
+            }
+          }
+
+          if (branchId) {
+            // 🟢 Join specific branch
+            const targetRoom = `room:admin:branch:${branchId}`;
+            await socket.join(targetRoom);
+            socket.data.activeBranchId = branchId; // Store in socket state
+            logger.info(`[Socket] Admin ${userId} switched to branch ${branchId}`);
+          } else if (role === 'super_admin') {
+            // 🌐 Super Admin "All Branches" mode - Subscribe to all
+            const prisma = require('./lib/prisma');
+            const allBranches = await prisma.branch.findMany({ select: { id: true } });
+            
+            await Promise.all(allBranches.map(b => socket.join(`room:admin:branch:${b.id}`)));
+            socket.data.activeBranchId = 'all';
+            logger.info(`[Socket] Super Admin ${userId} joined all branch rooms`);
+          } else {
+            // Admin switching to 'all' but doesn't have super_admin role
+            // Fallback to their assigned branch if it exists, otherwise stay in global
+            if (socket.user.branchId) {
+              await socket.join(`room:admin:branch:${socket.user.branchId}`);
+              socket.data.activeBranchId = socket.user.branchId;
+            }
+          }
+
+          if (ack) ack({ success: true, branchId: socket.data.activeBranchId });
+        } catch (err) {
+          logger.error(`[Socket] Branch switch failed for user ${userId}`, err);
+          if (ack) ack({ success: false, error: 'Internal Server Error' });
+        }
+      });
+
+      // 🛡️ Real-Time Authorization Sync
+      socket.on('permissions:refresh', async (ack) => {
+        try {
+          const SecurityPolicyService = require('./services/securityPolicyService');
+          
+          // 1. Force Clear Cache
+          await SecurityPolicyService.invalidateUserPermissions(userId);
+          
+          // 2. Re-verify active branch access
+          const filter = await SecurityPolicyService.getHardenedFilter(socket.user, 'Branch');
+          const allowedBranches = filter.id?.in || [];
+          
+          const currentBranchId = socket.data.activeBranchId;
+          
+          if (currentBranchId && currentBranchId !== 'all' && !allowedBranches.includes(currentBranchId)) {
+            logger.warn(`[Socket] KILLING UNAUTHORIZED ACCESS: User ${userId} lost access to branch ${currentBranchId}`);
+            
+            // 🔥 Hard Reset
+            socket.data.activeBranchId = null;
+            const currentRooms = Array.from(socket.rooms);
+            for (const room of currentRooms) {
+              if (room.startsWith('room:admin:branch:')) {
+                await socket.leave(room);
+              }
+            }
+            
+            socket.emit('force:branch:reset', { reason: 'ACCESS_REVOKED' });
+          }
+
+          if (ack) ack({ success: true });
+        } catch (err) {
+          logger.error(`[Socket] Permission refresh failed for ${userId}`, err);
+          if (ack) ack({ success: false });
+        }
       });
     });
 

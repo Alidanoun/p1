@@ -42,13 +42,18 @@ class ContractGateway {
       if (!canProceed) throw new Error('IDEMPOTENCY_LOCKED: Conflict detected.');
     }
 
-    const lockKey = `lock:order:mod:${orderId}`;
-    
     // 1. 🔐 Acquire Global Lock (Distributed)
     // Prevents conflicts with Cron jobs or concurrent admins
     const acquired = await redis.set(lockKey, 'locked', 'NX', 'EX', 30); // 30s lock
     if (!acquired) {
       throw new Error('SYSTEM_BUSY:ORDER_LOCKED_BY_ANOTHER_PROCESS');
+    }
+
+    // 1.1 🛡️ [HARDENING] Circuit Breaker Guard
+    const circuitBreaker = require('./circuitBreakerService');
+    if (await circuitBreaker.isOpen('ORDER_OPERATIONS')) {
+      await redis.del(lockKey);
+      throw new Error('SYSTEM_DEGRADED: Circuit breaker open. Please try again in 30s.');
     }
 
     try {
@@ -126,11 +131,17 @@ class ContractGateway {
       await metricsService.increment(`action:${action}:success`);
       await metricsService.recordLatency(`action:${action}`, duration);
 
+      // ✅ Record Success for auto-healing
+      await circuitBreaker.recordSuccess('ORDER_OPERATIONS');
+
       return result;
 
     } catch (error) {
       const metricsService = require('./metricsService');
       await metricsService.increment(`action:${action}:failure`);
+
+      // 🚨 Record Failure for circuit breaker
+      await circuitBreaker.recordFailure('ORDER_OPERATIONS');
 
       // ❌ Rollback Idempotency on failure to allow retry
       if (idempotencyKey) {

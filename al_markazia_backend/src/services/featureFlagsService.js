@@ -46,7 +46,7 @@ class FeatureFlagsService {
       enabled, 
       updatedAt: new Date().toISOString() 
     };
-    await redis.set(`feature:${flagName}`, JSON.stringify(payload));
+    await redis.setex(`feature:${flagName}`, 86400, JSON.stringify(payload));
     logger.info(`[FeatureFlag] Security feature '${flagName}' is now ${enabled ? 'ENABLED' : 'DISABLED'}`);
   }
 }

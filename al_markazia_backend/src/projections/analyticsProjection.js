@@ -8,13 +8,13 @@ let activeBranchIds = new Set();
 function getInitialMetrics() {
   return {
     financials: {
-      grossRevenue: 0,   // الإجمالي شامل كل شيء (Subtotal + Delivery - Discount)
-      netRevenue: 0,     // الصافي (Base - Discount)
-      taxTotal: 0,       // إجمالي الضرائب المستخرجة (16%)
-      deliveryTotal: 0,  // إجمالي رسوم التوصيل
-      discountTotal: 0,  // إجمالي الخصومات
-      cancelledTotal: 0, // التسرب المالي (الطلبات الملغية)
-      avgTicket: 0       // متوسط قيمة الفاتورة الناجحة
+      grossRevenue: 0,   // الحقيقة المالية (Source of Truth from DB)
+      netRevenue: 0,
+      taxTotal: 0,
+      deliveryTotal: 0,
+      discountTotal: 0,
+      cancelledTotal: 0,
+      avgTicket: 0
     },
     counts: {
       total: 0,
@@ -88,7 +88,70 @@ function getGlobalMetrics() {
 }
 
 function isRevenueStatus(status) {
-  return ['confirmed', 'preparing', 'ready', 'in_route', 'delivered'].includes(status);
+  // 🏢 Deterministic Rule: Financial revenue is ONLY 'delivered'
+  return status === 'delivered';
+}
+
+/**
+ * 💰 Financial Synchronizer (Deterministic)
+ * Directly aggregates financial data from the DB to prevent race conditions.
+ */
+async function syncFinancials(branchId) {
+  const prisma = require('../lib/prisma');
+  const ammanNow = DateTime.now().setZone('Asia/Amman');
+  const ammanStartOfDay = ammanNow.startOf('day').toJSDate();
+
+  const metrics = getBranchMetrics(branchId);
+  if (!metrics) return;
+
+  const deliveredOrders = await prisma.order.findMany({
+    where: {
+      branchId,
+      status: 'delivered',
+      createdAt: { gte: ammanStartOfDay },
+      isDeleted: false
+    },
+    select: { total: true, subtotal: true, deliveryFee: true, discount: true }
+  });
+
+  const cancelledOrders = await prisma.order.findMany({
+    where: {
+      branchId,
+      status: 'cancelled',
+      createdAt: { gte: ammanStartOfDay },
+      isDeleted: false
+    },
+    select: { total: true }
+  });
+
+  // Reset financials
+  metrics.financials = getInitialMetrics().financials;
+
+  for (const order of deliveredOrders) {
+    const subtotal = toNumber(order.subtotal || 0);
+    const { base, tax } = accountingService.extractTax(subtotal);
+    const total = toNumber(order.total || 0);
+    const discount = toNumber(order.discount || 0);
+    const deliveryFee = toNumber(order.deliveryFee || 0);
+    const netRevenue = toMoney(base - discount);
+
+    metrics.financials.grossRevenue = toMoney(metrics.financials.grossRevenue + total);
+    metrics.financials.netRevenue = toMoney(metrics.financials.netRevenue + netRevenue);
+    metrics.financials.taxTotal = toMoney(metrics.financials.taxTotal + tax);
+    metrics.financials.deliveryTotal = toMoney(metrics.financials.deliveryTotal + deliveryFee);
+    metrics.financials.discountTotal = toMoney(metrics.financials.discountTotal + discount);
+  }
+
+  metrics.financials.cancelledTotal = cancelledOrders.reduce((sum, o) => toMoney(sum + toNumber(o.total)), 0);
+  metrics.counts.delivered = deliveredOrders.length;
+  metrics.counts.cancelled = cancelledOrders.length;
+
+  if (metrics.counts.delivered > 0) {
+    metrics.financials.avgTicket = toMoney(metrics.financials.grossRevenue / metrics.counts.delivered);
+  }
+
+  metrics.lastUpdated = new Date();
+  metrics.sequence += 1;
 }
 
 function handleCreated(payload) {
@@ -103,30 +166,12 @@ function handleCreated(payload) {
   metrics.sequence += 1;
 }
 
-/**
- * 🛠️ [SAFETY-LAYER] Handle Order Modifications via AccountingService
- */
 function handleModified(payload) {
-  const { order, event } = payload;
-  const metrics = getBranchMetrics(order.branchId);
-  if (!metrics) return;
-
-  const { oldSummary, newSummary } = event.payload;
-  if (!oldSummary || !newSummary) return;
-
-  if (isRevenueStatus(order.status)) {
-    const { deltaTotal, deltaNet, deltaTax, deltaDelivery, deltaDiscount } = 
-      accountingService.validateDelta(oldSummary, newSummary);
-
-    metrics.financials.grossRevenue = toMoney(metrics.financials.grossRevenue + deltaTotal);
-    metrics.financials.netRevenue = toMoney(metrics.financials.netRevenue + deltaNet);
-    metrics.financials.taxTotal = toMoney(metrics.financials.taxTotal + deltaTax);
-    metrics.financials.deliveryTotal = toMoney(metrics.financials.deliveryTotal + deltaDelivery);
-    metrics.financials.discountTotal = toMoney(metrics.financials.discountTotal + deltaDiscount);
+  const { order } = payload;
+  // Any modification to a finalized order requires a financial sync
+  if (isRevenueStatus(order.status) || order.status === 'cancelled') {
+    syncFinancials(order.branchId);
   }
-
-  metrics.lastUpdated = new Date();
-  metrics.sequence += 1;
 }
 
 function handleStatusChange(payload) {
@@ -134,59 +179,22 @@ function handleStatusChange(payload) {
   const metrics = getBranchMetrics(order.branchId);
   if (!metrics) return;
 
-  // 🛡️ Use AccountingService for all component extraction
-  const summary = accountingService.calculateOrderSummary(
-    [], // Mock items as we use the stored total/subtotal
-    toNumber(order.deliveryFee),
-    toNumber(order.discount)
-  );
-  
-  // Actually, since we have subtotal, we extract tax from it directly
-  const subtotal = toNumber(order.subtotal || 0);
-  const { base, tax } = accountingService.extractTax(subtotal);
-  const total = toNumber(order.total || 0);
-  const discount = toNumber(order.discount || 0);
-  const deliveryFee = toNumber(order.deliveryFee || 0);
-  const netRevenue = toMoney(base - discount);
-
+  // 1. Update Distribution (Live Stats - Approximate)
   if (previousStatus && metrics.statusDistribution[previousStatus] > 0) {
     metrics.statusDistribution[previousStatus] -= 1;
   }
   metrics.statusDistribution[newStatus] = (metrics.statusDistribution[newStatus] || 0) + 1;
 
-  const wasRevenue = isRevenueStatus(previousStatus);
-  const isRevenue = isRevenueStatus(newStatus);
-
-  if (!wasRevenue && isRevenue) {
-    metrics.financials.grossRevenue = toMoney(metrics.financials.grossRevenue + total);
-    metrics.financials.netRevenue = toMoney(metrics.financials.netRevenue + netRevenue);
-    metrics.financials.taxTotal = toMoney(metrics.financials.taxTotal + tax);
-    metrics.financials.deliveryTotal = toMoney(metrics.financials.deliveryTotal + deliveryFee);
-    metrics.financials.discountTotal = toMoney(metrics.financials.discountTotal + discount);
-  } 
-  else if (wasRevenue && !isRevenue) {
-    metrics.financials.grossRevenue = toMoney(metrics.financials.grossRevenue - total);
-    metrics.financials.netRevenue = toMoney(metrics.financials.netRevenue - netRevenue);
-    metrics.financials.taxTotal = toMoney(metrics.financials.taxTotal - tax);
-    metrics.financials.deliveryTotal = toMoney(metrics.financials.deliveryTotal - deliveryFee);
-    metrics.financials.discountTotal = toMoney(metrics.financials.discountTotal - discount);
-  }
-
-  if (newStatus === 'delivered') {
-    metrics.counts.delivered += 1;
-    metrics.counts.active = Math.max(0, metrics.counts.active - 1);
-  }
-
-  if (newStatus === 'cancelled') {
-    metrics.counts.cancelled += 1;
-    metrics.counts.active = Math.max(0, metrics.counts.active - 1);
-    if (wasRevenue) {
-        metrics.financials.cancelledTotal = toMoney(metrics.financials.cancelledTotal + total);
+  // 2. Manage Active Count
+  if (previousStatus === 'pending' || previousStatus === 'confirmed' || previousStatus === 'preparing' || previousStatus === 'ready' || previousStatus === 'in_route') {
+    if (newStatus === 'delivered' || newStatus === 'cancelled') {
+      metrics.counts.active = Math.max(0, metrics.counts.active - 1);
     }
   }
 
-  if (metrics.counts.delivered > 0) {
-    metrics.financials.avgTicket = toMoney(metrics.financials.grossRevenue / metrics.counts.delivered);
+  // 3. 💰 Trigger Financial Reconciliation on Terminal States
+  if (newStatus === 'delivered' || newStatus === 'cancelled' || previousStatus === 'delivered' || previousStatus === 'cancelled') {
+    syncFinancials(order.branchId);
   }
 
   metrics.lastUpdated = new Date();
@@ -195,69 +203,50 @@ function handleStatusChange(payload) {
 
 const prisma = require('../lib/prisma');
 
-async function replay() {
+async function replay(targetBranchId = null) {
   const ammanNow = DateTime.now().setZone('Asia/Amman');
   const ammanStartOfDay = ammanNow.startOf('day').toJSDate();
 
-  const activeBranches = await prisma.branch.findMany({
-    where: { isActive: true },
-    select: { id: true }
-  });
-  activeBranchIds = new Set(activeBranches.map(b => b.id));
-
-  const orders = await prisma.order.findMany({
-    where: { 
-        createdAt: { gte: ammanStartOfDay },
-        isDeleted: false
-    },
-    select: { branchId: true, total: true, status: true, orderType: true, subtotal: true, deliveryFee: true, discount: true, tax: true }
-  });
-
-  reset();
-  
-  for (const order of orders) {
-    if (!order.branchId || !activeBranchIds.has(order.branchId)) continue;
-
-    const metrics = getBranchMetrics(order.branchId);
-    
-    // 🛡️ Tax-Inclusive Extraction for Replay
-    const subtotal = toNumber(order.subtotal || 0);
-    const { base, tax } = accountingService.extractTax(subtotal);
-    const total = toNumber(order.total || 0);
-    const discount = toNumber(order.discount || 0);
-    const deliveryFee = toNumber(order.deliveryFee || 0);
-    const netRevenue = toMoney(base - discount);
-
-    metrics.counts.total += 1;
-    metrics.statusDistribution[order.status] = (metrics.statusDistribution[order.status] || 0) + 1;
-    metrics.typeDistribution[order.orderType || 'takeaway'] += 1;
-
-    if (isRevenueStatus(order.status)) {
-        metrics.financials.grossRevenue = toMoney(metrics.financials.grossRevenue + total);
-        metrics.financials.netRevenue = toMoney(metrics.financials.netRevenue + netRevenue);
-        metrics.financials.taxTotal = toMoney(metrics.financials.taxTotal + tax);
-        metrics.financials.deliveryTotal = toMoney(metrics.financials.deliveryTotal + deliveryFee);
-        metrics.financials.discountTotal = toMoney(metrics.financials.discountTotal + discount);
-
-        if (order.status === 'delivered') {
-            metrics.counts.delivered += 1;
-        } else {
-            metrics.counts.active += 1;
-        }
-    } else if (order.status === 'pending') {
-        metrics.counts.active += 1;
-    }
-
-    if (order.status === 'cancelled') {
-        metrics.counts.cancelled += 1;
-        metrics.financials.cancelledTotal = toMoney(metrics.financials.cancelledTotal + total);
-    }
+  if (!targetBranchId) {
+    const activeBranches = await prisma.branch.findMany({
+      where: { isActive: true },
+      select: { id: true }
+    });
+    activeBranchIds = new Set(activeBranches.map(b => b.id));
+    reset();
   }
 
-  for (const metrics of branchMap.values()) {
-    if (metrics.counts.delivered > 0) {
-      metrics.financials.avgTicket = toMoney(metrics.financials.grossRevenue / metrics.counts.delivered);
+  const branchesToProcess = targetBranchId ? [targetBranchId] : Array.from(activeBranchIds);
+
+  for (const bid of branchesToProcess) {
+    const orders = await prisma.order.findMany({
+      where: { 
+          branchId: bid,
+          createdAt: { gte: ammanStartOfDay },
+          isDeleted: false
+      },
+      select: { total: true, status: true, orderType: true, subtotal: true, deliveryFee: true, discount: true, tax: true }
+    });
+
+    const metrics = getBranchMetrics(bid);
+    // Reset non-financials (Financials will be synced via syncFinancials or logic below)
+    metrics.counts.total = 0;
+    metrics.counts.active = 0;
+    Object.keys(metrics.statusDistribution).forEach(k => metrics.statusDistribution[k] = 0);
+    Object.keys(metrics.typeDistribution).forEach(k => metrics.typeDistribution[k] = 0);
+
+    for (const order of orders) {
+      metrics.counts.total += 1;
+      metrics.statusDistribution[order.status] = (metrics.statusDistribution[order.status] || 0) + 1;
+      metrics.typeDistribution[order.orderType || 'takeaway'] += 1;
+
+      if (!['delivered', 'cancelled'].includes(order.status)) {
+        metrics.counts.active += 1;
+      }
     }
+    
+    // 💰 Force Financial Sync from DB
+    await syncFinancials(bid);
   }
 }
 
@@ -265,11 +254,18 @@ function reset() {
   branchMap.clear();
 }
 
+// 🏥 Periodic Financial Reconciliation Job (Every 5 minutes)
+setInterval(() => {
+  console.log('🔄 [FinancialEngine] Running periodic reconciliation...');
+  replay().catch(err => console.error('[FinancialEngine] Reconciliation failed', err));
+}, 5 * 60 * 1000);
+
 module.exports = {
   handleCreated,
   handleModified,
   handleStatusChange,
   reset,
   replay,
+  syncFinancials,
   getMetrics: (branchId) => branchId ? getBranchMetrics(branchId) : getGlobalMetrics(),
 };

@@ -4,7 +4,7 @@ const logger = require('../utils/logger');
 const { generateFingerprint } = require('../utils/security');
 const TokenService = require('../services/tokenService');
 const auditService = require('../services/auditService');
-const { REFRESH_TOKEN_EXPIRY_MS } = require('../config/secrets');
+const { REFRESH_TOKEN_EXPIRY_MS, BCRYPT_ROUNDS = 10 } = require('../config/secrets');
 const { OTP_EXPIRY } = require('../config/constants');
 const response = require('../utils/response');
 
@@ -348,13 +348,13 @@ const register = async (req, res) => {
     const expiresAt = new Date(Date.now() + OTP_EXPIRY.REGISTRATION);
 
     // 3. Hash Password for temporary storage
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
     // 4. Save to OtpCode with metadata (always use cleanEmail)
     await prisma.otpCode.create({
       data: {
         email: cleanEmail,
-        codeHash: await bcrypt.hash(otp, 10),
+        codeHash: await bcrypt.hash(otp, BCRYPT_ROUNDS),
         purpose: 'registration',
         expiresAt,
         metadata: { name, email: cleanEmail, password: hashedPassword, phone }
@@ -481,7 +481,7 @@ const forgotPassword = async (req, res) => {
     await prisma.otpCode.create({
       data: {
         email: cleanEmail,
-        codeHash: await bcrypt.hash(otp, 10),
+        codeHash: await bcrypt.hash(otp, BCRYPT_ROUNDS),
         purpose: 'password_reset',
         expiresAt
       }
@@ -522,7 +522,7 @@ const resetPassword = async (req, res) => {
       return response.error(res, 'كود التحقق غير صحيح', 'INVALID_OTP', 400);
     }
 
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const hashedPassword = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
     
     // ✅ Check user type and update accordingly
     let account = await prisma.user.findUnique({ where: { email: cleanEmail } });
