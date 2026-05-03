@@ -12,29 +12,41 @@ export const AuthProvider = ({ children }) => {
   const initialized = useRef(false);
 
   /**
-   * 🛡️ Bootstrap: Restore session without localStorage
+   * 🛡️ 3-Level Rehydration Strategy:
+   * 1. LocalStorage (Immediate/Optimistic)
+   * 2. executeRefresh (Server-side validation)
+   * 3. State Update (Final consistency)
    */
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
 
-    // 🧹 Cleanup legacy storage (Migration)
-    localStorage.removeItem('token');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('user');
-
     const bootstrap = async () => {
+      // 🟢 Level 1: Optimistic Boot (Fast)
+      const cachedUser = localStorage.getItem('user_cache');
+      if (cachedUser) {
+        try {
+          setUser(JSON.parse(cachedUser));
+          // 🛡️ [REMOVED] Early unlock to prevent race conditions during rehydration
+        } catch (e) {
+          localStorage.removeItem('user_cache');
+        }
+      }
+
       try {
-        // 🔄 Atomic Singleton Refresh via client.js
+        // 🟢 Level 2: Server-side validation (Truth)
         await executeRefresh();
 
-        // 👤 Fetch Identity
+        // 🟢 Level 3: Final state sync
         const meResponse = await api.get('/auth/me');
-        setUser(meResponse.data.data);
+        const finalUser = meResponse.data.data;
+        setUser(finalUser);
+        localStorage.setItem('user_cache', JSON.stringify(finalUser));
       } catch (err) {
-        console.warn('Session bootstrap failed:', err.response?.data?.error || err.message);
+        console.warn('Session rehydration failed:', err.response?.data?.error || err.message);
         tokenStore.clear();
         setUser(null);
+        localStorage.removeItem('user_cache');
       } finally {
         setLoading(false);
       }
@@ -82,9 +94,10 @@ export const AuthProvider = ({ children }) => {
       const authData = response.success ? response.data : response;
       const { accessToken, user } = authData;
 
-      // 🔒 Save to memory only
+      // 🔒 Save to memory + cache for rehydration
       tokenStore.set(accessToken);
       setUser(user);
+      localStorage.setItem('user_cache', JSON.stringify(user));
       
       // Reset branch context on login
       changeBranch(null);
@@ -107,6 +120,7 @@ export const AuthProvider = ({ children }) => {
       tokenStore.clear();
       setUser(null);
       setSelectedBranchId(null);
+      localStorage.removeItem('user_cache');
       window.location.href = '/login';
     }
   };
