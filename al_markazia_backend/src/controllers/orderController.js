@@ -213,11 +213,12 @@ exports.updateOrderTimer = async (req, res) => {
     const orderId = parseInt(req.params.id);
     const { estimatedReadyAt } = req.body;
     
-    const result = await orderService.updateOrderTimer(orderId, estimatedReadyAt);
+    const result = await orderService.updateOrderTimer(orderId, estimatedReadyAt, req.user);
     res.json(result);
   } catch (error) {
     logger.error('updateOrderTimer error', { error: error.message });
     if (error.message === 'INVALID_DATE') return res.status(400).json({ error: 'تاريخ غير صالح' });
+    if (error.message === 'ORDER_FORBIDDEN') return res.status(403).json({ error: 'غير مصرح لك بتعديل هذا الطلب' });
     res.status(500).json({ error: 'Failed to update timer' });
   }
 };
@@ -226,13 +227,35 @@ exports.updateOrderTimer = async (req, res) => {
  * ⭐ Submit Order Rating
  */
 exports.submitOrderRating = async (req, res) => {
+  const idempotencyKey = req.headers['x-idempotency-key'];
+  
   try {
+    // 🛡️ [IDEMPOTENCY-FIX] Check for cached result
+    if (idempotencyKey) {
+      const cached = await IdempotencyService.getResult(idempotencyKey);
+      if (cached) return res.json(cached);
+
+      const canProceed = await IdempotencyService.start(idempotencyKey);
+      if (!canProceed) return res.status(425).json({ error: 'Duplicate request in progress' });
+    }
+
     const { rating, comment } = req.body;
     const orderId = parseInt(req.params.id);
 
     const result = await orderService.submitOrderRating(orderId, req.user, rating, comment);
+
+    // ✅ Commit Result
+    if (idempotencyKey) {
+      await IdempotencyService.commit(idempotencyKey, result);
+    }
+
     res.json(result);
   } catch (error) {
+    // 🔙 Rollback Idempotency on non-validation errors
+    if (idempotencyKey && !['INVALID_RATING', 'ORDER_FORBIDDEN'].includes(error.message)) {
+      await IdempotencyService.rollback(idempotencyKey);
+    }
+
     logger.error('submitOrderRating error', { error: error.message });
     if (error.message === 'INVALID_RATING') return res.status(400).json({ error: 'التقييم يجب أن يكون رقماً بين 1 و 5' });
     if (error.message === 'ORDER_NOT_FOUND') return res.status(404).json({ error: 'الطلب غير موجود' });
@@ -361,10 +384,11 @@ exports.updatePreparationTime = async (req, res) => {
   try {
     const orderId = parseInt(req.params.id);
     const { minutes } = req.body;
-    const order = await orderService.updatePreparationTime(orderId, minutes);
+    const order = await orderService.updatePreparationTime(orderId, minutes, req.user);
     res.json({ success: true, data: order });
   } catch (error) {
     logger.error('updatePreparationTime error', { error: error.message });
+    if (error.message === 'ORDER_FORBIDDEN') return res.status(403).json({ error: 'غير مصرح لك بتعديل هذا الطلب' });
     res.status(500).json({ success: false, error: 'Failed to update preparation time' });
   }
 };

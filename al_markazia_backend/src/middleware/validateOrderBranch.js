@@ -36,6 +36,33 @@ module.exports = async (req, res, next) => {
     // 🔒 Security standard: Inject the verified ID to prevent body manipulation downstream
     req.body.branchId = branch.id;
     req.validatedBranch = branch;
+
+    // 🛡️ [PHASE 2] Authorization Guard (Strict Branch Isolation)
+    if (req.user) {
+      const role = req.user.role?.toLowerCase();
+      
+      // Admin/Super-Admin: Global access allowed
+      if (['admin', 'super_admin'].includes(role)) {
+        return next();
+      }
+
+      // Manager/Branch Manager: Must have explicit access to this branch
+      if (['manager', 'branch_manager'].includes(role)) {
+        const SecurityPolicyService = require('../services/securityPolicyService');
+        const canAccess = await SecurityPolicyService.canAccessBranch(req.user, branch.id, 'write');
+        
+        if (!canAccess) {
+          logger.security('UNAUTHORIZED_ORDER_CREATION_ATTEMPT', {
+            userId: req.user.id,
+            role,
+            branchId: branch.id,
+            ip: req.ip
+          });
+          return response.error(res, 'غير مصرح لك بإنشاء طلبات لهذا الفرع', 'FORBIDDEN', 403);
+        }
+      }
+    }
+    // Guest users: Allowed to create orders in any active branch
     
     next();
   } catch (error) {

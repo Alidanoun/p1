@@ -263,12 +263,21 @@ class OrderService {
   /**
    * ⏲️ Update estimated ready time
    */
-  async updateOrderTimer(orderId, estimatedReadyAt) {
+  async updateOrderTimer(orderId, estimatedReadyAt, user = null) {
     const date = new Date(estimatedReadyAt);
     if (isNaN(date.getTime())) throw new Error('INVALID_DATE');
 
     const currentOrder = await prisma.order.findUnique({ where: { id: orderId } });
     if (!currentOrder) throw new Error('ORDER_NOT_FOUND');
+
+    // 🛡️ [SEC-FIX] Branch Isolation (Defense in Depth)
+    if (user) {
+      const role = user.role?.toLowerCase();
+      if (['manager', 'branch_manager'].includes(role) && currentOrder.branchId !== user.branchId) {
+        logger.security('UNAUTHORIZED_TIMER_UPDATE_ATTEMPT', { userId: user.id, orderId, branchId: currentOrder.branchId });
+        throw new Error('ORDER_FORBIDDEN');
+      }
+    }
 
     const order = await prisma.order.update({
       where: { id: orderId, version: currentOrder.version },
@@ -276,15 +285,27 @@ class OrderService {
       include: ORDER_INCLUDE_FULL
     });
 
+    // ⚡ Sync Protocol: Bump branch version
+    await this.bumpBranchVersion(order.branchId);
+
     return mapOrderResponse(order);
   }
 
   /**
    * 👩‍🍳 Update Preparation Time (Minutes)
    */
-  async updatePreparationTime(orderId, minutes) {
+  async updatePreparationTime(orderId, minutes, user = null) {
     const order = await prisma.order.findUnique({ where: { id: orderId } });
     if (!order) throw new Error('ORDER_NOT_FOUND');
+
+    // 🛡️ [SEC-FIX] Branch Isolation (Defense in Depth)
+    if (user) {
+      const role = user.role?.toLowerCase();
+      if (['manager', 'branch_manager'].includes(role) && order.branchId !== user.branchId) {
+        logger.security('UNAUTHORIZED_PREP_UPDATE_ATTEMPT', { userId: user.id, orderId, branchId: order.branchId });
+        throw new Error('ORDER_FORBIDDEN');
+      }
+    }
 
     const prepMinutes = parseInt(minutes);
     const delMinutes = order.deliveryTimeMinutes || 15;
@@ -302,6 +323,9 @@ class OrderService {
       },
       include: ORDER_INCLUDE_FULL
     });
+
+    // ⚡ Sync Protocol: Bump branch version
+    await this.bumpBranchVersion(updated.branchId);
 
     const mapped = mapOrderResponse(updated);
 
@@ -338,7 +362,30 @@ class OrderService {
 
     if (!order) throw new Error('ORDER_NOT_FOUND');
 
-    if (user?.role !== 'admin' && order.customer?.uuid !== user?.id) {
+    // 🛡️ [SEC-FIX] Granular Authorization Guard
+    if (user) {
+      const role = user.role?.toLowerCase();
+      
+      // Customer: Must be the owner of the order
+      if (role === 'customer') {
+        if (order.customer?.uuid !== user.id) {
+          throw new Error('ORDER_FORBIDDEN');
+        }
+      }
+      
+      // Manager/Branch Manager: Must belong to the same branch
+      if (['manager', 'branch_manager'].includes(role)) {
+        if (order.branchId !== user.branchId) {
+          throw new Error('ORDER_FORBIDDEN');
+        }
+      }
+      
+      // Admin: Restricted admins must belong to the same branch
+      if (role === 'admin' && user.branchId && order.branchId !== user.branchId) {
+        throw new Error('ORDER_FORBIDDEN');
+      }
+    } else {
+      // Guest users cannot rate orders
       throw new Error('ORDER_FORBIDDEN');
     }
 
@@ -1298,111 +1345,146 @@ class OrderService {
         return { ...mappedOrder, _outboxId };
 
       } catch (error) {
-        // Check if it's a Prisma concurrency error (Record not found because version changed)
+        // 🔄 [RETRY-LOGIC] Handle Prisma concurrency errors (P2025)
         if (error.code === 'P2025' && attempts < maxRetries - 1) {
           attempts++;
-          const delay = 100 * attempts; // Exponential backoff
+          const delay = 100 * attempts;
           logger.warn(`[OrderService] Concurrency conflict detected for Order ${orderId}. Retry ${attempts}/${maxRetries} after ${delay}ms...`);
           await new Promise(r => setTimeout(r, delay));
           continue;
         }
+
+        // 🛡️ [UX-ENHANCEMENT] After all retries, return the ACTUAL current state instead of crashing
+        if (error.code === 'P2025' || error.message === 'CONCURRENCY_CONFLICT') {
+          const finalOrder = await prisma.order.findUnique({ 
+            where: { id: orderId },
+            include: ORDER_INCLUDE_FULL
+          });
+          
+          if (finalOrder) {
+            logger.info(`[OrderService] Conflict resolved by returning latest state for Order ${orderId}`);
+            return {
+              ...mapOrderResponse(finalOrder),
+              _conflict: true,
+              _message: 'تداخل في العمليات: الطلب محدث بالفعل ببيانات أخرى'
+            };
+          }
+        }
+
         throw error;
       }
     }
   }
 
   async batchAcceptOrders(user) {
-    const results = { accepted: 0, skipped: 0 };
-    const adminEmail = user?.email || 'Admin';
+    const results = { accepted: 0, skipped: 0, conflicts: 0 };
+    const adminEmail = user?.email || 'Admin System';
 
     // 🛡️ [SECURITY-UNIFICATION] Branch Isolation via Central Policy
     const SecurityPolicyService = require('./securityPolicyService');
-    const where = { status: 'pending', isDeleted: false };
     const branchFilter = await SecurityPolicyService.getHardenedFilter(user, 'Order');
-    if (branchFilter.branchId) {
-      where.branchId = branchFilter.branchId;
-    }
+    
+    const where = { 
+      status: 'pending', 
+      isDeleted: false,
+      ...branchFilter
+    };
 
-    // 1. Fetch target order IDs (Lightweight fetch)
-    const targetOrders = await prisma.order.findMany({
-      where,
-      select: { id: true, total: true, version: true, customerId: true, branchId: true }
-    });
+    try {
+      const { accepted, skipped, processedOrders } = await prisma.$transaction(async (tx) => {
+        let acceptedCount = 0;
+        let skippedCount = 0;
+        const processed = [];
 
-    if (targetOrders.length === 0) return results;
+        // 1. Fetch pending orders within transaction
+        const pendingOrders = await tx.order.findMany({
+          where,
+          include: ORDER_INCLUDE_FULL,
+          orderBy: { createdAt: 'asc' }
+        });
 
-    const targetIds = targetOrders.map(o => o.id);
-
-    // 2. ⚡ ATOMIC BATCH UPDATE: Transition all to 'preparing' in one query
-    const affected = await prisma.order.updateMany({
-      where: {
-        id: { in: targetIds },
-        status: 'pending'
-      },
-      data: {
-        status: 'preparing',
-        version: { increment: 1 },
-        updatedAt: new Date()
-      }
-    });
-
-    results.accepted = affected.count;
-    results.skipped = targetIds.length - affected.count;
-
-    if (results.accepted > 0) {
-      // 3. Process Side-Effects (Notifications, Audit, Analytics)
-      // Note: We fetch the FULL orders for those we successfully updated
-      const updatedOrders = await prisma.order.findMany({
-        where: { id: { in: targetIds }, status: 'preparing', updatedAt: { gte: new Date(Date.now() - 5000) } },
-        include: ORDER_INCLUDE_FULL
-      });
-
-      // 🚀 Background Processing for non-blocking UI
-      (async () => {
-        for (const order of updatedOrders) {
+        // 2. Atomic Loop Processing
+        for (const order of pendingOrders) {
           try {
-            // Audit
-            await AuditLogger.logOrderChange(prisma, {
-              orderId: order.id,
-              eventType: 'ORDER_STATUS_CHANGE',
-              eventAction: 'BATCH_ACCEPTED',
-              changedBy: adminEmail || 'Admin System',
-              changedByRole: 'admin',
-              previousData: { status: 'pending' },
-              newData: { status: 'preparing' }
-            });
-
-            // EventBus Notification
-            const mappedOrder = mapOrderResponse(order);
-            await publishEvent({
-              type: eventTypes.ORDER_STATUS_CHANGED,
-              aggregateId: mappedOrder.id,
-              payload: {
-                previousStatus: 'pending',
-                newStatus: 'preparing',
-                order: mappedOrder
+            const updated = await tx.order.update({
+              where: { 
+                id: order.id,
+                version: order.version // 🛡️ Optimistic Locking
               },
-              version: order.version
+              data: {
+                status: 'preparing',
+                version: { increment: 1 },
+                updatedAt: new Date()
+              },
+              include: ORDER_INCLUDE_FULL
             });
 
-            // Analytics
-            analyticsService.updateCacheIncrementally({
-              type: 'ORDER_STATUS_CHANGE',
-              amount: toNumber(order.total),
-              status: 'preparing',
-              branchId: order.branchId
+            // Audit Log
+            await tx.orderAuditLog.create({
+              data: {
+                orderId: order.id,
+                eventType: 'ORDER_STATUS_CHANGE',
+                eventAction: 'BATCH_ACCEPTED',
+                changedBy: adminEmail,
+                changedByRole: 'admin',
+                previousData: JSON.stringify({ status: 'pending' }),
+                newData: JSON.stringify({ status: 'preparing' })
+              }
             });
 
-            // ⚡ Sync Protocol: Bump branch version
-            await this.bumpBranchVersion(order.branchId);
+            acceptedCount++;
+            processed.push(updated);
           } catch (err) {
-            logger.error(`[BatchAccept] Post-processing failed for order ${order.id}`, { error: err.message });
+            // P2025: Record to update not found (Concurrency conflict)
+            if (err.code === 'P2025') {
+              skippedCount++;
+              logger.warn(`[BatchAccept] Order ${order.id} skipped due to concurrency conflict.`);
+            } else {
+              throw err; // Critical failure
+            }
           }
         }
-      })().catch(err => logger.error('[BatchAccept] Background worker failed', { error: err.message }));
-    }
 
-    return results;
+        return { accepted: acceptedCount, skipped: skippedCount, processedOrders: processed };
+      }, { timeout: 10000 }); // ⏱️ Higher timeout for large batches
+
+      results.accepted = accepted;
+      results.skipped = skipped;
+      results.conflicts = skipped;
+
+      // 🚀 Background Side-Effects (Notifications, Analytics)
+      if (processedOrders.length > 0) {
+        (async () => {
+          for (const order of processedOrders) {
+            try {
+              const mappedOrder = mapOrderResponse(order);
+              await publishEvent({
+                type: eventTypes.ORDER_STATUS_CHANGED,
+                aggregateId: mappedOrder.id,
+                payload: { previousStatus: 'pending', newStatus: 'preparing', order: mappedOrder },
+                version: order.version
+              });
+
+              analyticsService.updateCacheIncrementally({
+                type: 'ORDER_STATUS_CHANGE',
+                amount: toNumber(order.total),
+                status: 'preparing',
+                branchId: order.branchId
+              });
+
+              await this.bumpBranchVersion(order.branchId);
+            } catch (err) {
+              logger.error(`[BatchAccept] Side-effects failed for order ${order.id}`, { error: err.message });
+            }
+          }
+        })().catch(err => logger.error('[BatchAccept] Post-processing worker failed', { error: err.message }));
+      }
+
+      return results;
+    } catch (error) {
+      logger.error('[BatchAccept] Transaction failed', { error: error.message });
+      throw error;
+    }
   }
 }
 

@@ -11,6 +11,7 @@ const { requireBranchAccess, ensureBranchId } = require('../middleware/branchAut
 const validateOrderBranch = require('../middleware/validateOrderBranch');
 const { healthGuard } = require('../middleware/healthGuard');
 const workingHoursGuard = require('../middleware/workingHoursGuard');
+const { validateId } = require('../utils/security');
 const { 
   createOrder, 
   getOrders,
@@ -43,7 +44,7 @@ const idempotency = require('../services/idempotencyService');
 const router = express.Router();
 
 // Allow guests (app) to create orders while identifying registered customers
-router.post('/', idempotency.guard(true), validateOrderBranch, optionalAuth, healthGuard('db'), workingHoursGuard, orderLimiter, createOrder);
+router.post('/', idempotency.guard(true), optionalAuth, validateOrderBranch, healthGuard('db'), workingHoursGuard, orderLimiter, createOrder);
 
 // New Secure Identity Route: Get orders for the authenticated customer
 router.get('/my-orders', authMiddleware, getMyOrders);
@@ -58,7 +59,7 @@ router.post('/accept-all', authMiddleware, managerMiddleware, requireBranchAcces
 router.patch('/:id/status', authMiddleware, managerMiddleware, requireBranchAccess, healthGuard('db'), idempotency.guard(true), validateId(), updateOrderStatus);
 router.patch('/:id/timer', authMiddleware, managerMiddleware, requireBranchAccess, idempotency.guard(true), validateId(), updateOrderTimer);
 router.patch('/:id/prep-time', authMiddleware, managerMiddleware, requireBranchAccess, idempotency.guard(true), validateId(), updatePreparationTime);
-router.patch('/:id/rate', authMiddleware, validateId(), submitOrderRating);
+router.patch('/:id/rate', authMiddleware, idempotency.guard(true), validateId(), submitOrderRating);
 
 // Cancel order (Unified logic for Customer and Admin)
 router.post('/:id/cancel', authMiddleware, requireBranchAccess, idempotency.guard(true), cancelOrder);

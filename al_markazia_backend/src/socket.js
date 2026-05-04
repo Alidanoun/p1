@@ -120,45 +120,53 @@ module.exports = {
       // 🏢 Dynamic Branch Context Switching (Monitoring/Execution)
       socket.on('branch:switch', async ({ branchId }, ack) => {
         try {
-          // 🔐 Strict Authorization Check using SecurityPolicyService
-          const canAccess = await SecurityPolicyService.canAccessBranch(socket.user, branchId, 'read');
-          
-          if (!canAccess) {
-            logger.security('UNAUTHORIZED_BRANCH_SWITCH_ATTEMPT', { 
-              userId, 
-              role, 
-              requestedBranch: branchId,
-              ip: socket.handshake.address 
-            });
-            if (ack) ack({ success: false, error: 'غير مصرح لك بالوصول لهذا الفرع' });
+          const { role, id: userId } = socket.user;
+
+          // 🔐 1. Strict Role Gate
+          if (!['super_admin', 'admin', 'branch_manager', 'manager'].includes(role)) {
+            logger.security('UNAUTHORIZED_BRANCH_SWITCH_ATTEMPT', { userId, role, requestedBranch: branchId });
+            if (ack) ack({ success: false, error: 'Unauthorized' });
             return;
           }
 
-          // 🧹 Clean up previous branch monitoring rooms
+          // 🛡️ 2. Validate Target Branch Existence & Status
+          const prisma = require('./lib/prisma');
+          const branch = await prisma.branch.findUnique({
+            where: { id: branchId },
+            select: { id: true, isActive: true }
+          });
+
+          if (!branch || !branch.isActive) {
+            logger.warn(`[Socket] Branch switch rejected: Invalid or inactive branch ${branchId}`);
+            if (ack) ack({ success: false, error: 'الفرع المحدد غير موجود أو غير نشط' });
+            return;
+          }
+
+          // 🔐 3. SecurityPolicy Authorization Check
+          const SecurityPolicyService = require('./services/securityPolicyService');
+          const canAccess = await SecurityPolicyService.canAccessBranch(socket.user, branchId, 'read');
+          
+          if (!canAccess) {
+            logger.security('FORBIDDEN_BRANCH_SWITCH_ATTEMPT', { userId, role, requestedBranch: branchId });
+            if (ack) ack({ success: false, error: 'غير مصرح لك بالوصول لبيانات هذا الفرع' });
+            return;
+          }
+
+          // 🧹 4. Complete Context Cleanup (Remove from all previous branch rooms)
           const currentRooms = Array.from(socket.rooms);
           for (const room of currentRooms) {
-            if (room.startsWith('room:monitor:branch:')) {
+            if (room.startsWith('room:exec:') || room.startsWith('room:monitor:')) {
               await socket.leave(room);
             }
           }
 
-          if (branchId) {
-            // 👁️ MONITORING: Join specific branch monitor room
-            const targetRoom = SOCKET_ROOMS.MONITOR_BRANCH(branchId);
-            await socket.join(targetRoom);
-            socket.data.activeBranchId = branchId; 
-            logger.info(`[Socket] User ${userId} switched to MONITORING branch ${branchId}`);
-          } else if (role === 'super_admin' || (role === 'admin' && !socket.user.branchId)) {
-            // Global monitoring mode
-            const prisma = require('./lib/prisma');
-            const allBranches = await prisma.branch.findMany({ select: { id: true } });
-            
-            await Promise.all(allBranches.map(b => socket.join(SOCKET_ROOMS.MONITOR_BRANCH(b.id))));
-            socket.data.activeBranchId = 'all';
-            logger.info(`[Socket] Admin ${userId} joined all MONITORING branch rooms`);
-          }
+          // 👁️ 5. Join New Branch Context
+          const targetRoom = SOCKET_ROOMS.MONITOR_BRANCH(branchId);
+          await socket.join(targetRoom);
+          socket.data.activeBranchId = branchId; 
 
-          if (ack) ack({ success: true, branchId: socket.data.activeBranchId });
+          logger.info(`[Socket] User ${userId} switched context to branch ${branchId}`);
+          if (ack) ack({ success: true, branchId });
         } catch (err) {
           logger.error(`[Socket] Branch switch failed for user ${userId}`, err);
           if (ack) ack({ success: false, error: 'Internal Server Error' });
@@ -169,17 +177,82 @@ module.exports = {
       socket.on('permissions:refresh', async (ack) => {
         try {
           const SecurityPolicyService = require('./services/securityPolicyService');
-          
-          // 1. Force Clear Cache
           await SecurityPolicyService.invalidateUserPermissions(userId);
-          
-          // 2. Note: invalidateUserPermissions already force-syncs all sockets for this user.
-          // But since this socket specifically requested it, we can acknowledge.
-
           if (ack) ack({ success: true, timestamp: Date.now() });
         } catch (err) {
           logger.error(`[Socket] Permission refresh failed for ${userId}`, err);
           if (ack) ack({ success: false });
+        }
+      });
+
+      // 🔄 [SYNC-PROTOCOL] Handle Full State Synchronization (Post-Reconnection)
+      socket.on('sync:full', async (ack) => {
+        try {
+          logger.info(`[Socket] 🔄 Sync requested by user ${userId} [${role}]`);
+
+          // 1. Refresh User State
+          const prisma = require('./lib/prisma');
+          const freshUser = await prisma.user.findUnique({
+            where: { uuid: userId },
+            select: { id: true, role: true, branchId: true, isActive: true }
+          });
+
+          if (!freshUser || !freshUser.isActive) {
+            socket.emit('error', { message: 'Account inactive, disconnecting...' });
+            socket.disconnect(true);
+            return;
+          }
+
+          // 2. Refresh Context
+          socket.user = {
+            id: userId,
+            role: freshUser.role.toLowerCase(),
+            branchId: freshUser.branchId,
+            dbId: freshUser.id
+          };
+
+          // 3. Re-Sync Rooms
+          const SecurityPolicyService = require('./services/securityPolicyService');
+          const targetRooms = await SecurityPolicyService.getTargetRooms(socket.user);
+          
+          // Clear current rooms (except private room)
+          const currentRooms = Array.from(socket.rooms);
+          for (const room of currentRooms) {
+            if (room.startsWith('room:')) await socket.leave(room);
+          }
+
+          // Join fresh rooms
+          targetRooms.forEach(room => socket.join(room));
+
+          // 4. Push Latest Orders (For Managers)
+          if (['branch_manager', 'manager'].includes(socket.user.role)) {
+            const activeOrders = await prisma.order.findMany({
+              where: { 
+                branchId: socket.user.branchId,
+                status: { notIn: ['delivered', 'cancelled'] },
+                isDeleted: false
+              },
+              orderBy: { updatedAt: 'desc' },
+              take: 50,
+              include: { 
+                orderItems: { include: { product: true } }
+              }
+            });
+
+            socket.emit('orders:sync', {
+              orders: activeOrders.map(o => {
+                const { mapOrderResponse } = require('./services/orderService');
+                return mapOrderResponse(o);
+              }),
+              timestamp: Date.now()
+            });
+          }
+
+          if (ack) ack({ success: true, timestamp: Date.now() });
+          logger.info(`[Socket] ✅ Sync complete for user ${userId}`);
+        } catch (err) {
+          logger.error(`[Socket] Sync failed for user ${userId}`, err);
+          if (ack) ack({ success: false, error: 'Sync failed' });
         }
       });
     });

@@ -154,7 +154,7 @@ model Order {
 
   // Branch Integration
   branchId         String
-  branch           Branch  @relation(fields: [branchId], references: [id])
+  branch           Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
   orderType        String
   status           String             @default("pending")
   paymentStatus    String             @default("unpaid")
@@ -598,7 +598,7 @@ model FinancialLedger {
   id              Int      @id @default(autoincrement())
   customerId      Int?
   orderId         Int?
-  branchId        String?
+  branchId        String
   type            String   // DEBIT (Money Out), CREDIT (Money In)
   category        String   // ORDER_PAYMENT, REFUND, WALLET_CREDIT, ADJUSTMENT
   amount          Decimal  @db.Decimal(10, 2)
@@ -611,7 +611,7 @@ model FinancialLedger {
   metadata        Json?
   createdAt       DateTime @default(now())
 
-  branch          Branch?  @relation(fields: [branchId], references: [id])
+  branch          Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
   @@index([customerId])
   @@index([orderId])
   @@index([branchId])
@@ -710,7 +710,7 @@ model CustomerReward {
 model DailyFinancialSnapshot {
   id              String   @id @default(uuid())
   date            DateTime // The day this snapshot represents
-  branchId        String?
+  branchId        String
   totalRevenue    Decimal  @db.Decimal(10, 2)
   netRevenue      Decimal  @db.Decimal(10, 2)
   taxTotal        Decimal  @db.Decimal(10, 2)
@@ -721,7 +721,7 @@ model DailyFinancialSnapshot {
   isFrozen        Boolean  @default(true) // Snapshots are immutable by default
   createdAt       DateTime @default(now())
 
-  branch          Branch?  @relation("BranchSnapshots", fields: [branchId], references: [id])
+  branch          Branch   @relation("BranchSnapshots", fields: [branchId], references: [id], onDelete: Cascade)
   
   @@unique([date, branchId])
   @@index([date])
