@@ -132,7 +132,8 @@ exports.createOrder = async (req, res) => {
       return res.status(400).json(response);
     }
 
-    const newOrder = await orderService.createOrder(req.body, authUser);
+    const validatedBranchId = req.validatedBranch?.id;
+    const newOrder = await orderService.createOrder({ ...req.body, branchId: validatedBranchId }, authUser);
     const response = { success: true, data: newOrder };
     if (idempotencyKey) await IdempotencyService.commit(idempotencyKey, { code: 201, body: response });
     res.status(201).json(response);

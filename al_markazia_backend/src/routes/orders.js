@@ -53,9 +53,9 @@ router.get('/report', authMiddleware, adminMiddleware, requireBranchAccess, getO
 // Only admin/manager can view and update
 router.get('/', authMiddleware, managerMiddleware, requireBranchAccess, getOrders);
 router.post('/accept-all', authMiddleware, managerMiddleware, requireBranchAccess, acceptAllNewOrders);
-router.patch('/:id/status', authMiddleware, managerMiddleware, healthGuard('db'), validateId(), updateOrderStatus);
-router.patch('/:id/timer', authMiddleware, managerMiddleware, validateId(), updateOrderTimer);
-router.patch('/:id/prep-time', authMiddleware, managerMiddleware, validateId(), updatePreparationTime);
+router.patch('/:id/status', authMiddleware, managerMiddleware, requireBranchAccess, healthGuard('db'), validateId(), updateOrderStatus);
+router.patch('/:id/timer', authMiddleware, managerMiddleware, requireBranchAccess, validateId(), updateOrderTimer);
+router.patch('/:id/prep-time', authMiddleware, managerMiddleware, requireBranchAccess, validateId(), updatePreparationTime);
 router.patch('/:id/rate', authMiddleware, validateId(), submitOrderRating);
 
 // 🛡️ Cancellation Engine Endpoints

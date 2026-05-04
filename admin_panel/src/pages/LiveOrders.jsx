@@ -12,6 +12,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { formatCurrencyArabic } from '../lib/formatters';
 import { useSocket } from '../contexts/SocketContext';
+import { useSocketSync } from '../hooks/useSocketSync';
 import { useAuth } from '../contexts/AuthContext';
 import InvoiceModal from '../components/InvoiceModal';
 import BranchStats from '../components/BranchStats';
@@ -245,6 +246,12 @@ const LiveOrders = () => {
   const cancelAudioRef = useRef(null);
 
   const [timeLeft, setTimeLeft] = useState('');
+
+  // 🔄 Reconnection Sync Logic
+  useSocketSync(() => {
+    fetchOrders();
+    fetchStatus();
+  });
 
   const fetchStatus = async () => {
     try {

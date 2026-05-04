@@ -127,6 +127,12 @@ class ContractGateway {
             } else if (action === 'UPDATE_STATUS') {
               const orderService = require('./orderService');
               return await orderService.updateOrderStatus(orderId, context.status, context.version, actor);
+            } else if (action === 'UPDATE_TIMER') {
+              const orderService = require('./orderService');
+              return await orderService.updateOrderTimer(orderId, context.estimatedReadyAt);
+            } else if (action === 'UPDATE_PREP_TIME') {
+              const orderService = require('./orderService');
+              return await orderService.updatePreparationTime(orderId, context.minutes);
             }
             break;
           
