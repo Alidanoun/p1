@@ -75,6 +75,18 @@ export const SocketProvider = ({ children }) => {
     }
   }, []);
 
+  const handleSync = useCallback((socketInstance) => {
+    if (!socketInstance) return;
+    console.log('📡 [Socket] Syncing state...');
+    socketInstance.emit('join:admin'); 
+    socketInstance.emit('branch:switch', { branchId: selectedBranchId }, (res) => {
+      if (res?.success) {
+        fetchLiveMetrics();
+        fetchNotifications();
+      }
+    });
+  }, [selectedBranchId, fetchLiveMetrics, fetchNotifications]);
+
   // 🔄 Create and connect socket with the current token from MEMORY
   const connectSocket = useCallback((token) => {
     // 🛡️ [GUARD] Singleton Check: Don't reconnect if we already have a valid connection with the SAME token
@@ -100,25 +112,14 @@ export const SocketProvider = ({ children }) => {
     // 🧪 Debug Exposure: Allow inspection in Console
     window.socket = newSocket;
 
-    const handleSync = useCallback(() => {
-      console.log('📡 [Socket] Syncing state...');
-      newSocket.emit('join:admin'); 
-      newSocket.emit('branch:switch', { branchId: selectedBranchId }, (res) => {
-        if (res?.success) {
-          fetchLiveMetrics();
-          fetchNotifications();
-        }
-      });
-    }, [selectedBranchId, fetchLiveMetrics, fetchNotifications]);
-
     newSocket.on('connect', () => {
       console.log('Socket connected:', newSocket.id);
-      handleSync();
+      handleSync(newSocket);
     });
 
     newSocket.on('reconnect', () => {
       console.log('Socket reconnected');
-      handleSync();
+      handleSync(newSocket);
     });
 
     newSocket.on('connect_error', (err) => {
