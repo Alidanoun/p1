@@ -21,24 +21,8 @@ class EventBus {
    * Publish an event to all subscribers with 🛡️ Deduplication Guard.
    */
   async publish(event) {
-    const { type, payload } = event;
-    const aggregateId = payload?.orderId || payload?.id || payload?.aggregateId;
-    const version = payload?.version;
-
-    // 🛡️ [DEDUPLICATION] Prevent multiple processing of the same aggregate version
-    if (aggregateId && version) {
-      const redis = require('../lib/redis');
-      const dedupKey = `event_dedup:${type}:${aggregateId}:${version}`;
-      
-      const isProcessed = await redis.get(dedupKey);
-      if (isProcessed) {
-        logger.warn(`[EventBus] 🛡️ Skipping duplicate event: ${dedupKey}`);
-        return;
-      }
-      
-      // Set a short TTL (60s) to prevent immediate duplicates during retries
-      await redis.setex(dedupKey, 60, '1');
-    }
+    const { type } = event;
+    // Note: Deduplication is now handled centrally in eventPublisher.js
 
     const handlers = this.handlers[type] || [];
     const globalHandlers = this.handlers['*'] || [];

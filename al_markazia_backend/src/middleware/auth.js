@@ -40,16 +40,8 @@ const authenticateToken = async (req, res, next) => {
       }
     }
     
-    // 🏢 Extract and sanitize requestedBranchId (Multi-tenant context)
-    let reqBranchId = (req.query && req.query.branchId) || (req.body && req.body.branchId) || null;
-    
-    // 🛡️ [PHASE 2.5] Strict Sanitization: Prevent Array-to-Prisma Type Pollution
-    if (Array.isArray(reqBranchId)) {
-      reqBranchId = reqBranchId[0];
-      // Sync back to request objects to protect downstream controllers/services
-      if (req.query && req.query.branchId) req.query.branchId = reqBranchId;
-      if (req.body && req.body.branchId) req.body.branchId = reqBranchId;
-    }
+    // 🏢 Extract requestedBranchId (already sanitized by global middleware)
+    const reqBranchId = (req.query && req.query.branchId) || (req.body && req.body.branchId) || null;
 
     // Populate request with User Context
     req.user = {

@@ -21,6 +21,13 @@ const { mapOrderResponse } = require('../mappers/order.mapper');
 const { ORDER_INCLUDE_FULL } = require('../shared/prismaConstants');
 
 class OrderService {
+  async bumpBranchVersion(branchId) {
+    if (!branchId) return;
+    const redis = require('../lib/redis');
+    await redis.incr(`branch_version:${branchId}`);
+    logger.debug(`[OrderSync] 🆙 Version bumped for branch ${branchId}`);
+  }
+
   /**
    * 📊 Admin: Reports Data Fetching
    */
@@ -149,6 +156,42 @@ class OrderService {
         acc[s.status] = s._count.id;
         return acc;
       }, {})
+    };
+  }
+
+  /**
+   * ⚡ High-Speed Synchronization
+   * Returns latest state only if version has changed.
+   */
+  async syncOrders(user, clientVersion) {
+    const SecurityPolicyService = require('./securityPolicyService');
+    const branchId = user.branchId || user.requestedBranchId;
+    
+    if (!branchId) throw new Error('BRANCH_CONTEXT_REQUIRED');
+
+    const redis = require('../lib/redis');
+    const serverVersion = await redis.get(`branch_version:${branchId}`) || '0';
+    
+    if (clientVersion === serverVersion) {
+      return { upToDate: true, version: serverVersion };
+    }
+    
+    // Fetch live orders (preparing, ready, in_route, etc.)
+    const orders = await prisma.order.findMany({
+      where: { 
+        branchId, 
+        status: { notIn: ['delivered', 'cancelled'] },
+        isDeleted: false 
+      },
+      include: ORDER_INCLUDE_FULL,
+      orderBy: { updatedAt: 'desc' },
+      take: 200 // Safety threshold
+    });
+    
+    return { 
+      upToDate: false, 
+      version: serverVersion, 
+      orders: orders.map(mapOrderResponse) 
     };
   }
 
@@ -1249,6 +1292,9 @@ class OrderService {
           orderNumber: updatedOrder.orderNumber
         });
 
+        // ⚡ Sync Protocol: Bump branch version
+        await this.bumpBranchVersion(updatedOrder.branchId);
+
         return { ...mappedOrder, _outboxId };
 
       } catch (error) {
@@ -1269,91 +1315,95 @@ class OrderService {
     const results = { accepted: 0, skipped: 0 };
     const adminEmail = user?.email || 'Admin';
 
-    const where = { status: 'pending' };
-
     // 🛡️ [SECURITY-UNIFICATION] Branch Isolation via Central Policy
     const SecurityPolicyService = require('./securityPolicyService');
+    const where = { status: 'pending', isDeleted: false };
     const branchFilter = await SecurityPolicyService.getHardenedFilter(user, 'Order');
     if (branchFilter.branchId) {
       where.branchId = branchFilter.branchId;
     }
 
-    // 1. Fetch pending orders atomically
-    const pendingOrders = await prisma.order.findMany({
+    // 1. Fetch target order IDs (Lightweight fetch)
+    const targetOrders = await prisma.order.findMany({
       where,
-      include: ORDER_INCLUDE_FULL
+      select: { id: true, total: true, version: true, customerId: true, branchId: true }
     });
 
-  for (const order of pendingOrders) {
-    try {
-      // 2. Optimistic lock via version check
-      const affected = await prisma.order.updateMany({
-        where: {
-          id: order.id,
-          status: 'pending',
-          version: order.version
-        },
-        data: {
-          status: 'preparing',
-          version: { increment: 1 },
-          updatedAt: new Date()
-        }
+    if (targetOrders.length === 0) return results;
+
+    const targetIds = targetOrders.map(o => o.id);
+
+    // 2. ⚡ ATOMIC BATCH UPDATE: Transition all to 'preparing' in one query
+    const affected = await prisma.order.updateMany({
+      where: {
+        id: { in: targetIds },
+        status: 'pending'
+      },
+      data: {
+        status: 'preparing',
+        version: { increment: 1 },
+        updatedAt: new Date()
+      }
+    });
+
+    results.accepted = affected.count;
+    results.skipped = targetIds.length - affected.count;
+
+    if (results.accepted > 0) {
+      // 3. Process Side-Effects (Notifications, Audit, Analytics)
+      // Note: We fetch the FULL orders for those we successfully updated
+      const updatedOrders = await prisma.order.findMany({
+        where: { id: { in: targetIds }, status: 'preparing', updatedAt: { gte: new Date(Date.now() - 5000) } },
+        include: ORDER_INCLUDE_FULL
       });
 
-      if (affected.count > 0) {
-        results.accepted++;
+      // 🚀 Background Processing for non-blocking UI
+      (async () => {
+        for (const order of updatedOrders) {
+          try {
+            // Audit
+            await AuditLogger.logOrderChange(prisma, {
+              orderId: order.id,
+              eventType: 'ORDER_STATUS_CHANGE',
+              eventAction: 'BATCH_ACCEPTED',
+              changedBy: adminEmail || 'Admin System',
+              changedByRole: 'admin',
+              previousData: { status: 'pending' },
+              newData: { status: 'preparing' }
+            });
 
-        // 3. Audit Log
-        await AuditLogger.logOrderChange(prisma, {
-          orderId: order.id,
-          eventType: 'ORDER_STATUS_CHANGE',
-          eventAction: 'BATCH_ACCEPTED',
-          changedBy: adminEmail || 'Admin System',
-          changedByRole: 'admin',
-          previousData: { status: 'pending' },
-          newData: { status: 'preparing' }
-        });
+            // EventBus Notification
+            const mappedOrder = mapOrderResponse(order);
+            await publishEvent({
+              type: eventTypes.ORDER_STATUS_CHANGED,
+              aggregateId: mappedOrder.id,
+              payload: {
+                previousStatus: 'pending',
+                newStatus: 'preparing',
+                order: mappedOrder
+              },
+              version: order.version
+            });
 
-        // 4. Notification (Centralized via EventBus)
-        const mappedOrder = mapOrderResponse({ ...order, status: 'preparing' });
-        await publishEvent({
-          type: eventTypes.ORDER_STATUS_CHANGED,
-          aggregateId: mappedOrder.id,
-          payload: {
-            previousStatus: 'pending',
-            newStatus: 'preparing',
-            order: {
-              ...mappedOrder,
-              id: order.id,
-              customerId: order.customerId,
-              customerPhone: order.customer?.phone || null,
-              customer: order.customer
-            }
-          },
-          version: order.version + 1
-        });
+            // Analytics
+            analyticsService.updateCacheIncrementally({
+              type: 'ORDER_STATUS_CHANGE',
+              amount: toNumber(order.total),
+              status: 'preparing',
+              branchId: order.branchId
+            });
 
-        // 5. Analytics — BUG-08 FIX: pending→preparing triggers live revenue
-        analyticsService.updateCacheIncrementally({
-          type: 'ORDER_STATUS_CHANGE',
-          amount: toNumber(order.total),
-          status: 'preparing',
-          previousStatus: 'pending',
-          orderNumber: order.orderNumber,
-          action: `قبول تلقائي (batch)`
-        });
-
-      } else {
-        results.skipped++;
-      }
-    } catch (err) {
-      logger.error('Batch process item error', { orderId: order.id, error: err.message });
-      results.skipped++;
+            // ⚡ Sync Protocol: Bump branch version
+            await this.bumpBranchVersion(order.branchId);
+          } catch (err) {
+            logger.error(`[BatchAccept] Post-processing failed for order ${order.id}`, { error: err.message });
+          }
+        }
+      })().catch(err => logger.error('[BatchAccept] Background worker failed', { error: err.message }));
     }
-  }
 
-  return results;
-}
+    return results;
+  }
 }
 
 module.exports = new OrderService();

@@ -29,6 +29,17 @@ class SecurityPolicyService {
       throw new Error('INVALID_USER_ROLE');
     }
 
+    /**
+     * 📊 ADMIN_SCOPE_MATRIX (Explicit Permissions)
+     * Defines exactly what each administrative role can do.
+     */
+    const SCOPE_MATRIX = {
+      super_admin: { canReadAll: true, canModifyAll: true },
+      admin: { canReadAll: true, canModifyAll: false }, // Admins monitor all, but only modify assigned
+      branch_manager: { canReadAll: false, canModifyAll: false },
+      manager: { canReadAll: false, canModifyAll: false }
+    };
+
     // 👑 Super Admin: Absolute Visibility with optional branch isolation
     if (normalizedRole === 'super_admin') {
       const modelsWithSoftDelete = ['Order', 'Item', 'Category', 'Customer'];
@@ -178,29 +189,50 @@ class SecurityPolicyService {
 
   /**
    * 🔒 High-Level Authorization: Checks if a user is allowed to access a branch.
+   * @param {Object} user - Requesting user.
+   * @param {string} branchId - Target branch.
+   * @param {string} intent - 'read' or 'write' (Default: 'write' for safety)
    */
-  static async canAccessBranch(user, branchId) {
+  static async canAccessBranch(user, branchId, intent = 'write') {
     if (!user) return false;
     const role = user.role?.toLowerCase();
+
+    // 📊 Define Scope Matrix (Internal copy for lookup)
+    const SCOPE_MATRIX = {
+      super_admin: { canReadAll: true, canModifyAll: true },
+      admin: { canReadAll: true, canModifyAll: false },
+      branch_manager: { canReadAll: false, canModifyAll: false },
+      manager: { canReadAll: false, canModifyAll: false }
+    };
+
+    const scope = SCOPE_MATRIX[role] || { canReadAll: false, canModifyAll: false };
 
     // 👑 Super Admin bypass
     if (role === 'super_admin') return true;
 
-    // 🌐 Global Admin bypass: If an admin doesn't have a restricted branch, they can access any.
-    if (role === 'admin' && !user.branchId) return true;
+    // 👁️ READ INTENT: Global Admins can see everything
+    if (intent === 'read' && scope.canReadAll) return true;
 
-    // 🎯 Resolve allowed branches for this user
+    // ✍️ WRITE INTENT: Global Admins must still have assigned branches to modify
+    if (intent === 'write' && scope.canModifyAll) return true;
+
+    // 🎯 Resolve explicitly allowed branches for this user
     const filter = await this.getHardenedFilter(user, 'Branch');
     const allowedIds = filter.id?.in || [];
 
     if (branchId === null || branchId === undefined) {
-      // If order has no branch, only global admins/superadmins can access it
+      // If order has no branch, only global managers/admins can access it
       return role === 'admin' || role === 'super_admin';
     }
 
     if (allowedIds.includes(branchId)) return true;
 
-    logger.security('UNAUTHORIZED_BRANCH_ACCESS_DENIED', { userId: user.id, branchId, role });
+    logger.security('UNAUTHORIZED_BRANCH_ACCESS_DENIED', { 
+      userId: user.id, 
+      branchId, 
+      role, 
+      intent 
+    });
     return false;
   }
 

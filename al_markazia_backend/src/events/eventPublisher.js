@@ -16,6 +16,20 @@ async function publishEvent({
   tenantId = 'default-restaurant'
 }) {
   try {
+    // 🛡️ [DEDUPLICATION LAYER] Prevent replay of the same aggregate version
+    if (aggregateId && version) {
+      const redis = require('../lib/redis');
+      const dedupKey = `event_dedup:${type}:${aggregateId}:${version}`;
+      
+      const exists = await redis.get(dedupKey);
+      if (exists) {
+        logger.warn(`[EventPublisher] 🛡️ Duplicate event detected and blocked: ${dedupKey}`);
+        return null;
+      }
+      
+      // Set a 1-hour window to catch retries and out-of-order events
+      await redis.set(dedupKey, '1', 'EX', 3600);
+    }
     // 1. Persist to DB (Source of Truth)
     const event = await prisma.event.create({
       data: {
