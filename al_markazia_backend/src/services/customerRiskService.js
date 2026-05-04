@@ -14,8 +14,7 @@ class CustomerRiskService {
    */
   canPerformAction(role, severity) {
     const matrix = {
-      'admin': ['LOW'],
-      'super_admin': ['LOW', 'MEDIUM', 'HIGH']
+      'admin': ['LOW', 'MEDIUM', 'HIGH']
     };
     return (matrix[role] || []).includes(severity);
   }

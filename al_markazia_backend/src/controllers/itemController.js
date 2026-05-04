@@ -25,12 +25,13 @@ exports.getAllItems = async (req, res) => {
     // 🛡️ [ISOLATION] Identify the target branch for strict filtering
     const { getContext } = require('../utils/securityContext');
     const userContext = getContext();
-    const targetBranchId = (userContext?.role !== 'super_admin' && userContext?.role !== 'admin') 
+    const targetBranchId = (userContext?.role !== 'admin') 
       ? userContext?.branchId 
       : (req.query.branchId || null);
 
-    // If a branch is identified, we must only show items present in that branch
-    if (targetBranchId) {
+    // If a branch is identified, we only restrict visibility for PUBLIC menu
+    const isDashboardRequest = admin === 'true';
+    if (targetBranchId && !isDashboardRequest) {
       filter.branchItems = {
         some: { branchId: targetBranchId }
       };

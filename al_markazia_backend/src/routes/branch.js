@@ -9,8 +9,9 @@ const { requireBranchAccess, ensureBranchId } = require('../middleware/branchAut
  * Protected endpoints for branch operations and availability control.
  */
 
-// 📋 List All Branches (Filtered by role)
-router.get('/', authenticateToken, isManager, branchController.getAllBranches);
+// 📋 List All Branches (Public for apps, Filtered by role for dashboard)
+const { optionalAuth } = require('../middleware/auth');
+router.get('/', optionalAuth, branchController.getAllBranches);
 
 // 🔄 Toggle Item Availability (Lazy Creation Strategy)
 router.post('/items/toggle', 

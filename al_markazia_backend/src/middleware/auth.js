@@ -94,8 +94,7 @@ const authenticateToken = async (req, res, next) => {
  * 👑 Role Hierarchy Definition
  */
 const ROLE_LEVELS = {
-  'super_admin': 4,
-  'admin': 3,
+  'admin': 4, // Admin is now the top tier
   'branch_manager': 2,
   'manager': 2,
   'staff': 1,
@@ -140,8 +139,7 @@ const requireRoles = (allowedRolesOrMinRole) => (req, res, next) => {
 };
 
 const isAdmin = requireRoles('admin');
-const isSuperAdmin = requireRoles('super_admin');
-const isManager = requireRoles(['admin', 'super_admin', 'branch_manager', 'manager']);
+const isManager = requireRoles(['admin', 'branch_manager', 'manager']);
 const isStaff = requireRoles('staff');
 
 /**
@@ -203,7 +201,6 @@ const optionalAuth = async (req, res, next) => {
 module.exports = { 
   authenticateToken, 
   isAdmin, 
-  isSuperAdmin,
   isManager,
   isStaff,
   requireRoles,

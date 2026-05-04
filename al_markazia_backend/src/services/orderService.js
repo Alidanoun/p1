@@ -239,7 +239,7 @@ class OrderService {
   /**
    * ⚠️ Request Partial Cancellation/Modification
    */
-  async requestPartialCancel(orderId, items, reason) {
+  async requestPartialCancel(orderId, items, reason, metadata = {}) {
     const order = await prisma.order.findUnique({
       where: { id: orderId },
       include: { customer: true }
@@ -250,14 +250,117 @@ class OrderService {
     await prisma.notification.create({
       data: {
         title: 'طلب إلغاء جزئي ⚠️',
-        message: `طلب تعديل للطلب #${order.orderNumber} من ${order.customerName}`,
+        message: `طلب تعديل للطلب #${order.orderNumber} من ${order.customerName}\nالمبلغ المسترد المتوقع: ${metadata.refundAmount || 0}`,
         type: 'partial_cancel_requested',
         orderId: order.id,
-        targetRoute: `/orders?id=${order.id}`
+        targetRoute: `/orders?id=${order.id}`,
+        metadata: JSON.stringify({
+          items: items.map(i => (typeof i === 'number' ? i : i.id)),
+          reason,
+          refundAmount: metadata.refundAmount,
+          requestedBy: metadata.requestedBy,
+          requestedAt: metadata.requestedAt
+        })
       }
     });
 
-    return { success: true };
+    return {
+      success: true,
+      refundAmount: metadata.refundAmount,
+      notificationSent: true
+    };
+  }
+
+  /**
+   * ⚡ Apply Partial Cancellation (Administrative Action)
+   * Atomic removal of items and price adjustment
+   */
+  async applyPartialCancellation(orderId, itemIdsToCancel, actor, notificationId) {
+    const { toNumber } = require('../utils/number');
+    
+    return await prisma.$transaction(async (tx) => {
+      // 1. Fetch order with items
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+        include: { orderItems: true }
+      });
+
+      if (!order) throw new Error('ORDER_NOT_FOUND');
+
+      // 2. Filter items to keep
+      const itemsToKeep = order.orderItems.filter(item => !itemIdsToCancel.includes(item.id));
+      const itemsCancelled = order.orderItems.filter(item => itemIdsToCancel.includes(item.id));
+
+      if (itemsToKeep.length === 0) {
+        throw new Error('CANNOT_CANCEL_ALL_ITEMS: Use full cancellation instead');
+      }
+
+      // 3. Recalculate Total
+      let newSubtotal = 0;
+      itemsToKeep.forEach(item => {
+        newSubtotal += toNumber(item.unitPrice) * item.quantity;
+      });
+
+      const deliveryFee = toNumber(order.deliveryFee);
+      const newTotal = newSubtotal + deliveryFee;
+      const refundAmount = toNumber(order.totalAmount) - newTotal;
+
+      // 4. Update Database
+      const updatedOrder = await tx.order.update({
+        where: { id: orderId, version: order.version },
+        data: {
+          totalAmount: newTotal,
+          subtotal: newSubtotal,
+          version: { increment: 1 },
+          orderItems: {
+            deleteMany: {
+              id: { in: itemIdsToCancel }
+            }
+          }
+        },
+        include: { orderItems: true, customer: true }
+      });
+
+      // 5. Resolve Notification
+      if (notificationId) {
+        await tx.notification.update({
+          where: { id: notificationId },
+          data: { isRead: true }
+        });
+      }
+
+      // 6. Log Financial Adjustment
+      await tx.auditLog.create({
+        data: {
+          userId: actor.id,
+          userRole: actor.role,
+          action: 'PARTIAL_CANCELLATION_APPLIED',
+          entityType: 'Order',
+          entityId: orderId.toString(),
+          metadata: JSON.stringify({
+            cancelledItemIds: itemIdsToCancel,
+            refundAmount,
+            oldTotal: order.totalAmount,
+            newTotal
+          })
+        }
+      });
+
+      // 7. Notify Customer
+      const notificationService = require('./notificationService');
+      await notificationService.sendToUser(order.customerId, {
+        title: 'تعديل طلبك بنجاح ✅',
+        message: `تمت الموافقة على تعديل الطلب #${order.orderNumber}. المبلغ المسترد: ${refundAmount.toFixed(2)}`,
+        type: 'order_adjusted',
+        orderId: order.id
+      });
+
+      return {
+        success: true,
+        order: updatedOrder,
+        refundAmount
+      };
+    });
   }
 
   /**
@@ -529,7 +632,7 @@ class OrderService {
     if (order.cancellation && order.cancellation.status === 'pending') throw new Error('CANCELLATION_ALREADY_REQUESTED');
 
     // 1. Role Identification
-    const isAdmin = user?.role === 'super_admin' || user?.role === 'admin';
+    const isAdmin = user?.role === 'admin';
     const isManager = user?.role?.toUpperCase() === 'BRANCH_MANAGER';
     const isCustomer = user?.role === 'customer';
 
@@ -665,7 +768,7 @@ class OrderService {
     if (order.cancellation.status !== 'pending') throw new Error('CANCELLATION_ALREADY_PROCESSED');
 
     // 🔐 Permission Check
-    const isAdmin = user?.role === 'super_admin' || user?.role === 'admin';
+    const isAdmin = user?.role === 'admin';
     const isManager = user?.role?.toUpperCase() === 'BRANCH_MANAGER';
 
     if (isManager) {
@@ -724,8 +827,14 @@ class OrderService {
   }
 
   /**
-   * 🏗️ Enterprise Order Creation
-   * Full transactional logic moved from Controller.
+   * 🏗️ Enterprise Order Creation (Hardened v2)
+   * Full transactional logic with Defense-in-Depth security.
+   * Security Layers:
+   * 1. Ghost Order Protection
+   * 2. Guest Order Type Restriction
+   * 3. Service-Level Branch Authorization (independent of middleware)
+   * 4. Branch Existence & Active Status Re-verification
+   * 5. Audit Logging for suspicious attempts
    */
   async createOrder(data, authUser = null) {
     const {
@@ -745,6 +854,20 @@ class OrderService {
       throw new Error('EMPTY_ORDER_NOT_ALLOWED');
     }
 
+    // 0.1 🛡️ [GUEST-HARDENING] Guest Order Type Restriction
+    // Guests can only place standard consumer orders (takeaway/delivery)
+    if (!authUser) {
+      const allowedGuestTypes = ['takeaway', 'delivery'];
+      const requestedType = (orderType || 'takeaway').toLowerCase();
+      if (!allowedGuestTypes.includes(requestedType)) {
+        logger.security('UNAUTHORIZED_GUEST_ORDER_TYPE', {
+          orderType: requestedType,
+          phone: data.phone || customerPhone
+        });
+        throw new Error('UNAUTHORIZED_GUEST_ORDER_TYPE');
+      }
+    }
+
     const phoneInput = data.phone || customerPhone;
 
     // 1. 🆔 Identity & Blacklist Resolution
@@ -755,8 +878,53 @@ class OrderService {
     // 1.5 🏢 Resolve Branch (Multi-Branch Ready)
     const targetBranchId = await this._resolveBranchId(data.branchId || data.branch);
 
+    // 1.6 🛡️ [DEFENSE-IN-DEPTH] Service-Level Branch Authorization
+    // This check runs INSIDE the service, independent of any middleware.
+    // Prevents unauthorized access even if called from internal code paths.
+    if (authUser) {
+      const role = authUser.role?.toLowerCase();
+      
+      // Managers/Branch Managers: Must have explicit branch access
+      if (['manager', 'branch_manager'].includes(role)) {
+        const SecurityPolicyService = require('./securityPolicyService');
+        const hasAccess = await SecurityPolicyService.canAccessBranch(authUser, targetBranchId, 'write');
+        
+        if (!hasAccess) {
+          // 🚨 CRITICAL: Log unauthorized attempt
+          const auditService = require('./auditService');
+          await auditService.log({
+            userId: authUser.id,
+            userRole: role,
+            action: 'SERVICE_LAYER_BRANCH_ACCESS_DENIED',
+            entityType: 'Order',
+            status: 'BLOCKED',
+            severity: 'CRITICAL',
+            metadata: {
+              targetBranchId,
+              userBranchId: authUser.branchId,
+              source: 'orderService.createOrder'
+            }
+          });
+          
+          throw new Error('BRANCH_ACCESS_DENIED');
+        }
+      }
+    }
+
+    // 1.7 🛡️ [RACE-CONDITION-GUARD] Re-verify branch is still active
+    // Protects against branch being deactivated between middleware check and order creation
+    const branchStatus = await prisma.branch.findUnique({
+      where: { id: targetBranchId },
+      select: { isActive: true, name: true }
+    });
+    
+    if (!branchStatus || !branchStatus.isActive) {
+      throw new Error(`BRANCH_CLOSED: ${branchStatus?.name || 'Unknown'}`);
+    }
+
     // 2. 🛡️ Spam Protection (Multi-factor)
     await this._validateSpamLimits(resolvedCustomer.phone);
+
 
     // 3. 💰 Pricing & Inventory Validation (Branch-Aware)
     const { validatedItems, subtotal } = await this._calculateAndValidatePricing(cartItems, targetBranchId);
@@ -976,7 +1144,7 @@ class OrderService {
         logger.debug(`[OrderService] No customer found for UUID ${authUser.id}. User role: ${authUser.role}`);
         // If it's an admin, we allow fallback to phone (for manual orders)
         // If it's a customer but UUID not found (stale token), we should NOT fallback to another customer's phone
-        if (authUser.role !== 'admin' && authUser.role !== 'super_admin') {
+        if (authUser.role !== 'admin') {
           logger.warn(`[OrderService] Authenticated customer UUID not found. Blocking fallback to prevent misattribution.`);
           return { id: null, phone: phone }; // Treat as Guest instead of linking to wrong ID
         }

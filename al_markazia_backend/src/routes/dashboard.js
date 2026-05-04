@@ -1,5 +1,5 @@
 const express = require('express');
-const { authenticateToken, isAdmin } = require('../middleware/auth');
+const { authenticateToken, isManager } = require('../middleware/auth');
 const { getLiveMetrics, getLiveOrders } = require('../controllers/dashboardController');
 
 const router = express.Router();
@@ -9,7 +9,7 @@ const router = express.Router();
  * Purpose: Provide high-speed read access to system projections.
  */
 
-router.get('/metrics', authenticateToken, isAdmin, getLiveMetrics);
-router.get('/orders', authenticateToken, isAdmin, getLiveOrders);
+router.get('/metrics', authenticateToken, isManager, getLiveMetrics);
+router.get('/orders', authenticateToken, isManager, getLiveOrders);
 
 module.exports = router;
