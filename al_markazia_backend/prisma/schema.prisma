@@ -153,8 +153,8 @@ model Order {
   customerId       Int?
 
   // Branch Integration
-  branchId         String?
-  branch           Branch?  @relation(fields: [branchId], references: [id])
+  branchId         String
+  branch           Branch  @relation(fields: [branchId], references: [id])
   orderType        String
   status           String             @default("pending")
   paymentStatus    String             @default("unpaid")

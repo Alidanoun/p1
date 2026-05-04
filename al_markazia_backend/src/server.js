@@ -184,7 +184,7 @@ async function startServer() {
     // 🚨 Global Error Handler (Centralized Survival Layer)
     const { handleError } = require('./utils/errorHandler');
     app.use((err, req, res, next) => {
-      handleError(err, res);
+      handleError(err, req, res, next);
     });
 
     process.on('unhandledRejection', (reason, promise) => {

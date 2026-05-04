@@ -58,6 +58,26 @@ class ContractGateway {
     }
 
     try {
+      // 1.2 🛡️ [SECURITY-GATE] Multi-Branch Isolation & Authorization
+      const prisma = require('../lib/prisma');
+      const SecurityPolicyService = require('./securityPolicyService');
+      
+      const order = await prisma.order.findUnique({
+        where: { id: orderId },
+        select: { id: true, branchId: true }
+      });
+
+      if (!order) {
+        await redis.del(lockKey);
+        throw new Error('ORDER_NOT_FOUND');
+      }
+
+      const hasAccess = await SecurityPolicyService.canAccessBranch(actor, order.branchId);
+      if (!hasAccess) {
+        await redis.del(lockKey);
+        throw new Error('UNAUTHORIZED_ORDER_ACCESS');
+      }
+
       logger.info(`[Gateway] 🛡️ Contract validated for Order ${orderId}. Action: ${action}`);
 
       // 2. 📝 Mandatory Contract Validation

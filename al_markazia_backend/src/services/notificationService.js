@@ -223,12 +223,12 @@ class NotificationService {
         timestamp: Date.now()
       };
 
-      if (target.isBroadcast) {
-        this.io.emit(SOCKET_EVENTS.NOTIFICATION_NEW, payload);
-      }
-      
       // 🛡️ [PHASE 2] Real-Time Isolation Layer
       const SecurityPolicyService = require('./securityPolicyService');
+
+      if (target.isBroadcast) {
+        this.io.emit(SOCKET_EVENTS.NOTIFICATION_NEW, SecurityPolicyService.wrapPayload(payload));
+      }
       
       const eventMeta = {
         type: notif.type,
@@ -279,25 +279,35 @@ class NotificationService {
             return;
           }
 
-          const eventName = notif.type === 'order_created' 
-            ? SOCKET_EVENTS.ORDER_CREATED 
-            : SOCKET_EVENTS.ORDER_UPDATED;
+          // 🛠️ EXECUTION LAYER EVENTS
+          const execEvent = notif.type === 'order_created' 
+            ? SOCKET_EVENTS.EXEC_ORDER_CREATED 
+            : SOCKET_EVENTS.EXEC_ORDER_UPDATED;
+
+          // 👁️ MONITORING LAYER EVENTS
+          const monitorEvent = notif.type === 'order_created' 
+            ? SOCKET_EVENTS.MONITOR_ORDER_CREATED 
+            : SOCKET_EVENTS.MONITOR_ORDER_UPDATED;
           
           // 🧠 Canonical State Sync (Overwrite Layer)
           const finalPayload = SecurityPolicyService.wrapPayload(canonicalOrder);
 
           targetRooms.forEach(room => {
-            if (room.includes('admin') || room.includes('branch')) {
-              this.io.to(room).emit(eventName, finalPayload);
-              logger.debug(`[CanonicalSync] Event '${eventName}' broadcasted canonical state to: ${room}`);
+            if (room.startsWith('room:exec:')) {
+              this.io.to(room).emit(execEvent, finalPayload);
+              logger.debug(`[LayerSync] EXEC Event '${execEvent}' broadcasted to: ${room}`);
+            } else if (room.startsWith('room:monitor:')) {
+              this.io.to(room).emit(monitorEvent, finalPayload);
+              logger.debug(`[LayerSync] MONITOR Event '${monitorEvent}' broadcasted to: ${room}`);
             }
           });
         }
         
         if (target.isToCustomer && eventMeta.customerUuid) {
           const wrappedPayload = SecurityPolicyService.wrapPayload(payload);
-          const customerRoom = `room:user:${eventMeta.customerUuid}`;
-          this.io.to(customerRoom).emit(SOCKET_EVENTS.ORDER_UPDATED, wrappedPayload);
+          const customerRoom = SOCKET_ROOMS.CUSTOMER(eventMeta.customerUuid);
+          // Customers use a standard update event for their private boundary
+          this.io.to(customerRoom).emit(SOCKET_EVENTS.CUSTOMER_ORDER_UPDATED, wrappedPayload);
           logger.debug(`[POLICY v2] Event routed to private user boundary: ${customerRoom}`);
         }
         

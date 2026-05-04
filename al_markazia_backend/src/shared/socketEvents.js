@@ -5,27 +5,36 @@
  */
 
 const SOCKET_EVENTS = {
-  // --- Order Lifecycle (Contracted) ---
-  ORDER_CREATED: 'order:created',
-  ORDER_UPDATED: 'order:updated',
-  ORDER_CANCELLED: 'order:cancelled',
+  // --- 🛠️ EXECUTION LAYER (For Branches) ---
+  EXEC_ORDER_CREATED: 'exec:order:created',
+  EXEC_ORDER_UPDATED: 'exec:order:updated',
+  EXEC_ORDER_CANCELLED: 'exec:order:cancelled',
 
-  // --- Dashboard Analytics (Contracted) ---
+  // --- 👁️ MONITORING LAYER (For Admins) ---
+  MONITOR_ORDER_CREATED: 'monitor:order:created',
+  MONITOR_ORDER_UPDATED: 'monitor:order:updated',
+  MONITOR_ORDER_CANCELLED: 'monitor:order:cancelled',
+  
+  // --- 👤 CUSTOMER LAYER ---
+  CUSTOMER_ORDER_UPDATED: 'customer:order:updated',
+  
+  // --- SHARED DATA ---
   DASHBOARD_METRICS_UPDATE: 'dashboard:metrics:update',
-
-  // --- Notifications & Alerts ---
   NOTIFICATION_NEW: 'notification:new',
   SYSTEM_ALERT: 'system:alert',
-  // --- Real-time Tracking ---
   DRIVER_LOCATION_UPDATE: 'tracking:location_update',
 };
 
 const SOCKET_ROOMS = {
-  ADMIN: 'room:admin',
-  DASHBOARD: 'room:dashboard',
-  BRANCH_ADMIN: (id) => `room:admin:branch:${id}`,
-  // Helper to generate dynamic rooms
-  CUSTOMER: (id) => `room:customer:${id}`,
+  // 🛠️ Execution Contexts
+  EXEC_BRANCH: (id) => `room:exec:branch:${id}`,
+  
+  // 👁️ Monitoring Contexts
+  MONITOR_GLOBAL: 'room:monitor:global',
+  MONITOR_BRANCH: (id) => `room:monitor:branch:${id}`,
+
+  // 👤 User Contexts
+  CUSTOMER: (id) => `room:user:${id}`,
   ORDER_TRACKING: (id) => `room:tracking:order:${id}`,
 };
 

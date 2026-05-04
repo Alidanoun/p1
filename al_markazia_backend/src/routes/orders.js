@@ -7,7 +7,7 @@ const {
   isManager: managerMiddleware,
   optionalAuth
 } = require('../middleware/auth');
-const { requireBranchAccess, ensureBranchId } = require('../middleware/branchAuth');
+const { requireBranchAccess, ensureBranchId, ensureValidBranch } = require('../middleware/branchAuth');
 const { healthGuard } = require('../middleware/healthGuard');
 const workingHoursGuard = require('../middleware/workingHoursGuard');
 const { 
@@ -42,7 +42,7 @@ const { validateId } = require('../utils/security');
 const router = express.Router();
 
 // Allow guests (app) to create orders while identifying registered customers
-router.post('/', optionalAuth, healthGuard('db'), workingHoursGuard, orderLimiter, createOrder);
+router.post('/', ensureValidBranch, optionalAuth, healthGuard('db'), workingHoursGuard, orderLimiter, createOrder);
 
 // New Secure Identity Route: Get orders for the authenticated customer
 router.get('/my-orders', authMiddleware, getMyOrders);

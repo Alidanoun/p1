@@ -142,7 +142,49 @@ const ensureBranchId = (req, res, next) => {
   next();
 };
 
+/**
+ * 🕵️ Ensure Valid Branch (يتحقق من وجود الفرع وصحته)
+ * يُستخدم لعمليات إنشاء الطلب لضمان توجيه الطلب لفرع صالح ونشط
+ */
+const ensureValidBranch = async (req, res, next) => {
+  try {
+    req.body = req.body || {};
+    const branchId = req.body.branchId || req.query.branchId || req.body.branch;
+    
+    if (!branchId) {
+      return response.error(res, 'يجب تحديد الفرع (branchId مطلوب)', 'BRANCH_REQUIRED', 400);
+    }
+
+    // 🛡️ [SECURITY-FIX] Fetch branch from DB instead of trusting request
+    const branch = await prisma.branch.findUnique({
+      where: { 
+        // Handle both UUID and Code resolution
+        ...(branchId.length > 30 ? { id: branchId } : { code: branchId.toUpperCase() })
+      },
+      select: { id: true, isActive: true, name: true }
+    });
+
+    if (!branch) {
+      return response.error(res, 'الفرع المحدد غير موجود', 'INVALID_BRANCH', 400);
+    }
+
+    if (!branch.isActive) {
+      return response.error(res, `فرع (${branch.name}) مغلق حالياً، يرجى اختيار فرع آخر`, 'BRANCH_CLOSED', 400);
+    }
+
+    // 🔒 Injection Prevention: Inject the verified ID back into the body
+    req.body.branchId = branch.id;
+    req.validatedBranch = branch; // For further use if needed
+    
+    next();
+  } catch (error) {
+    logger.error('Branch validation middleware error', { error: error.message });
+    return response.error(res, 'خطأ في التحقق من صلاحية الفرع', 'INTERNAL_ERROR', 500);
+  }
+};
+
 module.exports = { 
   requireBranchAccess,
-  ensureBranchId
+  ensureBranchId,
+  ensureValidBranch
 };

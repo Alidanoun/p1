@@ -146,7 +146,7 @@ class SecurityPolicyService {
     } else {
       if (user.branchId) allowedBranchIds.push(user.branchId);
     }
-
+    
     // 🛡️ [PHASE 4] Dynamic Branch Filtering
     let targetBranchIds = allowedBranchIds;
 
@@ -177,44 +177,108 @@ class SecurityPolicyService {
   }
 
   /**
+   * 🔒 High-Level Authorization: Checks if a user is allowed to access a branch.
+   */
+  static async canAccessBranch(user, branchId) {
+    if (!user) return false;
+    const role = user.role?.toLowerCase();
+
+    // 👑 Super Admin bypass
+    if (role === 'super_admin') return true;
+
+    // 🌐 Global Admin bypass: If an admin doesn't have a restricted branch, they can access any.
+    if (role === 'admin' && !user.branchId) return true;
+
+    // 🎯 Resolve allowed branches for this user
+    const filter = await this.getHardenedFilter(user, 'Branch');
+    const allowedIds = filter.id?.in || [];
+
+    if (branchId === null || branchId === undefined) {
+      // If order has no branch, only global admins/superadmins can access it
+      return role === 'admin' || role === 'super_admin';
+    }
+
+    if (allowedIds.includes(branchId)) return true;
+
+    logger.security('UNAUTHORIZED_BRANCH_ACCESS_DENIED', { userId: user.id, branchId, role });
+    return false;
+  }
+
+  /**
    * Identifies target Socket.IO rooms for a user or an event.
    * @param {Object} context - User object or Event metadata.
    * @returns {Promise<string[]>} List of room identifiers.
    */
   static async getTargetRooms(context) {
+    const { SOCKET_ROOMS } = require('../shared/socketEvents');
     const rooms = new Set();
 
     // Case 1: Context is a User (for joining rooms on connect)
     if (context.id && context.role) {
-      rooms.add(`room:user:${context.id}`);
+      rooms.add(SOCKET_ROOMS.CUSTOMER(context.id));
 
-      if (['super_admin', 'admin'].includes(context.role)) {
-        rooms.add('room:admin:global');
+      const role = context.role.toLowerCase();
+
+      // 👁️ MONITORING LAYER: Admins join the global monitoring room
+      if (['super_admin', 'admin'].includes(role)) {
+        rooms.add(SOCKET_ROOMS.MONITOR_GLOBAL);
+        
+        // If they have a preferred branch, they can also monitor its specific room
+        if (context.branchId) {
+          rooms.add(SOCKET_ROOMS.MONITOR_BRANCH(context.branchId));
+        }
       }
 
-      if (context.branchId) {
-        rooms.add(`room:admin:branch:${context.branchId}`);
-      }
+      // 🛠️ EXECUTION LAYER: Managers/Branch Managers join the execution room of their branch
+      if (['branch_manager', 'manager'].includes(role)) {
+        if (context.branchId) {
+          rooms.add(SOCKET_ROOMS.EXEC_BRANCH(context.branchId));
+        }
 
-      // If user has linked branches, join those too
-      const cacheKey = `user:branches:${context.id}`;
-      const cached = await redis.get(cacheKey);
-      if (cached) {
-        JSON.parse(cached).forEach(bid => rooms.add(`room:admin:branch:${bid}`));
+        // Handle multi-branch managers
+        const cacheKey = `user:branches:${context.id}`;
+        const cached = await redis.get(cacheKey);
+        if (cached) {
+          JSON.parse(cached).forEach(bid => rooms.add(SOCKET_ROOMS.EXEC_BRANCH(bid)));
+        }
       }
     }
 
     // Case 2: Context is an Event (e.g. order.created)
     if (context.orderId || context.branchId) {
+      // 🛠️ Execution: Route to the specific branch execution room
       if (context.branchId) {
-        rooms.add(`room:admin:branch:${context.branchId}`);
+        rooms.add(SOCKET_ROOMS.EXEC_BRANCH(context.branchId));
       }
-      if (context.userId) {
-        rooms.add(`room:user:${context.userId}`);
+
+      // 👁️ Monitoring: Always route to the global monitoring room for admins
+      rooms.add(SOCKET_ROOMS.MONITOR_GLOBAL);
+      
+      // If specific branch monitoring is needed
+      if (context.branchId) {
+        rooms.add(SOCKET_ROOMS.MONITOR_BRANCH(context.branchId));
+      }
+
+      // 👤 Customer: Private boundary
+      if (context.userId || context.customerUuid) {
+        rooms.add(SOCKET_ROOMS.CUSTOMER(context.userId || context.customerUuid));
       }
     }
 
     return Array.from(rooms);
+  }
+
+  /**
+   * 🏷️ Standardized Event Wrapper
+   * Wraps the payload with metadata including a unique eventId for frontend deduplication.
+   */
+  static wrapPayload(data) {
+    const { v4: uuidv4 } = require('uuid');
+    return {
+      eventId: uuidv4(),
+      timestamp: Date.now(),
+      data
+    };
   }
 
   /**
@@ -280,24 +344,60 @@ class SecurityPolicyService {
 
   /**
    * 🛡️ Invalidate User Permissions Cache
-   * Purges the Redis cache and notifies the user's socket to refresh.
+   * Purges the Redis cache and forces active sockets to re-calculate their room boundaries.
    */
   static async invalidateUserPermissions(userId) {
     const cacheKey = `user:branches:${userId}`;
     await redis.del(cacheKey);
     logger.warn('[SECURITY] Permissions invalidated', { userId, timestamp: Date.now() });
 
-    // 📡 Notify Socket Layer to force sync
+    // 📡 Active Boundary Re-sync
     try {
       const io = require('../socket').getIO();
-      if (io) {
-        io.to(`room:user:${userId}`).emit('permissions:updated', { 
-          reason: 'AUTHORIZATION_CHANGE',
-          timestamp: Date.now() 
+      const { SOCKET_ROOMS } = require('../shared/socketEvents');
+      if (!io) return;
+
+      const userRoom = SOCKET_ROOMS.CUSTOMER(userId);
+      const sockets = await io.in(userRoom).fetchSockets();
+
+      for (const socket of sockets) {
+        logger.info(`[SecurityPolicy] Force-syncing rooms for socket ${socket.id} (User: ${userId})`);
+        
+        // 1. Refresh socket user context (to avoid stale role/branchId)
+        const prisma = require('../lib/prisma');
+        const freshUser = await prisma.user.findUnique({
+          where: { uuid: userId },
+          select: { id: true, role: true, branchId: true }
+        });
+
+        if (freshUser) {
+          socket.user = { 
+            ...socket.user, 
+            role: freshUser.role.toLowerCase(), 
+            branchId: freshUser.branchId 
+          };
+        }
+
+        // 2. Leave all sensitive rooms
+        const currentRooms = Array.from(socket.rooms);
+        for (const room of currentRooms) {
+          if (room.startsWith('room:exec:') || room.startsWith('room:monitor:')) {
+            socket.leave(room);
+          }
+        }
+
+        // 3. Re-calculate and Join new rooms
+        const newRooms = await this.getTargetRooms(socket.user);
+        newRooms.forEach(room => socket.join(room));
+
+        // 4. Notify client of the sync
+        socket.emit('permissions:synced', { 
+          timestamp: Date.now(),
+          rooms: newRooms.filter(r => !r.startsWith('room:user:')) 
         });
       }
     } catch (err) {
-      logger.error('[SecurityPolicy] Failed to emit socket notification for invalidation', { userId });
+      logger.error('[SecurityPolicy] Failed to force-sync socket rooms', { userId, error: err.message });
     }
   }
 }

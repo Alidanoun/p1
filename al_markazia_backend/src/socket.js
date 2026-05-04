@@ -87,12 +87,8 @@ module.exports = {
         logger.debug(`[Socket] User ${userId} joined room: ${room}`);
       });
 
-      if (role === 'super_admin' || role === 'admin') {
-        socket.join('room:system:logs');
-      }
-
       // 👤 Private User Room (The ultimate boundary)
-      socket.join(`room:user:${userId}`);
+      socket.join(SOCKET_ROOMS.CUSTOMER(userId));
       
       logger.debug(`🛡️ v2 Boundary Sync Complete for user ${userId} [${role}]`);
 
@@ -127,30 +123,30 @@ module.exports = {
           // 🧹 Clean up previous branch rooms (Hard Cleanup)
           const currentRooms = Array.from(socket.rooms);
           for (const room of currentRooms) {
-            if (room.startsWith('room:admin:branch:')) {
+            if (room.startsWith('room:monitor:branch:')) {
               await socket.leave(room);
             }
           }
 
           if (branchId) {
-            // 🟢 Join specific branch
-            const targetRoom = `room:admin:branch:${branchId}`;
+            // 👁️ MONITORING: Join specific branch monitor room
+            const targetRoom = SOCKET_ROOMS.MONITOR_BRANCH(branchId);
             await socket.join(targetRoom);
             socket.data.activeBranchId = branchId; // Store in socket state
-            logger.info(`[Socket] Admin ${userId} switched to branch ${branchId}`);
+            logger.info(`[Socket] Admin ${userId} switched to MONITORING branch ${branchId}`);
           } else if (role === 'super_admin') {
-            // 🌐 Super Admin "All Branches" mode - Subscribe to all
+            // 🌐 Super Admin "All Branches" mode - Subscribe to all monitoring
             const prisma = require('./lib/prisma');
             const allBranches = await prisma.branch.findMany({ select: { id: true } });
             
-            await Promise.all(allBranches.map(b => socket.join(`room:admin:branch:${b.id}`)));
+            await Promise.all(allBranches.map(b => socket.join(SOCKET_ROOMS.MONITOR_BRANCH(b.id))));
             socket.data.activeBranchId = 'all';
-            logger.info(`[Socket] Super Admin ${userId} joined all branch rooms`);
+            logger.info(`[Socket] Super Admin ${userId} joined all MONITORING branch rooms`);
           } else {
             // Admin switching to 'all' but doesn't have super_admin role
             // Fallback to their assigned branch if it exists, otherwise stay in global
             if (socket.user.branchId) {
-              await socket.join(`room:admin:branch:${socket.user.branchId}`);
+              await socket.join(SOCKET_ROOMS.MONITOR_BRANCH(socket.user.branchId));
               socket.data.activeBranchId = socket.user.branchId;
             }
           }
@@ -162,7 +158,7 @@ module.exports = {
         }
       });
 
-      // 🛡️ Real-Time Authorization Sync
+      // 🛡️ Real-Time Authorization Sync (Client Triggered)
       socket.on('permissions:refresh', async (ack) => {
         try {
           const SecurityPolicyService = require('./services/securityPolicyService');
@@ -170,28 +166,10 @@ module.exports = {
           // 1. Force Clear Cache
           await SecurityPolicyService.invalidateUserPermissions(userId);
           
-          // 2. Re-verify active branch access
-          const filter = await SecurityPolicyService.getHardenedFilter(socket.user, 'Branch');
-          const allowedBranches = filter.id?.in || [];
-          
-          const currentBranchId = socket.data.activeBranchId;
-          
-          if (currentBranchId && currentBranchId !== 'all' && !allowedBranches.includes(currentBranchId)) {
-            logger.warn(`[Socket] KILLING UNAUTHORIZED ACCESS: User ${userId} lost access to branch ${currentBranchId}`);
-            
-            // 🔥 Hard Reset
-            socket.data.activeBranchId = null;
-            const currentRooms = Array.from(socket.rooms);
-            for (const room of currentRooms) {
-              if (room.startsWith('room:admin:branch:')) {
-                await socket.leave(room);
-              }
-            }
-            
-            socket.emit('force:branch:reset', { reason: 'ACCESS_REVOKED' });
-          }
+          // 2. Note: invalidateUserPermissions already force-syncs all sockets for this user.
+          // But since this socket specifically requested it, we can acknowledge.
 
-          if (ack) ack({ success: true });
+          if (ack) ack({ success: true, timestamp: Date.now() });
         } catch (err) {
           logger.error(`[Socket] Permission refresh failed for ${userId}`, err);
           if (ack) ack({ success: false });

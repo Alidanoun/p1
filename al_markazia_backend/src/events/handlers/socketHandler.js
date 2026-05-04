@@ -1,6 +1,6 @@
 const eventBus = require('../eventBus');
 const eventTypes = require('../eventTypes');
-const { SOCKET_EVENTS } = require('../../shared/socketEvents');
+const { SOCKET_EVENTS, SOCKET_ROOMS } = require('../../shared/socketEvents');
 const logger = require('../../utils/logger');
 const analyticsProjection = require('../../projections/analyticsProjection');
 
@@ -27,7 +27,7 @@ const emitBranchMetrics = (event, context) => {
   const branchMetrics = analyticsProjection.getMetrics(branchId);
   
   // 🏢 Broadcast ONLY to the specific branch room
-  io.to(`room:admin:branch:${branchId}`).emit(SOCKET_EVENTS.DASHBOARD_METRICS_UPDATE, branchMetrics);
+  io.to(SOCKET_ROOMS.MONITOR_BRANCH(branchId)).emit(SOCKET_EVENTS.DASHBOARD_METRICS_UPDATE, branchMetrics);
   logger.debug(`[SocketHandler] Metrics updated for ${context} -> Branch: ${branchId}`);
 };
 

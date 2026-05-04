@@ -406,17 +406,18 @@ class OrderService {
 
     if (!order) return null;
 
-    // 🛡️ Security Guard
-    if (user && user.role === 'customer') {
-      const customer = await prisma.customer.findUnique({ where: { uuid: user.id }, select: { id: true } });
-      if (!customer || order.customerId !== customer.id) {
-        throw new Error('ORDER_FORBIDDEN');
-      }
-    }
-
-    // 🏢 Multi-Branch Isolation
-    if (user && user.role?.toUpperCase() === 'BRANCH_MANAGER') {
-      if (order.branchId !== user.branchId) {
+    // 🛡️ [SECURITY-UNIFICATION] Use Central Policy
+    const SecurityPolicyService = require('./securityPolicyService');
+    const hasAccess = await SecurityPolicyService.canAccessBranch(user, order.branchId);
+    
+    if (!hasAccess) {
+      // For customers, specifically check if they own the order
+      if (user.role === 'customer') {
+        const customer = await prisma.customer.findUnique({ where: { uuid: user.id }, select: { id: true } });
+        if (!customer || order.customerId !== customer.id) {
+          throw new Error('ORDER_FORBIDDEN');
+        }
+      } else {
         throw new Error('ORDER_FORBIDDEN');
       }
     }
@@ -442,10 +443,7 @@ class OrderService {
     const isManager = user?.role?.toUpperCase() === 'BRANCH_MANAGER';
     const isCustomer = user?.role === 'customer';
 
-    // 2. 🏢 Branch Isolation
-    if (isManager && order.branchId !== user.branchId) {
-      throw new Error('ORDER_FORBIDDEN');
-    }
+    // 2. 🏢 Branch Isolation (Handled by ContractGateway)
 
     // 3. 🧠 Risk Assessment (3-Level Logic)
     const timeDiff = (Date.now() - new Date(order.createdAt).getTime()) / 60000;
@@ -581,7 +579,6 @@ class OrderService {
     const isManager = user?.role?.toUpperCase() === 'BRANCH_MANAGER';
 
     if (isManager) {
-      if (order.branchId !== user.branchId) throw new Error('ORDER_FORBIDDEN');
       if (order.status === 'waiting_cancellation_admin') throw new Error('ADMIN_APPROVAL_REQUIRED');
     }
 
@@ -665,11 +662,14 @@ class OrderService {
 
     logger.info(`[OrderService] Creating Order. AuthUser: ${authUser?.id}, InputPhone: ${phoneInput}, ResolvedCustomer: ${resolvedCustomer.id}`);
 
+    // 1.5 🏢 Resolve Branch (Multi-Branch Ready)
+    const targetBranchId = await this._resolveBranchId(data.branchId || data.branch);
+
     // 2. 🛡️ Spam Protection (Multi-factor)
     await this._validateSpamLimits(resolvedCustomer.phone);
 
-    // 3. 💰 Pricing & Inventory Validation
-    const { validatedItems, subtotal } = await this._calculateAndValidatePricing(cartItems);
+    // 3. 💰 Pricing & Inventory Validation (Branch-Aware)
+    const { validatedItems, subtotal } = await this._calculateAndValidatePricing(cartItems, targetBranchId);
 
     // 4. 🚚 Delivery & Region Validation
     const deliveryDetails = await this._validateDeliveryDetails(orderType, deliveryZoneId, subtotal);
@@ -700,8 +700,6 @@ class OrderService {
     const tax = 0;
     const total = Math.max(0, toMoney(subtotal + deliveryDetails.fee - pointsDiscount));
 
-    // 5.5.5 🏢 Resolve Branch (Multi-Branch Ready)
-    const targetBranchId = await this._resolveBranchId(data.branchId || data.branch);
 
     // 🚀 Auto Accept Orders Logic
     let sysSettings = memoryCache.get('system:settings');
@@ -974,8 +972,8 @@ class OrderService {
   /**
    * 💰 Calculation Engine: Re-verifies all prices from DB to prevent client-side manipulation.
    */
-  async _calculateAndValidatePricing(cartItems) {
-    logger.info(`[Pricing] Validating ${cartItems?.length} items.`);
+  async _calculateAndValidatePricing(cartItems, branchId = null) {
+    logger.info(`[Pricing] Validating ${cartItems?.length} items for branch: ${branchId}`);
     let subtotal = 0;
     const validatedItems = [];
 
@@ -986,12 +984,29 @@ class OrderService {
           optionGroups: { 
             where: { isActive: true },
             include: { options: { where: { isAvailable: true } } } 
-          } 
+          },
+          branchItems: branchId ? {
+            where: { branchId: branchId },
+            select: { isAvailable: true }
+          } : false
         }
       });
 
       if (!dbItem) throw new Error(`ITEM_NOT_FOUND:${item.id}`);
-      if (!dbItem.isAvailable) throw new Error(`ITEM_UNAVAILABLE:${dbItem.title}`);
+
+      // 🛡️ [BRANCH-ISOLATION] Strict Check
+      if (branchId) {
+        if (!dbItem.branchItems || dbItem.branchItems.length === 0) {
+          throw new Error(`ITEM_NOT_IN_BRANCH:${dbItem.title}`);
+        }
+        
+        // Branch-specific availability override
+        const branchAvailability = dbItem.branchItems[0].isAvailable;
+        if (!branchAvailability) throw new Error(`ITEM_UNAVAILABLE_IN_BRANCH:${dbItem.title}`);
+      } else {
+        // Global availability fallback (if no branch context)
+        if (!dbItem.isAvailable) throw new Error(`ITEM_UNAVAILABLE:${dbItem.title}`);
+      }
 
       let unitPrice = toNumber(dbItem.basePrice);
       const incomingOptionIds = (item.optionIds || []).map(id => parseInt(id)).filter(id => !isNaN(id));
@@ -1156,88 +1171,98 @@ class OrderService {
    * ⚡ Atomic Status Update & State Machine Validation
    */
   async updateOrderStatus(orderId, newStatus, version = null, user = null) {
-    const order = await prisma.order.findUnique({
-      where: { id: orderId },
-      include: { customer: true }
-    });
+    let attempts = 0;
+    const maxRetries = 3;
 
-    if (!order) return null;
+    while (attempts < maxRetries) {
+      try {
+        const order = await prisma.order.findUnique({
+          where: { id: orderId },
+          include: { customer: true }
+        });
 
-    // 🏢 Branch Isolation
-    if (user) {
-      const role = user.role?.toLowerCase();
-      if ((role === 'branch_manager' || role === 'manager') && order.branchId !== user.branchId) {
-        throw new Error('ORDER_FORBIDDEN');
+        if (!order) return null;
+
+        if (order.status === newStatus) return mapOrderResponse(order);
+
+        // 🛡️ [SEC-FIX] Optimistic Locking Validation (If version was explicitly provided)
+        if (version !== null && version !== undefined && order.version !== parseInt(version)) {
+          throw new Error('CONCURRENCY_CONFLICT');
+        }
+
+        const previousStatus = order.status;
+
+        // Validate state machine sequence (Enterprise Guard)
+        const validTransitions = {
+          'pending': ['preparing', 'cancelled'],
+          'preparing': ['ready', 'cancelled'],
+          'ready': ['in_route', 'delivered', 'cancelled'],
+          'in_route': ['delivered', 'cancelled'],
+          'waiting_cancellation': ['cancelled', 'pending', 'preparing', 'ready', 'in_route', 'delivered'],
+          'delivered': [],
+          'cancelled': []
+        };
+
+        if (!validTransitions[previousStatus]?.includes(newStatus)) {
+          throw new Error(`Invalid status transition from ${previousStatus} to ${newStatus}`);
+        }
+
+        const { updatedOrder, _outboxId } = await prisma.$transaction(async (tx) => {
+          const updated = await tx.order.update({
+            where: { id: order.id, version: order.version },
+            data: { status: newStatus, version: { increment: 1 } },
+            include: ORDER_INCLUDE_FULL
+          });
+
+          // 🎁 Loyalty Reward Hook
+          let pointsEarned = 0;
+          if (newStatus === 'delivered') {
+            try {
+              pointsEarned = await loyaltyService.awardPointsForOrder(updated, tx);
+            } catch (err) {
+              logger.error('[Loyalty] Failed to award points on status update', { orderId: updated.id, error: err.message });
+            }
+          }
+
+          // 📮 Transactional Outbox Enqueue
+          const outboxService = require('./outboxService');
+          const outbox = await outboxService.enqueue(eventTypes.ORDER_STATUS_CHANGED, {
+            previousStatus,
+            newStatus,
+            order: {
+              ...mapOrderResponse(updated),
+              pointsEarned
+            }
+          }, tx);
+
+          return { updatedOrder: updated, _outboxId: outbox.id };
+        });
+
+        const mappedOrder = mapOrderResponse(updatedOrder);
+
+        // 📊 Incremental Analytics Update
+        analyticsService.updateCacheIncrementally({
+          type: 'ORDER_STATUS_CHANGE',
+          amount: toNumber(updatedOrder.total),
+          status: newStatus,
+          previousStatus,
+          orderNumber: updatedOrder.orderNumber
+        });
+
+        return { ...mappedOrder, _outboxId };
+
+      } catch (error) {
+        // Check if it's a Prisma concurrency error (Record not found because version changed)
+        if (error.code === 'P2025' && attempts < maxRetries - 1) {
+          attempts++;
+          const delay = 100 * attempts; // Exponential backoff
+          logger.warn(`[OrderService] Concurrency conflict detected for Order ${orderId}. Retry ${attempts}/${maxRetries} after ${delay}ms...`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+        throw error;
       }
     }
-
-    if (order.status === newStatus) return mapOrderResponse(order);
-
-    // 🛡️ [SEC-FIX] Optimistic Locking Validation
-    if (version !== null && version !== undefined && order.version !== parseInt(version)) {
-      throw new Error('CONCURRENCY_CONFLICT');
-    }
-
-    const previousStatus = order.status;
-
-    // Validate state machine sequence (Enterprise Guard)
-    const validTransitions = {
-      'pending': ['preparing', 'cancelled'],
-      'preparing': ['ready', 'cancelled'],
-      'ready': ['in_route', 'delivered', 'cancelled'],
-      'in_route': ['delivered', 'cancelled'],
-      'waiting_cancellation': ['cancelled', 'pending', 'preparing', 'ready', 'in_route', 'delivered'],
-      'delivered': [],
-      'cancelled': []
-    };
-
-    if (!validTransitions[previousStatus]?.includes(newStatus)) {
-      throw new Error(`Invalid status transition from ${previousStatus} to ${newStatus}`);
-    }
-
-    const { updatedOrder, _outboxId } = await prisma.$transaction(async (tx) => {
-      const updated = await tx.order.update({
-        where: { id: order.id, version: order.version },
-        data: { status: newStatus, version: { increment: 1 } },
-        include: ORDER_INCLUDE_FULL
-      });
-
-      // 🎁 Loyalty Reward Hook (Inline for synchronous points in notification)
-      let pointsEarned = 0;
-      if (newStatus === 'delivered') {
-        try {
-          pointsEarned = await loyaltyService.awardPointsForOrder(updated, tx);
-        } catch (err) {
-          logger.error('[Loyalty] Failed to award points on status update', { orderId: updated.id, error: err.message });
-        }
-      }
-
-      // 📮 [RESILIENCE-FIX] Transactional Outbox Enqueue
-      const outboxService = require('./outboxService');
-      const outbox = await outboxService.enqueue(eventTypes.ORDER_STATUS_CHANGED, {
-        previousStatus,
-        newStatus,
-        order: {
-          ...mapOrderResponse(updated),
-          pointsEarned
-        }
-      }, tx);
-
-      return { updatedOrder: updated, _outboxId: outbox.id };
-    });
-
-    const mappedOrder = mapOrderResponse(updatedOrder);
-
-    // 📊 Incremental Analytics Update
-    analyticsService.updateCacheIncrementally({
-      type: 'ORDER_STATUS_CHANGE',
-      amount: toNumber(updatedOrder.total),
-      status: newStatus,
-      previousStatus,
-      orderNumber: updatedOrder.orderNumber
-    });
-
-    return { ...mappedOrder, _outboxId };
   }
 
   async batchAcceptOrders(user) {
@@ -1246,10 +1271,11 @@ class OrderService {
 
     const where = { status: 'pending' };
 
-    // 🏢 Branch Isolation
-    const role = user?.role?.toLowerCase();
-    if (role === 'branch_manager' || role === 'manager') {
-      where.branchId = user.branchId || 'NONE';
+    // 🛡️ [SECURITY-UNIFICATION] Branch Isolation via Central Policy
+    const SecurityPolicyService = require('./securityPolicyService');
+    const branchFilter = await SecurityPolicyService.getHardenedFilter(user, 'Order');
+    if (branchFilter.branchId) {
+      where.branchId = branchFilter.branchId;
     }
 
     // 1. Fetch pending orders atomically
