@@ -13,7 +13,7 @@ router.get('/search', searchLimiter, searchItems);
 router.post('/', authenticateToken, isAdmin, uploadImage('image'), createItem);
 router.put('/featured', authenticateToken, isAdmin, updateFeaturedItems);
 router.patch('/:id/exclude', authenticateToken, isAdmin, validateId(), toggleExclusion);
-router.put('/:id', authenticateToken, isAdmin, validateId(), updateItem);
+router.put('/:id', authenticateToken, isAdmin, validateId(), uploadImage('image'), updateItem);
 router.patch('/:id/options/toggle', authenticateToken, isAdmin, validateId(), (req, res, next) => {
   // New specific endpoint for availability toggling to avoid "wipe and rebuild" complexity
   require('../controllers/itemController').toggleOptionAvailability(req, res, next);
