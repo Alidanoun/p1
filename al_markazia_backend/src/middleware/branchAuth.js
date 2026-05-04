@@ -86,7 +86,8 @@ const ensureBranchId = (req, res, next) => {
 
   if (!branchId) {
     // للـ branch managers، استخدم فرعهم تلقائياً
-    if (user.role === 'branch_manager' || user.role === 'manager') {
+    const userRole = user.role?.toLowerCase();
+    if (userRole === 'branch_manager' || userRole === 'manager') {
       req.body.branchId = user.branchId;
       req.query.branchId = user.branchId;
       return next();
