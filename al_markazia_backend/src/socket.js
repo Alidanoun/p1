@@ -94,33 +94,47 @@ module.exports = {
 
       // 🛰️ Join Tracking Room
       socket.on('tracking:join', async ({ orderId }) => {
-        const canTrack = await trackingService.canTrackOrder(userId, orderId);
-        if (canTrack || role === 'admin') {
-          const room = SOCKET_ROOMS.ORDER_TRACKING(orderId);
-          socket.join(room);
-          logger.debug(`🛰️ User ${userId} joined tracking for order ${orderId}`);
-        } else {
-          socket.emit('error', { message: 'Unauthorized to track this order' });
+        try {
+          const canTrack = await trackingService.canTrackOrder(userId, orderId);
+          if (canTrack || role === 'super_admin' || role === 'admin') {
+            const room = SOCKET_ROOMS.ORDER_TRACKING(orderId);
+            await socket.join(room);
+            logger.info(`🛰️ User ${userId} joined tracking for order ${orderId}`);
+          } else {
+            logger.security('UNAUTHORIZED_TRACKING_JOIN', { userId, orderId, ip: socket.handshake.address });
+            socket.emit('error', { message: 'غير مصرح لك بتتبع هذا الطلب' });
+          }
+        } catch (err) {
+          logger.error('[Socket] Tracking join failed', { userId, orderId, error: err.message });
         }
       });
 
       // 🚚 Driver Location Update (From Driver App or Simulation)
       socket.on('tracking:update_location', (data) => {
-        // Only allow if role is 'driver' or 'admin' (assuming 'admin' for simulation)
-        trackingService.updateDriverLocation(io, data);
+        // Only allow if role is 'driver' or 'admin'
+        if (['driver', 'admin', 'super_admin'].includes(role)) {
+          trackingService.updateDriverLocation(io, data);
+        }
       });
 
-      // 🏢 Dynamic Branch Context Switching
+      // 🏢 Dynamic Branch Context Switching (Monitoring/Execution)
       socket.on('branch:switch', async ({ branchId }, ack) => {
         try {
-          // 🔐 Verify permission (only super_admin/admin can dynamically switch contexts)
-          if (!['super_admin', 'admin'].includes(role)) {
-            logger.warn(`[Socket] Unauthorized branch switch attempt by ${userId} [${role}]`);
-            if (ack) ack({ success: false, error: 'Unauthorized' });
+          // 🔐 Strict Authorization Check using SecurityPolicyService
+          const canAccess = await SecurityPolicyService.canAccessBranch(socket.user, branchId, 'read');
+          
+          if (!canAccess) {
+            logger.security('UNAUTHORIZED_BRANCH_SWITCH_ATTEMPT', { 
+              userId, 
+              role, 
+              requestedBranch: branchId,
+              ip: socket.handshake.address 
+            });
+            if (ack) ack({ success: false, error: 'غير مصرح لك بالوصول لهذا الفرع' });
             return;
           }
 
-          // 🧹 Clean up previous branch rooms (Hard Cleanup)
+          // 🧹 Clean up previous branch monitoring rooms
           const currentRooms = Array.from(socket.rooms);
           for (const room of currentRooms) {
             if (room.startsWith('room:monitor:branch:')) {
@@ -132,23 +146,16 @@ module.exports = {
             // 👁️ MONITORING: Join specific branch monitor room
             const targetRoom = SOCKET_ROOMS.MONITOR_BRANCH(branchId);
             await socket.join(targetRoom);
-            socket.data.activeBranchId = branchId; // Store in socket state
-            logger.info(`[Socket] Admin ${userId} switched to MONITORING branch ${branchId}`);
-          } else if (role === 'super_admin') {
-            // 🌐 Super Admin "All Branches" mode - Subscribe to all monitoring
+            socket.data.activeBranchId = branchId; 
+            logger.info(`[Socket] User ${userId} switched to MONITORING branch ${branchId}`);
+          } else if (role === 'super_admin' || (role === 'admin' && !socket.user.branchId)) {
+            // Global monitoring mode
             const prisma = require('./lib/prisma');
             const allBranches = await prisma.branch.findMany({ select: { id: true } });
             
             await Promise.all(allBranches.map(b => socket.join(SOCKET_ROOMS.MONITOR_BRANCH(b.id))));
             socket.data.activeBranchId = 'all';
-            logger.info(`[Socket] Super Admin ${userId} joined all MONITORING branch rooms`);
-          } else {
-            // Admin switching to 'all' but doesn't have super_admin role
-            // Fallback to their assigned branch if it exists, otherwise stay in global
-            if (socket.user.branchId) {
-              await socket.join(SOCKET_ROOMS.MONITOR_BRANCH(socket.user.branchId));
-              socket.data.activeBranchId = socket.user.branchId;
-            }
+            logger.info(`[Socket] Admin ${userId} joined all MONITORING branch rooms`);
           }
 
           if (ack) ack({ success: true, branchId: socket.data.activeBranchId });

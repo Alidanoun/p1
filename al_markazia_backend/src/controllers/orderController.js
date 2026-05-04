@@ -157,6 +157,17 @@ exports.acceptAllNewOrders = async (req, res) => {
   }
 };
 
+exports.syncOrders = async (req, res) => {
+  try {
+    const clientVersion = req.query.version || '0';
+    const result = await orderService.syncOrders(req.user, clientVersion);
+    res.json(result);
+  } catch (error) {
+    logger.error('Sync orders error', { error: error.message });
+    res.status(500).json({ error: error.message });
+  }
+};
+
 exports.updateOrderStatus = async (req, res) => {
   try {
     const orderId = parseInt(req.params.id);

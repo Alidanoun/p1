@@ -64,11 +64,17 @@ class IdempotencyService {
 
   /**
    * 🛡️ HTTP Middleware Guard
-   * Extracts idempotency key from headers for use in downstream logic.
+   * Extracts idempotency key from headers and enforces presence if required.
    */
-  guard() {
+  guard(required = false) {
     return (req, res, next) => {
       const key = req.headers['x-idempotency-key'];
+      
+      if (!key && required) {
+        const response = require('../utils/response');
+        return response.error(res, 'يجب توفير x-idempotency-key لهذه العملية الحساسة لضمان عدم تكرارها.', 'IDEMPOTENCY_KEY_REQUIRED', 400);
+      }
+
       if (key) {
         req.idempotencyKey = key;
       }

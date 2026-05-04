@@ -141,6 +141,9 @@ async function startServer() {
     app.use(express.json({ limit: '100kb', strict: true }));
     app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 
+    const sanitizeBranchId = require('./middleware/sanitizeBranchId');
+    app.use(sanitizeBranchId);
+
     // ⏱️ Request Timeout Hardening
     app.use((req, res, next) => {
       req.setTimeout(5000); // 5 seconds max
