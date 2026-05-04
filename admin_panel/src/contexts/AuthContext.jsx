@@ -108,14 +108,18 @@ export const AuthProvider = ({ children }) => {
 
   const canAccess = (requiredRole) => {
     if (!user) return false;
-    if (user.role === 'admin') return true;
-    if (Array.isArray(requiredRole)) return requiredRole.includes(user.role);
-    return user.role === requiredRole;
+    const role = user.role?.toLowerCase();
+    // 👑 Administrative Power (Both old and new names)
+    if (role === 'admin' || role === 'super_admin') return true;
+    
+    if (Array.isArray(requiredRole)) return requiredRole.includes(role);
+    return role === requiredRole;
   };
 
   const isAuthorized = (permission) => {
     if (!user) return false;
-    if (user.role === 'admin') return true;
+    const role = user.role?.toLowerCase();
+    if (role === 'admin' || role === 'super_admin') return true;
     return user.permissions?.[permission] === true;
   };
 
