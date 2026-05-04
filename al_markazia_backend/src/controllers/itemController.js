@@ -25,17 +25,15 @@ exports.getAllItems = async (req, res) => {
     // 🛡️ [ISOLATION] Identify the target branch for strict filtering
     const { getContext } = require('../utils/securityContext');
     const userContext = getContext();
-    const targetBranchId = (userContext?.role !== 'admin') 
-      ? userContext?.branchId 
-      : (req.query.branchId || null);
+    
+    // Explicit branchId from query always takes precedence for overrides
+    let targetBranchId = req.query.branchId || userContext?.branchId || null;
+    
+    // 🛡️ [SEC-FIX] Sanitize stringified nulls from frontend
+    if (targetBranchId === 'null' || targetBranchId === 'undefined') targetBranchId = null;
 
-    // If a branch is identified, we only restrict visibility for PUBLIC menu
-    const isDashboardRequest = admin === 'true';
-    if (targetBranchId && !isDashboardRequest) {
-      filter.branchItems = {
-        some: { branchId: targetBranchId }
-      };
-    }
+    // Note: We removed the 'some' filter here because it was restricting the list 
+    // to ONLY items with overrides, which is incorrect for a full menu view.
 
     const items = await prisma.item.findMany({
       where: filter,
