@@ -21,15 +21,13 @@ async function publishEvent({
       const redis = require('../lib/redis');
       const dedupKey = `event_dedup:${type}:${aggregateId}:${version}`;
       
-      const exists = await redis.get(dedupKey);
-      if (exists) {
-        logger.warn(`[EventPublisher] 🛡️ Duplicate event detected and blocked: ${dedupKey}`);
-        return null;
+      const cachedEvent = await redis.get(dedupKey);
+      if (cachedEvent) {
+        logger.warn(`[EventPublisher] 🛡️ Duplicate event detected: ${dedupKey}. Returning cached version.`);
+        return JSON.parse(cachedEvent);
       }
-      
-      // Set a 1-hour window to catch retries and out-of-order events
-      await redis.set(dedupKey, '1', 'EX', 3600);
     }
+
     // 1. Persist to DB (Source of Truth)
     const event = await prisma.event.create({
       data: {
@@ -43,20 +41,23 @@ async function publishEvent({
       },
     });
 
-    // 2. Publish to memory bus (for real-time handlers: Socket, FCM, etc.)
-    // 🛡️ MUST await to ensure Socket emissions complete before API response returns
+    // 2. Cache in Redis (TTL: 1 hour)
+    if (aggregateId && version) {
+      const redis = require('../lib/redis');
+      const dedupKey = `event_dedup:${type}:${aggregateId}:${version}`;
+      await redis.setex(dedupKey, 3600, JSON.stringify(event));
+    }
+
+    // 3. Publish to memory bus (for real-time handlers: Socket, FCM, etc.)
     try {
       await eventBus.publish(event);
     } catch (busErr) {
-      // Bus failure should NOT block the main flow — log and continue
       logger.error(`[EventPublisher] Bus publication failed for ${type}`, { error: busErr.message });
     }
 
     return event;
   } catch (err) {
     logger.error(`[EventPublisher] Failed to persist event ${type}`, { error: err.message, aggregateId });
-    // Note: In strict Event Sourcing, if the event store fails, the whole operation should fail.
-    // However, for this gradual migration, we might just log it unless it's critical.
     throw err; 
   }
 }

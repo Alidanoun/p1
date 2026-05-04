@@ -40,8 +40,18 @@ class SecurityPolicyService {
       manager: { canReadAll: false, canModifyAll: false }
     };
 
-    // 👑 Super Admin: Absolute Visibility with optional branch isolation
-    if (normalizedRole === 'super_admin') {
+    const scope = SCOPE_MATRIX[normalizedRole] || { canReadAll: false, canModifyAll: false };
+
+    // 👑 Super Admin & Global Admins (Read Bypass)
+    // If user has canReadAll and hasn't requested a specific branch, they see everything
+    if (scope.canReadAll && !user.requestedBranchId) {
+      const modelsWithSoftDelete = ['Order', 'Item', 'Category', 'Customer'];
+      const filter = modelsWithSoftDelete.includes(modelName) ? { isDeleted: false } : {};
+      return filter;
+    }
+
+    // 👑 Specific Branch Request for Super Admin / Global Admin
+    if (normalizedRole === 'super_admin' || scope.canReadAll) {
       const modelsWithSoftDelete = ['Order', 'Item', 'Category', 'Customer'];
       const filter = modelsWithSoftDelete.includes(modelName) ? { isDeleted: false } : {};
       
