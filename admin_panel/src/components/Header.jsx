@@ -243,7 +243,7 @@ const Header = ({ title, subtitle, action }) => {
         </div>
         
         {/* Branch Switcher (Admin Only) */}
-        {user?.role?.toUpperCase() === 'ADMIN' && (
+        {(user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'super_admin') && (
           <BranchSwitcher 
             selectedBranchId={selectedBranchId} 
             onBranchChange={setSelectedBranchId} 
