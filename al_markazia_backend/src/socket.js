@@ -72,10 +72,10 @@ module.exports = {
         // Prevents Socket Hijacking: user demoted but still holds old elevated token
         let dbRole = dbIdentity?.role?.toLowerCase() || 'customer';
         
-        // 🛡️ [GRACEFUL TRANSITION] Allow super_admin token to connect as admin
-        const effectiveTokenRole = tokenRole === 'super_admin' ? 'admin' : tokenRole;
+        // 🛡️ [GRACEFUL TRANSITION] Allow super_admin and admin to be interchangeable
+        const isUnifiedAdmin = (r) => r === 'admin' || r === 'super_admin';
         
-        if (dbIdentity?.role && dbRole !== effectiveTokenRole) {
+        if (dbIdentity?.role && !isUnifiedAdmin(dbRole) && dbRole !== effectiveTokenRole) {
           logger.security('🔌 [Socket] PERMISSION_DRIFT detected — token role does not match DB role', {
             userId,
             tokenRole,
@@ -156,7 +156,8 @@ module.exports = {
           const { role, id: userId } = socket.user;
 
           // 🔐 1. Strict Role Gate
-          if (!['admin', 'branch_manager', 'manager'].includes(role)) {
+          const isAllowed = ['admin', 'super_admin', 'branch_manager', 'manager'].includes(role);
+          if (!isAllowed) {
             logger.security('UNAUTHORIZED_BRANCH_SWITCH_ATTEMPT', { userId, role, requestedBranch: branchId });
             if (ack) ack({ success: false, error: 'Unauthorized' });
             return;
