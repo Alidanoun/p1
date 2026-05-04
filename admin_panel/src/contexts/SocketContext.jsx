@@ -34,15 +34,13 @@ export const SocketProvider = ({ children }) => {
 
   const fetchLiveMetrics = useCallback(async () => {
     try {
-      const url = '/dashboard/metrics';
+      const branchId = selectedBranchId;
+      const url = branchId ? `/dashboard/metrics?branchId=${branchId}` : '/dashboard/metrics';
       const response = await api.get(url);
       const data = unwrap(response);
       
       if (data) {
         setLiveMetrics(data);
-      } else if (response.data && response.data.revenue) { 
-        // Fallback for legacy format if metrics are top-level and not under 'data'
-        setLiveMetrics(response.data);
       }
     } catch (err) {
       console.error('Failed to fetch metrics:', err);
@@ -219,17 +217,19 @@ export const SocketProvider = ({ children }) => {
 
   useEffect(() => {
     if (socketRef.current && socketRef.current.connected && debouncedBranchId !== undefined) {
-      // 🔄 Switch Rooms dynamically without clearing everything
-      // We don't call setLiveMetrics(null) here to prevent UI flicker
+      // 🔄 [UI-FIX] Clear old metrics to show loading state during branch switch
+      setLiveMetrics(null);
+      setMetricsHistory([]);
       
       socketRef.current.emit('branch:switch', { branchId: debouncedBranchId }, (response) => {
         if (response?.success) {
           console.log(`[Socket] Dynamic branch switch successful: ${debouncedBranchId}`);
           fetchLiveMetrics();
+          fetchNotifications();
         }
       });
     }
-  }, [debouncedBranchId, fetchLiveMetrics]);
+  }, [debouncedBranchId, fetchLiveMetrics, fetchNotifications]);
 
   useEffect(() => {
     // 🛡️ Initialization: Try to connect with whatever is in store
