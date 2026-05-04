@@ -9,9 +9,8 @@ const Sidebar = () => {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
 
-  const isSuperAdmin = user?.role === 'super_admin';
-  const isAdmin = user?.role === 'admin' || isSuperAdmin;
-  const isBranchManager = user?.role?.toUpperCase() === 'BRANCH_MANAGER' || user?.role === 'manager';
+  const isAdmin = user?.role === 'admin';
+  const isBranchManager = user?.role === 'manager' || user?.role?.toUpperCase() === 'BRANCH_MANAGER';
 
   const navItems = [
     { name: 'مركز العمليات', icon: LayoutDashboard, path: '/', isLive: true, show: isAdmin || isBranchManager },
@@ -27,8 +26,8 @@ const Sidebar = () => {
     { name: 'الإحصائيات المتقدمة', icon: TrendingUp, path: '/analytics', show: isAdmin },
     { name: 'المالية والتقارير', icon: BarChart2, path: '/reports', show: isAdmin },
     { name: 'مناطق التوصيل', icon: MapPin, path: '/delivery-zones', show: isAdmin },
-    { name: 'سجل التدقيق', icon: ShieldCheck, path: '/audit', show: isSuperAdmin },
-    { name: 'الإعدادات', icon: Settings, path: '/settings', show: isSuperAdmin },
+    { name: 'سجل التدقيق', icon: ShieldCheck, path: '/audit', show: isAdmin },
+    { name: 'الإعدادات', icon: Settings, path: '/settings', show: isAdmin },
   ].filter(item => item.show);
 
   return (
