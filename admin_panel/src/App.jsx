@@ -86,7 +86,7 @@ function App() {
           <Route path="/branch-menu" element={<ProtectedLayout><BranchMenu /></ProtectedLayout>} />
           
           <Route path="/broadcast" element={
-            <ProtectedRoute requiredRole={['super_admin', 'admin']}>
+            <ProtectedRoute requiredRole="admin">
               <ProtectedLayout><BroadcastNotifications /></ProtectedLayout>
             </ProtectedRoute>
           } />
@@ -94,7 +94,7 @@ function App() {
           <Route path="/reviews" element={<ProtectedLayout><ReviewsManager /></ProtectedLayout>} />
           
           <Route path="/cancelled-orders" element={
-            <ProtectedRoute requiredRole={['super_admin', 'admin']}>
+            <ProtectedRoute requiredRole="admin">
               <ProtectedLayout><CancelledOrders /></ProtectedLayout>
             </ProtectedRoute>
           } />
@@ -104,24 +104,24 @@ function App() {
           <Route path="/delivery-zones" element={<ProtectedLayout><DeliveryZonesManager /></ProtectedLayout>} />
           
           <Route path="/analytics" element={
-            <ProtectedRoute requiredRole={['super_admin', 'admin']}>
+            <ProtectedRoute requiredRole="admin">
               <ProtectedLayout><Analytics /></ProtectedLayout>
             </ProtectedRoute>
           } />
           <Route path="/reports" element={
-            <ProtectedRoute requiredRole={['super_admin', 'admin']}>
+            <ProtectedRoute requiredRole="admin">
               <ProtectedLayout><Reports /></ProtectedLayout>
             </ProtectedRoute>
           } />
           
           <Route path="/settings" element={
-            <ProtectedRoute requiredRole="super_admin">
+            <ProtectedRoute requiredRole="admin">
               <ProtectedLayout><Settings /></ProtectedLayout>
             </ProtectedRoute>
           } />
           
           <Route path="/audit" element={
-            <ProtectedRoute requiredRole="super_admin">
+            <ProtectedRoute requiredRole="admin">
               <ProtectedLayout><AuditLog /></ProtectedLayout>
             </ProtectedRoute>
           } />

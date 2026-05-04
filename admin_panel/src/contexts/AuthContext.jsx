@@ -108,14 +108,14 @@ export const AuthProvider = ({ children }) => {
 
   const canAccess = (requiredRole) => {
     if (!user) return false;
-    if (user.role === 'super_admin') return true;
+    if (user.role === 'admin') return true;
     if (Array.isArray(requiredRole)) return requiredRole.includes(user.role);
     return user.role === requiredRole;
   };
 
   const isAuthorized = (permission) => {
     if (!user) return false;
-    if (user.role === 'super_admin') return true;
+    if (user.role === 'admin') return true;
     return user.permissions?.[permission] === true;
   };
 
