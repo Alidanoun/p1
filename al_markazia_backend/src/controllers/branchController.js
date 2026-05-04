@@ -107,12 +107,20 @@ exports.toggleItemAvailability = async (req, res) => {
 };
 
 /**
- * 📋 List All Branches (Admin Only)
+ * 📋 List All Branches (Filtered by role)
  */
 exports.getAllBranches = async (req, res) => {
   try {
+    const user = req.user;
+    const where = { isActive: true };
+
+    // 🛡️ [SEC-FIX] Branch Isolation for Managers
+    if (user.role?.toUpperCase() === 'BRANCH_MANAGER' && user.branchId) {
+      where.id = user.branchId;
+    }
+
     const branches = await prisma.branch.findMany({
-      where: { isActive: true },
+      where,
       select: {
         id: true,
         name: true,

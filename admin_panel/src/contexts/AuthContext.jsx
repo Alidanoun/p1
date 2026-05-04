@@ -11,6 +11,20 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const initialized = useRef(false);
 
+  const [selectedBranchId, setBranchIdState] = useState(() => {
+    const saved = sessionStorage.getItem('selectedBranchId');
+    return saved && saved !== 'null' ? saved : null;
+  });
+
+  const setSelectedBranchId = (id) => {
+    setBranchIdState(id);
+    if (id && id !== 'all' && id !== null) {
+      sessionStorage.setItem('selectedBranchId', id);
+    } else {
+      sessionStorage.removeItem('selectedBranchId');
+    }
+  };
+
   /**
    * 🛡️ 3-Level Rehydration Strategy:
    * 1. LocalStorage (Immediate/Optimistic)
@@ -27,7 +41,6 @@ export const AuthProvider = ({ children }) => {
       if (cachedUser) {
         try {
           setUser(JSON.parse(cachedUser));
-          // 🛡️ [REMOVED] Early unlock to prevent race conditions during rehydration
         } catch (e) {
           localStorage.removeItem('user_cache');
         }
@@ -55,22 +68,9 @@ export const AuthProvider = ({ children }) => {
     bootstrap();
   }, []);
 
-  const [selectedBranchId, setSelectedBranchId] = useState(() => {
-    const saved = sessionStorage.getItem('selectedBranchId');
-    return saved && saved !== 'null' ? saved : null;
-  });
-
   const changeBranch = (branchId) => {
     setSelectedBranchId(branchId);
   };
-
-  useEffect(() => {
-    if (selectedBranchId) {
-      sessionStorage.setItem('selectedBranchId', selectedBranchId);
-    } else {
-      sessionStorage.removeItem('selectedBranchId');
-    }
-  }, [selectedBranchId]);
 
   const login = async (email, password) => {
     try {
@@ -78,12 +78,10 @@ export const AuthProvider = ({ children }) => {
       const authData = response.success ? response.data : response;
       const { accessToken, user } = authData;
 
-      // 🔒 Save to memory + cache for rehydration
       tokenStore.set(accessToken);
       setUser(user);
       localStorage.setItem('user_cache', JSON.stringify(user));
       
-      // Reset branch context on login
       changeBranch(null);
       sessionStorage.removeItem('selectedBranchId');
 
@@ -96,7 +94,6 @@ export const AuthProvider = ({ children }) => {
 
   const logout = async () => {
     try {
-      // 🚪 Notify server to clear cookie and revoke token
       await api.post('/auth/logout');
     } catch (err) {
       console.warn('Logout notification failed', err);
@@ -109,8 +106,25 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const canAccess = (requiredRole) => {
+    if (!user) return false;
+    if (user.role === 'super_admin') return true;
+    if (Array.isArray(requiredRole)) return requiredRole.includes(user.role);
+    return user.role === requiredRole;
+  };
+
+  const isAuthorized = (permission) => {
+    if (!user) return false;
+    if (user.role === 'super_admin') return true;
+    return user.permissions?.[permission] === true;
+  };
+
   return (
-    <AuthContext.Provider value={{ user, login, logout, loading, selectedBranchId, setSelectedBranchId }}>
+    <AuthContext.Provider value={{ 
+      user, login, logout, loading, 
+      selectedBranchId, setSelectedBranchId,
+      canAccess, isAuthorized 
+    }}>
       {children}
     </AuthContext.Provider>
   );

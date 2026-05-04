@@ -52,9 +52,15 @@ exports.getDashboardStats = async (req, res) => {
 
     const prisma = require('../lib/prisma');
 
+    // 🛡️ [SEC-FIX] Branch Isolation
+    const SecurityPolicyService = require('../services/securityPolicyService');
+    const { getContext } = require('../utils/securityContext');
+    const isolationFilter = await SecurityPolicyService.getHardenedFilter(getContext(), 'Order');
+
     // Fetch orders
     const orders = await prisma.order.findMany({
       where: {
+        ...isolationFilter,
         createdAt: { gte: startDate },
         // 🛡️ [AUDIT-FIX] Exclude 'pending' and 'cancelled' to align with Projection revenue logic
         status: { 

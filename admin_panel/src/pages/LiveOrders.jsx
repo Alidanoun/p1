@@ -403,9 +403,7 @@ const LiveOrders = () => {
 
   const fetchOrders = async () => {
     try {
-      const url = selectedBranchId 
-        ? `/orders?active_only=true&branchId=${selectedBranchId}` 
-        : '/orders?active_only=true';
+      const url = '/orders?active_only=true';
       const ordersData = unwrap(await api.get(url)) || [];
 
       if (!Array.isArray(ordersData)) {

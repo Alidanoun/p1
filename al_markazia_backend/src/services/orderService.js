@@ -38,7 +38,7 @@ class OrderService {
     // 🏢 Multi-Branch Isolation (v3.0: SecurityPolicyService)
     const SecurityPolicyService = require('./securityPolicyService');
     const { getContext } = require('../utils/securityContext');
-    const isolationFilter = await SecurityPolicyService.getHardenedFilter(getContext());
+    const isolationFilter = await SecurityPolicyService.getHardenedFilter(getContext(), 'Order');
 
     Object.assign(where, isolationFilter);
 
@@ -121,7 +121,7 @@ class OrderService {
     // 🏢 Multi-Branch Isolation (v3.0: SecurityPolicyService)
     const SecurityPolicyService = require('./securityPolicyService');
     const { getContext } = require('../utils/securityContext');
-    const isolationFilter = await SecurityPolicyService.getHardenedFilter(getContext());
+    const isolationFilter = await SecurityPolicyService.getHardenedFilter(getContext(), 'Order');
 
     Object.assign(where, isolationFilter);
 

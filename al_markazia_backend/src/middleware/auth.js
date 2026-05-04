@@ -23,6 +23,12 @@ const authenticateToken = async (req, res, next) => {
 
   try {
     const decoded = TokenService.verifyAccessToken(token);
+    if (!decoded) {
+       logger.error('❌ [AuthBug] TokenService.verifyAccessToken returned null/undefined', { token: token.substring(0, 10) });
+       throw new Error('VERIFY_RETURNED_NULL');
+    }
+    
+    logger.debug('🔑 [AuthBug] Decoded JWT payload', { decodedKeys: Object.keys(decoded), userId: decoded.id });
     const { id: userId, jti } = decoded;
 
     // 🛡️ JTI Revocation Check (Foundation Step)
@@ -34,12 +40,24 @@ const authenticateToken = async (req, res, next) => {
       }
     }
     
+    // 🏢 Extract and sanitize requestedBranchId (Multi-tenant context)
+    let reqBranchId = (req.query && req.query.branchId) || (req.body && req.body.branchId) || null;
+    
+    // 🛡️ [PHASE 2.5] Strict Sanitization: Prevent Array-to-Prisma Type Pollution
+    if (Array.isArray(reqBranchId)) {
+      reqBranchId = reqBranchId[0];
+      // Sync back to request objects to protect downstream controllers/services
+      if (req.query && req.query.branchId) req.query.branchId = reqBranchId;
+      if (req.body && req.body.branchId) req.body.branchId = reqBranchId;
+    }
+
     // Populate request with User Context
     req.user = {
       id: userId, // This is the UUID
       phone: decoded.phone,
       role: (decoded.role || '').toLowerCase(), // 🧠 Identity Normalization
       branchId: decoded.branchId || null,
+      requestedBranchId: typeof reqBranchId === 'string' ? reqBranchId : null,
       jti: jti
     };
 
@@ -50,7 +68,7 @@ const authenticateToken = async (req, res, next) => {
     if (await FeatureFlagsService.isEnabled('ENFORCE_USER_STATUS_CHECK')) {
       try {
         const status = await SecurityPolicyService.checkUserStatus(userId);
-        if (status.isBlacklisted || !status.isActive) {
+        if (status && (status.isBlacklisted || !status.isActive)) {
           logger.security('BANNED_USER_ACCESS_ATTEMPT', { userId, status, ip: req.ip });
           return responseError(res, 'تم إيقاف حسابك، يرجى التواصل مع الإدارة', 'USER_SUSPENDED', 403);
         }
@@ -58,7 +76,7 @@ const authenticateToken = async (req, res, next) => {
         if (err.message === 'IDENTITY_NOT_FOUND') {
           return responseError(res, 'المستخدم غير موجود', 'USER_NOT_FOUND', 401);
         }
-        logger.error('[AuthIntegrity] Status check failed, falling back to permissive', { error: err.message });
+        logger.error('[AuthIntegrity] Status check failed', { error: err.message, stack: err.stack });
       }
     }
     
@@ -71,7 +89,8 @@ const authenticateToken = async (req, res, next) => {
 
     logger.security(`Failed JWT validation: ${error.message}`, { 
       ip: req.ip, 
-      endpoint: req.originalUrl 
+      endpoint: req.originalUrl,
+      errorStack: error.stack
     });
 
     // 🚀 Critical Fix: 401 for Expired Tokens triggers client-side refresh logic
@@ -90,8 +109,6 @@ const ROLE_LEVELS = {
   'staff': 1,
   'customer': 0
 };
-
-
 
 /**
  * Role-Based Access Control (RBAC) Helper
@@ -137,7 +154,6 @@ const isStaff = requireRoles('staff');
 
 /**
  * 🟡 Optional Authentication Middleware
- * Allows guests (no token) while validating existing tokens.
  */
 const optionalAuth = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
@@ -145,24 +161,28 @@ const optionalAuth = async (req, res, next) => {
 
     const { runInContext } = require('../utils/securityContext');
 
-    // 1. Guest Case: No token provided at all
     if (!token) {
       req.user = null;
       return runInContext(null, () => next());
     }
 
-    // 2. Token Provided: MUST be valid
     try {
       const decoded = TokenService.verifyAccessToken(token);
       const { id: userId, jti } = decoded;
 
-      // 🛡️ JTI Revocation Check
       if (jti) {
         const sessionExists = await redis.exists(`session:${userId}:${jti}`);
         if (!sessionExists) {
-          req.user = null; // Treat as guest if session revoked
+          req.user = null;
           return runInContext(null, () => next());
         }
+      }
+
+      let reqBranchId = (req.query && req.query.branchId) || (req.body && req.body.branchId) || null;
+      if (Array.isArray(reqBranchId)) {
+        reqBranchId = reqBranchId[0];
+        if (req.query?.branchId) req.query.branchId = reqBranchId;
+        if (req.body?.branchId) req.body.branchId = reqBranchId;
       }
 
       req.user = {
@@ -170,6 +190,7 @@ const optionalAuth = async (req, res, next) => {
         phone: decoded.phone,
         role: (decoded.role || '').toLowerCase(),
         branchId: decoded.branchId || null,
+        requestedBranchId: typeof reqBranchId === 'string' ? reqBranchId : null,
         jti: jti
       };
       runInContext(req.user, () => next());

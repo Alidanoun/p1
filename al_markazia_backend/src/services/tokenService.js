@@ -86,7 +86,11 @@ class TokenService {
    */
   static verifyAccessToken(token) {
     try {
-      return jwt.verify(token, ACCESS_TOKEN_SECRET);
+      const decoded = jwt.verify(token, ACCESS_TOKEN_SECRET);
+      if (!decoded || typeof decoded !== 'object') {
+        throw new Error('INVALID_TOKEN_PAYLOAD');
+      }
+      return decoded;
     } catch (error) {
       if (error.name === 'TokenExpiredError') {
         throw new Error('TOKEN_EXPIRED');
@@ -110,15 +114,28 @@ class TokenService {
       const decoded = jwt.verify(oldTokenString, REFRESH_TOKEN_SECRET);
       const { id: userId, jti: oldJti, role } = decoded;
 
-      if (!oldJti) throw new Error('MALFORMED_TOKEN');
+      // 🛡️ [PHASE 1.5] Identity Integrity Check
+      if (!userId || !oldJti) {
+        logger.security('REFRESH_BLOCKED: Malformed token payload', { userId, oldJti });
+        throw new Error('MALFORMED_TOKEN_PAYLOAD');
+      }
 
-      // 🛡️ [PHASE 2] Rate Limit Check: Max 10 refresh attempts per 60 seconds
+      // 🛡️ [PHASE 2] Rate Limit Check: Max 20 refresh attempts per 60 seconds
+      // (Increased from 10 to 20 to support multi-tab users safely)
       const refreshRateLimitKey = `refresh:rate:${userId}`;
       const refreshAttempts = await redis.incr(refreshRateLimitKey);
-      if (refreshAttempts === 1) await redis.expire(refreshRateLimitKey, 60);
+      
+      // Set expiry only on first increment
+      if (refreshAttempts === 1) {
+        await redis.expire(refreshRateLimitKey, 60);
+      }
 
-      if (refreshAttempts > 10) {
-        logger.security('REFRESH_RATE_LIMIT_EXCEEDED', { userId });
+      if (refreshAttempts > 20) {
+        logger.security('REFRESH_RATE_LIMIT_EXCEEDED', { 
+          userId, 
+          attempts: refreshAttempts,
+          ip: clientIp 
+        });
         throw new Error('TOO_MANY_REFRESH_ATTEMPTS');
       }
 
@@ -271,7 +288,18 @@ class TokenService {
         user 
       };
     } catch (error) {
-      if (error.message === 'SECURITY_BREACH') throw error;
+      // 🛡️ [SEC-FIX] Preserve critical security signals
+      const criticalErrors = [
+        'SECURITY_BREACH', 
+        'TOO_MANY_REFRESH_ATTEMPTS', 
+        'ACCOUNT_DISABLED_OR_BLOCKED',
+        'MALFORMED_TOKEN_PAYLOAD'
+      ];
+      
+      if (criticalErrors.includes(error.message)) {
+        throw error;
+      }
+
       logger.error('Token Rotation Failed', { error: error.message });
       throw new Error('REFRESH_TOKEN_INVALID');
     }

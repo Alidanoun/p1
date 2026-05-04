@@ -44,6 +44,7 @@ class ContractGateway {
 
     // 1. 🔐 Acquire Global Lock (Distributed)
     // Prevents conflicts with Cron jobs or concurrent admins
+    const lockKey = `lock:order:${orderId}`;
     const acquired = await redis.set(lockKey, 'locked', 'NX', 'EX', 30); // 30s lock
     if (!acquired) {
       throw new Error('SYSTEM_BUSY:ORDER_LOCKED_BY_ANOTHER_PROCESS');

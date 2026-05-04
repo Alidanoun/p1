@@ -107,12 +107,20 @@ const refreshToken = async (req, res) => {
       refreshToken: newRefreshToken.token
     });
   } catch (error) {
-    if (error.message === 'TOKEN_REUSE_DETECTED') {
-      clearRefreshCookie(req, res);
+    clearRefreshCookie(req, res);
+
+    if (error.message === 'TOKEN_REUSE_DETECTED' || error.message === 'SECURITY_BREACH') {
       return response.error(res, 'تنبيه أمني: تم اكتشاف محاولة اختراق الجلسة. تم تسجيل الخروج من كافة الأجهزة.', 'SECURITY_BREACH', 401);
     }
+
+    if (error.message === 'TOO_MANY_REFRESH_ATTEMPTS') {
+      return response.error(res, 'محاولات تحديث كثيرة جداً، يرجى الانتظار دقيقة قبل المحاولة مجدداً', 'RATE_LIMIT_EXCEEDED', 429);
+    }
+
+    if (error.message === 'ACCOUNT_DISABLED_OR_BLOCKED') {
+      return response.error(res, 'تم إيقاف حسابك، يرجى التواصل مع الإدارة', 'ACCOUNT_DISABLED', 403);
+    }
     
-    clearRefreshCookie(req, res);
     logger.security('Invalid refresh attempt', { error: error.message });
     return response.error(res, 'انتهت صلاحية الجلسة، يرجى تسجيل الدخول', 'SESSION_EXPIRED', 401);
   }
