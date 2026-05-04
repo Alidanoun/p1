@@ -212,7 +212,7 @@ exports.createItem = async (req, res) => {
 
     let imageUrl = null;
     if (req.file) {
-      imageUrl = `/uploads/items/${req.file.filename}`;
+      imageUrl = `/uploads/${req.file.filename}`;
     }
 
     let parsedGroups = [];
@@ -311,7 +311,7 @@ exports.updateItem = async (req, res) => {
 
     if (req.file) {
       if (currentItem.image) await deleteFile(currentItem.image);
-      imageUrl = `/uploads/items/${req.file.filename}`;
+      imageUrl = `/uploads/${req.file.filename}`;
     } else if (removeImage === 'true') {
       if (currentItem.image) await deleteFile(currentItem.image);
       imageUrl = null;
