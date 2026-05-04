@@ -1,5 +1,4 @@
 const logger = require('../utils/logger');
-const IdempotencyService = require('../services/idempotencyService');
 const orderService = require('../services/orderService');
 
 /**
@@ -101,58 +100,94 @@ exports.getOrderById = async (req, res) => {
  */
 
 exports.createOrder = async (req, res) => {
-  const idempotencyKey = req.headers['idempotency-key'];
-  
-  if (idempotencyKey) {
-    try {
-      const cached = await IdempotencyService.getResult(idempotencyKey);
-      if (cached) return res.status(cached.code).json(cached.body);
-
-      const canProceed = await IdempotencyService.start(idempotencyKey);
-      if (!canProceed) {
-        // Fallback for race condition: try getting result again
-        const retryCached = await IdempotencyService.getResult(idempotencyKey);
-        if (retryCached) return res.status(retryCached.code).json(retryCached.body);
-        return res.status(425).json({ success: false, message: 'Conflict' });
-      }
-    } catch (error) {
-      if (error.message.includes('LOCKED')) {
-        return res.status(425).json({ success: false, message: 'طلب مكرر قيد المعالجة' });
-      }
-      logger.error('Idempotency Guard Error', { error: error.message });
-      return res.status(500).json({ success: false, error: 'Internal Server Error' });
-    }
-  }
+  const idempotencyKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'];
 
   try {
     const authUser = req.user;
     if (!authUser && !req.body.phone) {
-      const response = { success: false, error: 'رقم الهاتف مطلوب لإتمام الطلب كضيف' };
-      if (idempotencyKey) await IdempotencyService.commit(idempotencyKey, { code: 400, body: response });
-      return res.status(400).json(response);
+      return res.status(400).json({ success: false, error: 'رقم الهاتف مطلوب لإتمام الطلب كضيف' });
     }
 
     const validatedBranchId = req.validatedBranch?.id;
-    const newOrder = await orderService.createOrder({ ...req.body, branchId: validatedBranchId }, authUser);
-    const response = { success: true, data: newOrder };
-    if (idempotencyKey) await IdempotencyService.commit(idempotencyKey, { code: 201, body: response });
-    res.status(201).json(response);
+
+    const contractGateway = require('../services/contractGateway');
+    const newOrder = await contractGateway.execute(
+      null, // no orderId for creation
+      'CREATE_ORDER',
+      {
+        orderData: { ...req.body, branchId: validatedBranchId },
+        cartItems: req.body.cartItems || req.body.items,
+        idempotencyKey: idempotencyKey || `create_${authUser?.id || 'guest'}_${Date.now()}`
+      },
+      authUser || { id: `guest_${req.ip}`, role: 'customer' }
+    );
+
+    res.status(201).json({ success: true, data: newOrder });
   } catch (error) {
     logger.error('Order Creation Error', { error: error.message });
-    if (idempotencyKey) await IdempotencyService.rollback(idempotencyKey);
+    
+    // 🛡️ Security Error Handling
+    if (error.message === 'UNAUTHORIZED_GUEST_ORDER_TYPE') {
+      return res.status(403).json({ success: false, error: 'نوع الطلب غير مسموح للزوار' });
+    }
+    if (error.message === 'BRANCH_ACCESS_DENIED') {
+      return res.status(403).json({ success: false, error: 'غير مصرح لك بإنشاء طلبات في هذا الفرع' });
+    }
+    if (error.message.startsWith('BRANCH_CLOSED')) {
+      return res.status(400).json({ success: false, error: 'الفرع مغلق حالياً، يرجى اختيار فرع آخر' });
+    }
+    if (error.message === 'INVALID_BRANCH: The specified branch does not exist.') {
+      return res.status(400).json({ success: false, error: 'الفرع المحدد غير موجود' });
+    }
+    if (error.message === 'CUSTOMER_BLACKLISTED') {
+      return res.status(403).json({ success: false, error: 'تم حظر حسابك مؤقتاً بسبب نشاط مشبوه' });
+    }
+    if (error.message === 'SPAM_LIMIT_EXCEEDED') {
+      return res.status(429).json({ success: false, error: 'تجاوزت الحد المسموح من الطلبات. حاول لاحقاً' });
+    }
+    if (error.message === 'EMPTY_ORDER_NOT_ALLOWED') {
+      return res.status(400).json({ success: false, error: 'لا يمكن إنشاء طلب فارغ' });
+    }
+    if (error.message.includes('SYSTEM_LOCKED')) {
+      return res.status(503).json({ success: false, error: 'النظام في وضع الصيانة، حاول لاحقاً' });
+    }
+    if (error.message.includes('SYSTEM_DEGRADED')) {
+      return res.status(503).json({ success: false, error: 'النظام تحت ضغط، حاول بعد 30 ثانية' });
+    }
+    if (error.message.includes('SYSTEM_BUSY')) {
+      return res.status(429).json({ success: false, error: 'طلب مماثل قيد المعالجة' });
+    }
+    
     res.status(500).json({ success: false, error: 'فشل إنشاء الطلب' });
   }
 };
 
 /**
- * Batch Accept (One-click confirmation)
+ * Batch Accept (One-click confirmation) — via ContractGateway
  */
 exports.acceptAllNewOrders = async (req, res) => {
   try {
-    const result = await orderService.batchAcceptOrders(req.user);
+    const contractGateway = require('../services/contractGateway');
+    const result = await contractGateway.execute(
+      null, // batch operation — no single orderId
+      'BATCH_ACCEPT',
+      {
+        idempotencyKey: req.headers['idempotency-key'] || req.headers['x-idempotency-key'] || `batch_${req.user.id}_${Date.now()}`
+      },
+      req.user
+    );
     res.json({ success: true, ...result });
   } catch (error) {
     logger.error('Batch accept error', { error: error.message });
+    if (error.message === 'UNAUTHORIZED_BATCH_ACCEPT') {
+      return res.status(403).json({ error: 'غير مصرح لك بهذه العملية' });
+    }
+    if (error.message.startsWith('BATCH_TOO_LARGE')) {
+      return res.status(400).json({ error: error.message });
+    }
+    if (error.message.includes('SYSTEM_LOCKED')) {
+      return res.status(503).json({ error: 'النظام في وضع الصيانة' });
+    }
     res.status(500).json({ error: 'Batch operation failed' });
   }
 };
@@ -212,13 +247,28 @@ exports.updateOrderTimer = async (req, res) => {
   try {
     const orderId = parseInt(req.params.id);
     const { estimatedReadyAt } = req.body;
-    
-    const result = await orderService.updateOrderTimer(orderId, estimatedReadyAt, req.user);
+    const idempotencyKey = req.headers['idempotency-key'] || `timer_${orderId}_${Date.now()}`;
+
+    if (isNaN(orderId)) return res.status(400).json({ error: 'معرف الطلب غير صحيح' });
+
+    // 🛡️ Early validation — prevent unnecessary lock acquisition on invalid input
+    if (!estimatedReadyAt || isNaN(new Date(estimatedReadyAt).getTime())) {
+      return res.status(400).json({ error: 'تاريخ غير صالح', code: 'INVALID_DATE' });
+    }
+
+    const contractGateway = require('../services/contractGateway');
+    const result = await contractGateway.execute(orderId, 'UPDATE_TIMER', {
+      estimatedReadyAt,
+      idempotencyKey
+    }, req.user);
+
     res.json(result);
   } catch (error) {
     logger.error('updateOrderTimer error', { error: error.message });
     if (error.message === 'INVALID_DATE') return res.status(400).json({ error: 'تاريخ غير صالح' });
-    if (error.message === 'ORDER_FORBIDDEN') return res.status(403).json({ error: 'غير مصرح لك بتعديل هذا الطلب' });
+    if (error.message === 'ORDER_FORBIDDEN' || error.message === 'UNAUTHORIZED_ORDER_ACCESS') {
+      return res.status(403).json({ error: 'غير مصرح لك بتعديل هذا الطلب' });
+    }
     res.status(500).json({ error: 'Failed to update timer' });
   }
 };
@@ -227,39 +277,28 @@ exports.updateOrderTimer = async (req, res) => {
  * ⭐ Submit Order Rating
  */
 exports.submitOrderRating = async (req, res) => {
-  const idempotencyKey = req.headers['x-idempotency-key'];
-  
   try {
-    // 🛡️ [IDEMPOTENCY-FIX] Check for cached result
-    if (idempotencyKey) {
-      const cached = await IdempotencyService.getResult(idempotencyKey);
-      if (cached) return res.json(cached);
-
-      const canProceed = await IdempotencyService.start(idempotencyKey);
-      if (!canProceed) return res.status(425).json({ error: 'Duplicate request in progress' });
-    }
-
-    const { rating, comment } = req.body;
     const orderId = parseInt(req.params.id);
+    const { rating, comment } = req.body;
+    const idempotencyKey = req.headers['x-idempotency-key'] || req.headers['idempotency-key'] || `rate_${orderId}_${req.user.id}`;
 
-    const result = await orderService.submitOrderRating(orderId, req.user, rating, comment);
+    if (isNaN(orderId)) return res.status(400).json({ error: 'معرف طلب غير صحيح' });
 
-    // ✅ Commit Result
-    if (idempotencyKey) {
-      await IdempotencyService.commit(idempotencyKey, result);
-    }
+    const contractGateway = require('../services/contractGateway');
+    const result = await contractGateway.execute(orderId, 'SUBMIT_RATING', {
+      rating,
+      comment,
+      idempotencyKey
+    }, req.user);
 
     res.json(result);
   } catch (error) {
-    // 🔙 Rollback Idempotency on non-validation errors
-    if (idempotencyKey && !['INVALID_RATING', 'ORDER_FORBIDDEN'].includes(error.message)) {
-      await IdempotencyService.rollback(idempotencyKey);
-    }
-
     logger.error('submitOrderRating error', { error: error.message });
     if (error.message === 'INVALID_RATING') return res.status(400).json({ error: 'التقييم يجب أن يكون رقماً بين 1 و 5' });
     if (error.message === 'ORDER_NOT_FOUND') return res.status(404).json({ error: 'الطلب غير موجود' });
-    if (error.message === 'ORDER_FORBIDDEN') return res.status(403).json({ error: 'غير مصرح لك بتقييم هذا الطلب' });
+    if (error.message === 'ORDER_FORBIDDEN' || error.message === 'UNAUTHORIZED_ORDER_ACCESS') {
+      return res.status(403).json({ error: 'غير مصرح لك بتقييم هذا الطلب' });
+    }
     res.status(500).json({ error: 'Failed to submit rating' });
   }
 };
@@ -334,48 +373,131 @@ exports.handleCancellationRequest = async (req, res) => {
   try {
     const orderId = parseInt(req.params.id);
     const { action, rejectionReason } = req.body;
+    const idempotencyKey = req.headers['idempotency-key'] || `handle_cancel_${orderId}_${action}_${Date.now()}`;
 
-    const result = await orderService.handleCancellationRequest(orderId, req.user, action, rejectionReason);
+    if (isNaN(orderId)) return res.status(400).json({ error: 'معرف طلب غير صحيح' });
+
+    const contractGateway = require('../services/contractGateway');
+    const result = await contractGateway.execute(orderId, 'HANDLE_CANCEL', {
+      cancelAction: action,
+      rejectionReason,
+      idempotencyKey
+    }, req.user);
+
     res.json(result || { success: true });
   } catch (error) {
     logger.error('handleCancellationRequest failed', { error: error.message });
     if (error.message === 'ORDER_NOT_FOUND') return res.status(404).json({ error: 'Order not found' });
     if (error.message === 'NOT_PENDING_CANCELLATION') return res.status(400).json({ error: 'Order is not pending cancellation' });
+    if (error.message === 'UNAUTHORIZED_ORDER_ACCESS') return res.status(403).json({ error: 'Unauthorized access' });
     res.status(500).json({ error: 'Failed to handle cancellation request' });
   }
 };
 
 /**
- * Partial Cancellation Handlers
+ * Partial Cancellation Request — via ContractGateway
  */
 exports.requestPartialCancel = async (req, res) => {
   try {
     const orderId = parseInt(req.params.orderId);
     const { items, reason } = req.body;
 
-    const result = await orderService.requestPartialCancel(orderId, items, reason);
-    res.json({ success: true, message: 'تم إرسال طلب التعديل للإدارة' });
+    // Early input validation
+    if (isNaN(orderId)) return res.status(400).json({ error: 'معرف طلب غير صحيح' });
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'items must be a non-empty array' });
+    }
+    if (!reason || reason.trim().length === 0) {
+      return res.status(400).json({ error: 'سبب الإلغاء مطلوب' });
+    }
+
+    const contractGateway = require('../services/contractGateway');
+    const result = await contractGateway.execute(
+      orderId,
+      'REQUEST_PARTIAL_CANCEL',
+      {
+        items,
+        reason,
+        idempotencyKey: req.headers['idempotency-key'] || `partial_cancel_${orderId}_${req.user.id}`
+      },
+      req.user
+    );
+
+    res.json({ success: true, data: result });
   } catch (error) {
     logger.error('requestPartialCancel error', { error: error.message });
     if (error.message === 'ORDER_NOT_FOUND') return res.status(404).json({ error: 'Order not found' });
+    if (error.message === 'NOT_YOUR_ORDER') return res.status(403).json({ error: 'هذا الطلب ليس لك' });
+    if (error.message === 'BRANCH_ACCESS_DENIED') return res.status(403).json({ error: 'غير مصرح لك بالوصول لهذا الفرع' });
+    if (error.message.startsWith('INVALID_STATE')) return res.status(400).json({ error: 'الطلب في حالة لا تسمح بالإلغاء الجزئي' });
+    if (error.message.startsWith('INVALID_ITEMS')) return res.status(400).json({ error: 'بعض العناصر غير موجودة في الطلب' });
+    if (error.message === 'ITEMS_REQUIRED') return res.status(400).json({ error: 'يجب تحديد العناصر المراد إلغاؤها' });
+    if (error.message === 'INVALID_REFUND_AMOUNT') return res.status(400).json({ error: 'مبلغ الاسترداد غير صالح' });
+    if (error.message === 'UNAUTHORIZED_ORDER_ACCESS') return res.status(403).json({ error: 'غير مصرح لك' });
     res.status(500).json({ error: 'Failed to request partial cancel' });
   }
 };
 
 exports.handlePartialCancelRequest = async (req, res) => {
-  res.json({ message: 'تم استلام الطلب، جاري مراجعته من قبل الإدارة' });
+  try {
+    const orderId = parseInt(req.params.orderId);
+    const { action, notificationId, reason, itemsToCancel } = req.body;
+    const idempotencyKey = req.headers['idempotency-key'] || `handle_partial_${notificationId}_${Date.now()}`;
+
+    if (isNaN(orderId)) return res.status(400).json({ error: 'معرف الطلب غير صحيح' });
+    if (!notificationId) return res.status(400).json({ error: 'معرف الإشعار مطلوب' });
+
+    const contractGateway = require('../services/contractGateway');
+    const gatewayAction = action === 'approve' ? 'APPROVE_PARTIAL_CANCEL' : 'REJECT_PARTIAL_CANCEL';
+    
+    const result = await contractGateway.execute(orderId, gatewayAction, {
+      notificationId,
+      reason,
+      itemsToCancel,
+      idempotencyKey
+    }, req.user);
+
+    res.json(result);
+  } catch (error) {
+    logger.error('handlePartialCancelRequest error', { error: error.message });
+    if (error.message === 'ORDER_NOT_FOUND') return res.status(404).json({ error: 'الطلب غير موجود' });
+    if (error.message.startsWith('INVALID_STATE')) return res.status(400).json({ error: 'حالة الطلب لا تسمح بهذا التعديل' });
+    if (error.message.startsWith('INVALID_ITEMS')) return res.status(400).json({ error: 'العناصر المحددة غير صالحة' });
+    if (error.message === 'UNAUTHORIZED_ORDER_ACCESS') return res.status(403).json({ error: 'غير مصرح لك بالوصول لهذا الفرع' });
+    res.status(500).json({ error: 'فشل معالجة الطلب' });
+  }
 };
 
 exports.getPendingPartialCancels = async (req, res) => {
-  res.json([]);
+  try {
+    const contractGateway = require('../services/contractGateway');
+    const result = await contractGateway.execute(null, 'GET_PENDING_PARTIAL_CANCELS', {}, req.user);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    logger.error('getPendingPartialCancels error', { error: error.message });
+    res.status(500).json({ error: 'فشل جلب الطلبات المعلقة' });
+  }
 };
 
 /**
  * ⚡ Atomic Status Update Helper (Legacy Wrapper)
- * @deprecated Use orderService.updateOrderStatus instead
+ * @deprecated Route through ContractGateway for full protection.
+ * Will be removed after 2 weeks of monitoring (target: 2026-05-18).
  */
 exports.performStatusUpdate = async (orderId, newStatus) => {
-  return orderService.updateOrderStatus(orderId, newStatus);
+  logger.warn('DEPRECATED_ENDPOINT_USED: performStatusUpdate', {
+    orderId,
+    newStatus,
+    caller: new Error().stack
+  });
+
+  const contractGateway = require('../services/contractGateway');
+  return contractGateway.execute(
+    orderId,
+    'LEGACY_STATUS_UPDATE',
+    { newStatus, idempotencyKey: `legacy_status_${orderId}_${Date.now()}` },
+    { id: 'LEGACY_SYSTEM', role: 'system' }
+  );
 };
 
 exports.getCustomerOrders = exports.getOrders;
@@ -384,11 +506,22 @@ exports.updatePreparationTime = async (req, res) => {
   try {
     const orderId = parseInt(req.params.id);
     const { minutes } = req.body;
-    const order = await orderService.updatePreparationTime(orderId, minutes, req.user);
-    res.json({ success: true, data: order });
+    const idempotencyKey = req.headers['idempotency-key'] || `prep_${orderId}_${Date.now()}`;
+
+    if (isNaN(orderId)) return res.status(400).json({ error: 'معرف طلب غير صحيح' });
+
+    const contractGateway = require('../services/contractGateway');
+    const result = await contractGateway.execute(orderId, 'UPDATE_PREP_TIME', {
+      minutes,
+      idempotencyKey
+    }, req.user);
+
+    res.json({ success: true, data: result });
   } catch (error) {
     logger.error('updatePreparationTime error', { error: error.message });
-    if (error.message === 'ORDER_FORBIDDEN') return res.status(403).json({ error: 'غير مصرح لك بتعديل هذا الطلب' });
+    if (error.message === 'ORDER_FORBIDDEN' || error.message === 'UNAUTHORIZED_ORDER_ACCESS') {
+      return res.status(403).json({ error: 'غير مصرح لك بتعديل هذا الطلب' });
+    }
     res.status(500).json({ success: false, error: 'Failed to update preparation time' });
   }
 };

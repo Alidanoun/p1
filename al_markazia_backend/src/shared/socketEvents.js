@@ -40,7 +40,7 @@ const SOCKET_ROOMS = {
 
 const ROLES = {
   ADMIN: 'admin',
-  SUPER_ADMIN: 'super_admin',
+  ADMIN: 'admin',
   CUSTOMER: 'customer',
 };
 

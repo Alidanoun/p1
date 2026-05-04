@@ -101,7 +101,7 @@ exports.updateBranchCredentials = async (req, res) => {
     const { branchId, newPassword, email } = req.body;
     const adminId = req.user.id;
 
-    if (!adminId || !['admin', 'super_admin'].includes(req.user.role?.toLowerCase())) return res.status(401).json({ error: 'Unauthorized' });
+    if (!adminId || req.user.role?.toLowerCase() !== 'admin') return res.status(401).json({ error: 'Unauthorized' });
     if (!branchId || !newPassword) return res.status(400).json({ error: 'الفرع وكلمة المرور الجديدة مطلوبان' });
 
     // Find the branch manager

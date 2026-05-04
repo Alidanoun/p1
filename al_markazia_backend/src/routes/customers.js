@@ -44,7 +44,7 @@ router.post('/auth/register', otpVerifyLimiter, customerController.registerCusto
 
 
 // Admin Blacklist/Risk Management Management (CRM Tier)
-const CRM_ROLES = ['admin', 'super_admin'];
+const CRM_ROLES = ['admin'];
 
 router.get('/blacklisted', authenticateToken, requireRoles(CRM_ROLES), customerController.getBlacklistedCustomers);
 router.get('/blacklist/count', authenticateToken, requireRoles(CRM_ROLES), customerController.getBlacklistCount);

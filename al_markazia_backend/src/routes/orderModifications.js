@@ -12,7 +12,7 @@ const { authenticateToken, requireRoles } = require('../middleware/auth');
 router.post(
   '/:id/preview', 
   authenticateToken, 
-  requireRoles(['admin', 'super_admin']), 
+  requireRoles(['admin']), 
   controller.preview
 );
 
@@ -20,7 +20,7 @@ router.post(
 router.post(
   '/:id/request', 
   authenticateToken, 
-  requireRoles(['admin', 'super_admin']), 
+  requireRoles(['admin']), 
   controller.request
 );
 
@@ -28,7 +28,7 @@ router.post(
 router.post(
   '/events/:eventId/apply', 
   authenticateToken, 
-  requireRoles(['admin', 'super_admin']), 
+  requireRoles(['admin']), 
   controller.apply
 );
 

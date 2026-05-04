@@ -222,7 +222,7 @@ class TokenService {
 
       // 3. Resolve Identity (Only if not rotated)
       let user;
-      const isAdminRole = ['admin', 'super_admin', 'branch_manager', 'manager'].includes(role);
+      const isAdminRole = ['admin', 'branch_manager', 'manager'].includes(role);
       
       if (isAdminRole) {
         user = await prisma.user.findFirst({ where: { uuid: userId } });

@@ -1,6 +1,6 @@
 const express = require('express');
-const { orderLimiter } = require('../middleware/rateLimiter');
-const IdempotencyService = require('../services/idempotencyService');
+const { orderLimiter, guestOrderLimiter } = require('../middleware/rateLimiter');
+
 const { 
   authenticateToken: authMiddleware, 
   isAdmin: adminMiddleware,
@@ -9,6 +9,7 @@ const {
 } = require('../middleware/auth');
 const { requireBranchAccess, ensureBranchId } = require('../middleware/branchAuth');
 const validateOrderBranch = require('../middleware/validateOrderBranch');
+const enforceIntent = require('../middleware/enforceIntent');
 const { healthGuard } = require('../middleware/healthGuard');
 const workingHoursGuard = require('../middleware/workingHoursGuard');
 const { validateId } = require('../utils/security');
@@ -44,29 +45,30 @@ const idempotency = require('../services/idempotencyService');
 const router = express.Router();
 
 // Allow guests (app) to create orders while identifying registered customers
-router.post('/', idempotency.guard(true), optionalAuth, validateOrderBranch, healthGuard('db'), workingHoursGuard, orderLimiter, createOrder);
+// 🛡️ Gateway handles idempotency + system mode + circuit breaker
+router.post('/', guestOrderLimiter, optionalAuth, validateOrderBranch, healthGuard('db'), workingHoursGuard, orderLimiter, createOrder);
 
 // New Secure Identity Route: Get orders for the authenticated customer
 router.get('/my-orders', authMiddleware, getMyOrders);
 
 // Report endpoint with date filtering (no row limit)
-router.get('/report', authMiddleware, adminMiddleware, requireBranchAccess, getOrdersReport);
+router.get('/report', authMiddleware, adminMiddleware, requireBranchAccess, enforceIntent('read'), getOrdersReport);
 
 // Only admin/manager can view and update
-router.get('/', authMiddleware, managerMiddleware, requireBranchAccess, getOrders);
-router.get('/sync', authMiddleware, managerMiddleware, requireBranchAccess, syncOrders);
-router.post('/accept-all', authMiddleware, managerMiddleware, requireBranchAccess, idempotency.guard(true), acceptAllNewOrders);
-router.patch('/:id/status', authMiddleware, managerMiddleware, requireBranchAccess, healthGuard('db'), idempotency.guard(true), validateId(), updateOrderStatus);
-router.patch('/:id/timer', authMiddleware, managerMiddleware, requireBranchAccess, idempotency.guard(true), validateId(), updateOrderTimer);
-router.patch('/:id/prep-time', authMiddleware, managerMiddleware, requireBranchAccess, idempotency.guard(true), validateId(), updatePreparationTime);
-router.patch('/:id/rate', authMiddleware, idempotency.guard(true), validateId(), submitOrderRating);
+router.get('/', authMiddleware, managerMiddleware, requireBranchAccess, enforceIntent('read'), getOrders);
+router.get('/sync', authMiddleware, managerMiddleware, requireBranchAccess, enforceIntent('read'), syncOrders);
+router.post('/accept-all', authMiddleware, managerMiddleware, requireBranchAccess, enforceIntent('write'), idempotency.guard(true), acceptAllNewOrders);
+router.patch('/:id/status', authMiddleware, managerMiddleware, requireBranchAccess, enforceIntent('write'), healthGuard('db'), idempotency.guard(true), validateId(), updateOrderStatus);
+router.patch('/:id/timer', authMiddleware, managerMiddleware, requireBranchAccess, enforceIntent('write'), idempotency.guard(true), validateId(), updateOrderTimer);
+router.patch('/:id/prep-time', authMiddleware, managerMiddleware, requireBranchAccess, enforceIntent('write'), idempotency.guard(true), validateId(), updatePreparationTime);
+router.patch('/:id/rate', authMiddleware, enforceIntent('write'), idempotency.guard(true), validateId(), submitOrderRating);
 
 // Cancel order (Unified logic for Customer and Admin)
-router.post('/:id/cancel', authMiddleware, requireBranchAccess, idempotency.guard(true), cancelOrder);
-router.post('/:id/approve-cancel', authMiddleware, managerMiddleware, requireBranchAccess, idempotency.guard(true), approveCancellation);
-router.post('/:id/reject-cancel', authMiddleware, managerMiddleware, requireBranchAccess, idempotency.guard(true), rejectCancellation);
+router.post('/:id/cancel', authMiddleware, requireBranchAccess, enforceIntent('write'), idempotency.guard(true), cancelOrder);
+router.post('/:id/approve-cancel', authMiddleware, managerMiddleware, requireBranchAccess, enforceIntent('write'), idempotency.guard(true), approveCancellation);
+router.post('/:id/reject-cancel', authMiddleware, managerMiddleware, requireBranchAccess, enforceIntent('write'), idempotency.guard(true), rejectCancellation);
 
-router.post('/:id/handle-cancellation', authMiddleware, managerMiddleware, requireBranchAccess, idempotency.guard(true), validateId(), handleCancellationRequest);
+router.post('/:id/handle-cancellation', authMiddleware, managerMiddleware, requireBranchAccess, enforceIntent('write'), idempotency.guard(true), validateId(), handleCancellationRequest);
 
 // --- Partial Cancellation ---
 
@@ -74,6 +76,8 @@ router.post('/:id/handle-cancellation', authMiddleware, managerMiddleware, requi
 router.post(
   "/:orderId/partial-cancel",
   authMiddleware,
+  requireBranchAccess,
+  enforceIntent('write'),
   idempotency.guard(true),
   validateId('orderId'),
   validatePartialCancelRequest,
@@ -86,6 +90,7 @@ router.post(
   authMiddleware,
   managerMiddleware,
   requireBranchAccess,
+  enforceIntent('write'),
   idempotency.guard(true),
   validateId('orderId'),
   validateHandlePartialCancel,

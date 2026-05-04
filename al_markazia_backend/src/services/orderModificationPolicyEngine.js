@@ -39,7 +39,7 @@ class OrderModificationPolicyEngine {
 
   _evaluateCancellation(order, user) {
     // If order is "Ready" or "In Route", only Manager can cancel
-    if (['ready', 'in_route'].includes(order.status) && user.role !== 'admin' && user.role !== 'super_admin') {
+    if (['ready', 'in_route'].includes(order.status) && user.role !== 'admin') {
       return { allowed: false, needsApproval: true, reason: 'MANAGER_APPROVAL_REQUIRED_FOR_ADVANCED_STAGE' };
     }
     

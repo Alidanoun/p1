@@ -3,11 +3,11 @@ const logger = require('../utils/logger');
 
 // التقييد العام للنظام (Global Limiter)
 const globalLimiter = rateLimit({
-  windowMs: 60 * 1000, 
-  max: 300, 
+  windowMs: 60 * 1000,
+  max: 300,
   validate: false,
-  standardHeaders: true, 
-  legacyHeaders: false, 
+  standardHeaders: true,
+  legacyHeaders: false,
   message: { success: false, message: 'Too many requests' },
   handler: (req, res, next, options) => {
     logger.warn(`Global Rate Limit Exceeded: IP ${req.ip} | Route ${req.originalUrl}`);
@@ -23,8 +23,8 @@ const authLimiter = rateLimit({
   validate: false,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { 
-    success: false, 
+  message: {
+    success: false,
     message: 'تجاوزت الحد المسموح من المحاولات. يرجى المحاولة بعد 10 دقائق.',
     code: 'AUTH_RATE_LIMIT'
   },
@@ -46,6 +46,28 @@ const orderLimiter = rateLimit({
   handler: (req, res, next, options) => {
     logger.warn(`Order Rate Limit Exceeded: IP ${req.ip}`);
     res.status(options.statusCode).json(options.message);
+  }
+});
+
+// 🛡️ تقييد صارم لطلبات الضيوف (Guest Order Limiter)
+// ضيوف بدون مصادقة = أعلى مستوى خطر → حدود صارمة جداً
+// ⚠️ تحذير: القيمة 0 تعني حظر جميع طلبات الضيوف — لا تستخدمها في الإنتاج أبداً!
+const guestOrderLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 دقيقة
+  max: 15, // 15 طلب كل 15 دقيقة لكل IP — قيمة إنتاجية متوازنة
+  keyGenerator: (req) => req.ip,
+  skip: (req) => !!req.user, // تخطي إذا كان المستخدم مسجل دخول
+  validate: false,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'تجاوزت الحد المسموح من الطلبات كضيف. يرجى تسجيل الدخول أو المحاولة لاحقاً.',
+    code: 'GUEST_RATE_LIMIT'
+  },
+  handler: (req, res, next, options) => {
+    logger.security(`🚨 [GUEST_RATE_LIMIT] IP ${req.ip} exceeded guest order limit | UA: ${req.headers['user-agent']}`);
+    res.status(429).json(options.message);
   }
 });
 
@@ -72,9 +94,9 @@ const reviewLimiter = rateLimit({
   validate: false,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { 
-    error: 'لقد تجاوزت الحد المسموح من التقييمات، حاول لاحقاً', 
-    code: 'REVIEW_RATE_LIMIT' 
+  message: {
+    error: 'لقد تجاوزت الحد المسموح من التقييمات، حاول لاحقاً',
+    code: 'REVIEW_RATE_LIMIT'
   },
   handler: (req, res, next, options) => {
     logger.warn(`Review Rate Limit Exceeded: User ${req.user?.id || req.ip}`);
@@ -110,6 +132,7 @@ module.exports = {
   globalLimiter,
   authLimiter,
   orderLimiter,
+  guestOrderLimiter,
   searchLimiter,
   reviewLimiter,
   flagLimiter,

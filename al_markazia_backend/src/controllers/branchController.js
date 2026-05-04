@@ -19,12 +19,12 @@ exports.toggleItemAvailability = async (req, res) => {
     const role = user.role?.toUpperCase();
 
     // 1. 🔐 Security & Role Check
-    if (role !== 'BRANCH_MANAGER' && role !== 'SUPER_ADMIN' && role !== 'ADMIN') {
+    if (role !== 'BRANCH_MANAGER' && role !== 'ADMIN') {
       return response.error(res, 'غير مصرح لك بالقيام بهذا الإجراء', 'UNAUTHORIZED', 403);
     }
 
     // 🏢 Determine target branch (Admins can pass branchId, Managers are locked to their JWT)
-    const targetBranchId = (role === 'SUPER_ADMIN' || role === 'ADMIN') ? (req.body.branchId || user.branchId) : user.branchId;
+    const targetBranchId = (role === 'ADMIN') ? (req.body.branchId || user.branchId) : user.branchId;
 
     if (!targetBranchId) {
       return response.error(res, 'يجب تحديد الفرع للقيام بهذا الإجراء', 'BRANCH_REQUIRED', 400);
@@ -115,7 +115,7 @@ exports.getAllBranches = async (req, res) => {
     const where = { isActive: true };
 
     // 🛡️ [SEC-FIX] Branch Isolation for Managers
-    if (user.role?.toUpperCase() === 'BRANCH_MANAGER' && user.branchId) {
+    if (user?.role?.toUpperCase() === 'BRANCH_MANAGER' && user?.branchId) {
       where.id = user.branchId;
     }
 

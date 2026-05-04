@@ -21,8 +21,12 @@ class SecurityPolicyService {
       throw new Error('INVALID_SECURITY_CONTEXT');
     }
 
-    const normalizedRole = user.role.toLowerCase();
-    const ALLOWED_ROLES = ['super_admin', 'admin', 'branch_manager', 'manager', 'customer', 'staff', 'driver'];
+    let normalizedRole = user.role.toLowerCase();
+    
+    // 🛡️ [GRACEFUL TRANSITION] Treat legacy super_admin as admin
+    if (normalizedRole === 'super_admin') normalizedRole = 'admin';
+    
+    const ALLOWED_ROLES = ['admin', 'branch_manager', 'manager', 'customer', 'staff', 'driver'];
 
     if (!ALLOWED_ROLES.includes(normalizedRole)) {
       logger.security('UNAUTHORIZED_ROLE_ACCESS', { userId: user.id, role: user.role, modelName });
@@ -34,8 +38,7 @@ class SecurityPolicyService {
      * Defines exactly what each administrative role can do.
      */
     const SCOPE_MATRIX = {
-      super_admin: { canReadAll: true, canModifyAll: true },
-      admin: { canReadAll: true, canModifyAll: false }, // Admins monitor all, but only modify assigned
+      admin: { canReadAll: true, canModifyAll: true }, // Global Admin with full access
       branch_manager: { canReadAll: false, canModifyAll: false },
       manager: { canReadAll: false, canModifyAll: false }
     };
@@ -51,7 +54,7 @@ class SecurityPolicyService {
     }
 
     // 👑 Specific Branch Request for Super Admin / Global Admin
-    if (normalizedRole === 'super_admin' || scope.canReadAll) {
+    if (scope.canReadAll) {
       const modelsWithSoftDelete = ['Order', 'Item', 'Category', 'Customer'];
       const filter = modelsWithSoftDelete.includes(modelName) ? { isDeleted: false } : {};
       
@@ -121,10 +124,14 @@ class SecurityPolicyService {
       return filter;
     }
 
+    if (normalizedRole === 'admin') {
+      return filter;
+    }
+
     let allowedBranchIds = [];
 
     // 🏢 Admin / Manager: Access to assigned branch + any sub-branches
-    if (['admin', 'branch_manager', 'manager'].includes(normalizedRole)) {
+    if (['admin', 'branch_manager', 'manager', 'super_admin'].includes(normalizedRole)) {
       if (user.branchId) allowedBranchIds.push(user.branchId);
 
       const cacheKey = `user:branches:${user.id}`;
@@ -209,8 +216,7 @@ class SecurityPolicyService {
 
     // 📊 Define Scope Matrix (Internal copy for lookup)
     const SCOPE_MATRIX = {
-      super_admin: { canReadAll: true, canModifyAll: true },
-      admin: { canReadAll: true, canModifyAll: false },
+      admin: { canReadAll: true, canModifyAll: true },
       branch_manager: { canReadAll: false, canModifyAll: false },
       manager: { canReadAll: false, canModifyAll: false }
     };
@@ -218,7 +224,7 @@ class SecurityPolicyService {
     const scope = SCOPE_MATRIX[role] || { canReadAll: false, canModifyAll: false };
 
     // 👑 Super Admin bypass
-    if (role === 'super_admin') return true;
+    if (role === 'admin') return true;
 
     // 👁️ READ INTENT: Global Admins can see everything
     if (intent === 'read' && scope.canReadAll) return true;
@@ -232,7 +238,7 @@ class SecurityPolicyService {
 
     if (branchId === null || branchId === undefined) {
       // If order has no branch, only global managers/admins can access it
-      return role === 'admin' || role === 'super_admin';
+      return role === 'admin';
     }
 
     if (allowedIds.includes(branchId)) return true;
@@ -244,6 +250,31 @@ class SecurityPolicyService {
       intent 
     });
     return false;
+  }
+
+  /**
+   * 🎯 Get Maximum Intent Level for a User
+   * Determines whether a user can only READ or also WRITE.
+   * This is the centralized authority for intent resolution.
+   * 
+   * @param {Object} user - User object with role
+   * @returns {'read' | 'write'} Maximum allowed intent
+   */
+  static getMaxIntent(user) {
+    if (!user) return 'read';
+    const role = user.role?.toLowerCase();
+    
+    // Super Admin: Full write everywhere
+    if (role === 'admin') return 'write';
+    
+    // Admin (non-super): Read-only monitoring
+    if (role === 'admin') return 'read';
+    
+    // Branch Manager / Manager: Write within their branch scope
+    if (['branch_manager', 'manager'].includes(role)) return 'write';
+    
+    // Customer: Read-only (order creation is handled separately)
+    return 'read';
   }
 
   /**
@@ -262,7 +293,7 @@ class SecurityPolicyService {
       const role = context.role.toLowerCase();
 
       // 👁️ MONITORING LAYER: Admins join the global monitoring room
-      if (['super_admin', 'admin'].includes(role)) {
+      if (role === 'admin') {
         rooms.add(SOCKET_ROOMS.MONITOR_GLOBAL);
         
         // If they have a preferred branch, they can also monitor its specific room
@@ -366,7 +397,7 @@ class SecurityPolicyService {
       const activeUsers = await prisma.user.findMany({
         where: { 
           isActive: true,
-          role: { in: ['admin', 'branch_manager', 'manager', 'super_admin'] }
+          role: { in: ['admin', 'branch_manager', 'manager'] }
         },
         select: { id: true, role: true, branchId: true }
       });
