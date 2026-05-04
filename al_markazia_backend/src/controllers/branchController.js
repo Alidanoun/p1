@@ -24,8 +24,11 @@ exports.toggleItemAvailability = async (req, res) => {
       return response.error(res, 'غير مصرح لك بالقيام بهذا الإجراء', 'UNAUTHORIZED', 403);
     }
 
-    // 🏢 Determine target branch (Admins can pass branchId, Managers are locked to their JWT)
-    const targetBranchId = (role === 'ADMIN') ? (req.body.branchId || user.branchId) : user.branchId;
+    // 2. 🏢 Target Branch Resolution (Strict Isolation)
+    let targetBranchId = (role === 'ADMIN') ? (req.body.branchId || user.branchId) : (user.branchId || req.body.branchId);
+    
+    // 🛡️ [SEC-FIX] Sanitize stringified nulls
+    if (targetBranchId === 'null' || targetBranchId === 'undefined') targetBranchId = null;
 
     if (!targetBranchId) {
       return response.error(res, 'يجب تحديد الفرع للقيام بهذا الإجراء', 'BRANCH_REQUIRED', 400);
