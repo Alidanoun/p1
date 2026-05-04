@@ -12,6 +12,13 @@ const {
   REFRESH_TOKEN_EXPIRY_MS
 } = require('../config/secrets');
 
+const fs = require('fs');
+const path = require('path');
+
+// 🔐 Load RSA Keys for RS256 Signing
+const PRIVATE_KEY = fs.readFileSync(path.join(__dirname, '../config/keys/private.pem'), 'utf8');
+const PUBLIC_KEY = fs.readFileSync(path.join(__dirname, '../config/keys/public.pem'), 'utf8');
+
 /**
  * Enterprise Token Service (Level 4 Security)
  * Handles generation, Redis-backed session management, and JTI rotation.
@@ -29,8 +36,8 @@ class TokenService {
         branchId: user.branchId || null,
         jti: jti // Bind to session
       },
-      ACCESS_TOKEN_SECRET,
-      { expiresIn: ACCESS_TOKEN_EXPIRY }
+      PRIVATE_KEY,
+      { algorithm: 'RS256', expiresIn: ACCESS_TOKEN_EXPIRY }
     );
   }
 
@@ -86,7 +93,7 @@ class TokenService {
    */
   static verifyAccessToken(token) {
     try {
-      const decoded = jwt.verify(token, ACCESS_TOKEN_SECRET);
+      const decoded = jwt.verify(token, PUBLIC_KEY, { algorithms: ['RS256'] });
       if (!decoded || typeof decoded !== 'object') {
         throw new Error('INVALID_TOKEN_PAYLOAD');
       }
