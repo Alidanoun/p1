@@ -1209,7 +1209,7 @@ class OrderService {
 
         const { updatedOrder, _outboxId } = await prisma.$transaction(async (tx) => {
           const updated = await tx.order.update({
-            where: { id: order.id, version: order.version },
+            where: { id: order.id },
             data: { status: newStatus, version: { increment: 1 } },
             include: ORDER_INCLUDE_FULL
           });
