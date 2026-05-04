@@ -1,5 +1,5 @@
 const express = require('express');
-const { authenticateToken, isAdmin, isManager } = require('../middleware/auth');
+const { authenticateToken, isAdmin } = require('../middleware/auth');
 const deliveryZoneController = require('../controllers/deliveryZoneController');
 const { rateLimit } = require('express-rate-limit');
 
@@ -15,8 +15,8 @@ const zonePublicLimiter = rateLimit({
 // 🔓 Public Routes (for Mobile App)
 router.get('/active', zonePublicLimiter, deliveryZoneController.getActiveZones);
 
-// 🔒 Admin/Manager Routes
-router.get('/', authenticateToken, isManager, deliveryZoneController.getAllZones);
+// 🔒 Admin Routes
+router.get('/', authenticateToken, isAdmin, deliveryZoneController.getAllZones);
 router.post('/', authenticateToken, isAdmin, deliveryZoneController.createZone);
 router.put('/:id', authenticateToken, isAdmin, deliveryZoneController.updateZone);
 router.delete('/:id', authenticateToken, isAdmin, deliveryZoneController.deleteZone);
