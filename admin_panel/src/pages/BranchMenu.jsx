@@ -4,6 +4,7 @@ import { Search, Filter, CheckCircle2, XCircle, Info, Loader2, UtensilsCrossed, 
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import api, { unwrap } from '../api/client';
+import Switch from '../components/Switch';
 
 const BranchMenu = () => {
   const { user, selectedBranchId } = useAuth();
@@ -196,23 +197,18 @@ const BranchMenu = () => {
                   </div>
                   <p className="text-xs text-text-muted line-clamp-2 mb-6 h-8">{item.description || 'لا يوجد وصف متاح'}</p>
 
-                  <div className="mt-auto pt-4 border-t border-border-subtle flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className={`w-2 h-2 rounded-full ${item.isAvailable ? 'bg-emerald-500 animate-pulse' : 'bg-danger'}`} />
-                      <span className={`text-xs font-bold ${item.isAvailable ? 'text-emerald-500' : 'text-danger'}`}>
-                        {item.isAvailable ? 'نشط في الفرع' : 'متوقف'}
-                      </span>
-                    </div>
+                  <div className="mt-auto pt-5 border-t border-white/5 flex items-center justify-between">
+                    <Switch 
+                      checked={item.isAvailable}
+                      onChange={() => toggleAvailability(item.id, item.isAvailable)}
+                    />
 
-                    <label className="relative inline-flex items-center cursor-pointer group">
-                      <input 
-                        type="checkbox" 
-                        checked={item.isAvailable}
-                        onChange={() => toggleAvailability(item.id, item.isAvailable)}
-                        className="sr-only peer"
-                      />
-                      <div className="w-11 h-6 bg-white/5 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-text-muted after:border-border-subtle after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-checked:after:bg-white peer-checked:after:border-transparent group-hover:after:scale-110"></div>
-                    </label>
+                    <div className="flex items-center gap-2.5">
+                      <span className={`text-xs font-black tracking-tight transition-colors duration-300 ${item.isAvailable ? 'text-emerald-400' : 'text-slate-500'}`}>
+                        {item.isAvailable ? 'نشط في الفرع' : 'متوقف مؤقتاً'}
+                      </span>
+                      <div className={`w-1.5 h-1.5 rounded-full transition-all duration-500 ${item.isAvailable ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)] animate-pulse' : 'bg-slate-600'}`} />
+                    </div>
                   </div>
                 </div>
               </motion.div>
