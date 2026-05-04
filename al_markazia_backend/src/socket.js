@@ -1,7 +1,8 @@
 const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
-const { JWT_SECRET } = require('./config/secrets');
 const logger = require('./utils/logger');
+const TokenService = require('./services/tokenService');
+const SecurityPolicyService = require('./services/securityPolicyService');
 
 let io;
 let isReady = false;
@@ -19,7 +20,7 @@ module.exports = {
 
     const connections = new Map();
 
-    // --- 🛡️ SECURITY: JWT Handshake Middleware ---
+    // --- 🛡️ SECURITY: JWT Handshake Middleware (Hardened v2) ---
     io.use(async (socket, next) => {
       try {
         const token = socket.handshake.auth?.token || socket.handshake.headers['x-auth-token'];
@@ -28,20 +29,27 @@ module.exports = {
           return next(new Error('Unauthorized'));
         }
         
-        const decoded = jwt.verify(token, JWT_SECRET);
-        const { ROLES } = require('./shared/socketEvents');
-        const role = (decoded.role || ROLES.CUSTOMER).toLowerCase();
-        const userId = decoded.id;
-        const prisma = require('./lib/prisma');
-        
-        // 🛡️ [SEC-FIX] DB is the Truth: Validate user existence and status
-        const dbUser = await prisma.user.findUnique({ 
-          where: { uuid: userId },
-          select: { id: true, isActive: true, branchId: true, role: true }
-        });
+        // 🛡️ Token verification (includes expiry check — verifyAccessToken throws on expired tokens)
+        let decoded;
+        try {
+          decoded = TokenService.verifyAccessToken(token);
+        } catch (tokenErr) {
+          // Explicit handling for expired or tampered tokens
+          logger.security('🔌 [Socket] Connection rejected: Token invalid or expired', { 
+            error: tokenErr.message, 
+            ip: socket.handshake.address 
+          });
+          return next(new Error('TOKEN_EXPIRED'));
+        }
 
-        if (!dbUser || !dbUser.isActive) {
-          logger.security('🔌 [Socket] Connection rejected: User not found or inactive', { userId });
+        const userId = decoded.id;
+        const tokenRole = (decoded.role || 'customer').toLowerCase();
+        
+        // 🛡️ [SEC-FIX] DB is the Truth: Validate user existence and status (supports both Admin/Customer)
+        const status = await SecurityPolicyService.checkUserStatus(userId);
+
+        if (!status || !status.isActive || status.isBlacklisted) {
+          logger.security('🔌 [Socket] Connection rejected: Identity inactive or blocked', { userId });
           return next(new Error('UNAUTHORIZED_OR_INACTIVE'));
         }
 
@@ -53,11 +61,36 @@ module.exports = {
         }
 
         connections.set(userId, userConnections + 1);
+        // 🛡️ Re-fetch full context for the socket instance
+        const prisma = require('./lib/prisma');
+        let dbIdentity = await prisma.user.findUnique({ where: { uuid: userId }, select: { id: true, branchId: true, role: true } });
+        if (!dbIdentity) {
+          dbIdentity = await prisma.customer.findUnique({ where: { uuid: userId }, select: { id: true } });
+        }
+
+        // 🛡️ [PERMISSION-DRIFT-GUARD] Detect role changes since token was issued
+        // Prevents Socket Hijacking: user demoted but still holds old elevated token
+        let dbRole = dbIdentity?.role?.toLowerCase() || 'customer';
+        
+        // 🛡️ [GRACEFUL TRANSITION] Allow super_admin token to connect as admin
+        const effectiveTokenRole = tokenRole === 'super_admin' ? 'admin' : tokenRole;
+        
+        if (dbIdentity?.role && dbRole !== effectiveTokenRole) {
+          logger.security('🔌 [Socket] PERMISSION_DRIFT detected — token role does not match DB role', {
+            userId,
+            tokenRole,
+            dbRole,
+            ip: socket.handshake.address
+          });
+          connections.set(userId, (connections.get(userId) || 1) - 1);
+          return next(new Error('PERMISSIONS_CHANGED'));
+        }
+
         socket.user = { 
           id: userId, 
-          dbId: dbUser.id,
-          role: dbUser.role.toLowerCase(), 
-          branchId: dbUser.branchId 
+          dbId: dbIdentity?.id,
+          role: dbRole, 
+          branchId: dbIdentity?.branchId || null 
         };
 
         socket.on('disconnect', () => {
@@ -96,7 +129,7 @@ module.exports = {
       socket.on('tracking:join', async ({ orderId }) => {
         try {
           const canTrack = await trackingService.canTrackOrder(userId, orderId);
-          if (canTrack || role === 'super_admin' || role === 'admin') {
+          if (canTrack || role === 'admin') {
             const room = SOCKET_ROOMS.ORDER_TRACKING(orderId);
             await socket.join(room);
             logger.info(`🛰️ User ${userId} joined tracking for order ${orderId}`);
@@ -112,7 +145,7 @@ module.exports = {
       // 🚚 Driver Location Update (From Driver App or Simulation)
       socket.on('tracking:update_location', (data) => {
         // Only allow if role is 'driver' or 'admin'
-        if (['driver', 'admin', 'super_admin'].includes(role)) {
+        if (['driver', 'admin'].includes(role)) {
           trackingService.updateDriverLocation(io, data);
         }
       });
@@ -123,9 +156,16 @@ module.exports = {
           const { role, id: userId } = socket.user;
 
           // 🔐 1. Strict Role Gate
-          if (!['super_admin', 'admin', 'branch_manager', 'manager'].includes(role)) {
+          if (!['admin', 'branch_manager', 'manager'].includes(role)) {
             logger.security('UNAUTHORIZED_BRANCH_SWITCH_ATTEMPT', { userId, role, requestedBranch: branchId });
             if (ack) ack({ success: false, error: 'Unauthorized' });
+            return;
+          }
+
+          // 🛡️ [SEC-FIX] Validate branchId presence to prevent Prisma crash
+          if (!branchId) {
+            logger.warn(`[Socket] Branch switch rejected: Missing branchId for user ${userId}`);
+            if (ack) ack({ success: false, error: 'Branch ID is required' });
             return;
           }
 
@@ -241,7 +281,7 @@ module.exports = {
 
             socket.emit('orders:sync', {
               orders: activeOrders.map(o => {
-                const { mapOrderResponse } = require('./services/orderService');
+                const { mapOrderResponse } = require('./mappers/order.mapper');
                 return mapOrderResponse(o);
               }),
               timestamp: Date.now()

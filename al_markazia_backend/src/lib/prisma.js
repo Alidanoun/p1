@@ -83,11 +83,11 @@ const prisma = basePrisma.$extends({
               });
               
               // 🔴 SECURITY FAIL-SAFE: If filter generation fails for a restricted user, block the query
-              if (user.role?.toLowerCase() !== 'super_admin') {
+              if (user.role?.toLowerCase() !== 'admin') {
                 throw new Error(`SECURITY_ACCESS_DENIED: ${err.message}`);
               }
 
-              // Fail-safe for super_admins (rare)
+              // Fail-safe for admins (rare)
               if (operation.includes('Many') || operation === 'count') {
                 return operation === 'count' ? 0 : [];
               }

@@ -286,7 +286,7 @@ const logout = async (req, res) => {
 const getMe = async (req, res) => {
   try {
     let user = null;
-    const isAdminRole = ['admin', 'super_admin', 'branch_manager', 'manager'].includes(req.user.role);
+    const isAdminRole = ['admin', 'branch_manager', 'manager'].includes(req.user.role);
     if (isAdminRole) {
       user = await prisma.user.findUnique({ 
         where: { uuid: req.user.id },

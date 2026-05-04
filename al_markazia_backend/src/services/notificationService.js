@@ -63,15 +63,50 @@ class NotificationService {
   }
 
   /**
+   * 🎯 Manual Direct Dispatch: Send notification to a specific customer
+   */
+  async sendToUser(customerId, content) {
+    const user = await prisma.customer.findUnique({ 
+      where: { uuid: customerId },
+      select: { id: true, phone: true }
+    });
+
+    if (!user) {
+      logger.warn('[NotificationService] ⚠️ Attempted to send to non-existent user', { customerId });
+      return;
+    }
+
+    const notif = await this._createNotificationRecord(
+      { id: content.orderId || 0, customer: { phone: user.phone } }, 
+      content, 
+      content.type || 'direct'
+    );
+
+    if (notif) {
+      const orderContext = content.orderId ? 
+        await prisma.order.findUnique({ where: { id: content.orderId }, include: { customer: true } }) : 
+        { id: 0, customerId: user.id };
+        
+      await this.dispatch(notif, orderContext);
+    }
+  }
+
+  /**
    * 📡 Dispatch Logic (Multi-Channel + Intelligent Targeting)
    */
   async dispatch(notif, orderContext) {
     const type = notif.type;
     
-    // 🎯 Determine Target Audience
+    // 🎯 Determine Target Audience (Hardened v2)
+    // ⚠️ CRITICAL: status_change MUST be included for EXEC/MONITOR rooms
+    // Without it, managers can't see real-time order state transitions
+    const EXEC_EVENTS = ['order_created', 'order_cancelled', 'status_change', 'order_updated', 'order_assigned'];
+    const MONITOR_EVENTS = ['order_created', 'order_cancelled', 'status_change', 'order_updated'];
+    const CUSTOMER_EVENTS = ['order_created', 'status_change', 'order_cancelled', 'payment_status', 'delivery_updated'];
+    
     const target = {
-      isToAdmin: ['order_created', 'order_cancelled'].includes(type),
-      isToCustomer: ['order_created', 'status_change', 'order_cancelled'].includes(type),
+      isToAdmin: EXEC_EVENTS.includes(type) || MONITOR_EVENTS.includes(type),
+      isToCustomer: CUSTOMER_EVENTS.includes(type),
       isBroadcast: type === 'broadcast'
     };
 
@@ -279,26 +314,41 @@ class NotificationService {
             return;
           }
 
-          // 🛠️ EXECUTION LAYER EVENTS
-          const execEvent = notif.type === 'order_created' 
-            ? SOCKET_EVENTS.EXEC_ORDER_CREATED 
-            : SOCKET_EVENTS.EXEC_ORDER_UPDATED;
+          // 🛠️ EXECUTION LAYER EVENT MAPPING (Hardened v2)
+          const EXEC_EVENT_MAP = {
+            'order_created': SOCKET_EVENTS.EXEC_ORDER_CREATED,
+            'order_cancelled': SOCKET_EVENTS.EXEC_ORDER_CANCELLED,
+            'status_change': SOCKET_EVENTS.EXEC_ORDER_UPDATED,
+            'order_updated': SOCKET_EVENTS.EXEC_ORDER_UPDATED,
+            'order_assigned': SOCKET_EVENTS.EXEC_ORDER_UPDATED
+          };
 
-          // 👁️ MONITORING LAYER EVENTS
-          const monitorEvent = notif.type === 'order_created' 
-            ? SOCKET_EVENTS.MONITOR_ORDER_CREATED 
-            : SOCKET_EVENTS.MONITOR_ORDER_UPDATED;
+          // 👁️ MONITORING LAYER EVENT MAPPING
+          const MONITOR_EVENT_MAP = {
+            'order_created': SOCKET_EVENTS.MONITOR_ORDER_CREATED,
+            'order_cancelled': SOCKET_EVENTS.MONITOR_ORDER_CANCELLED,
+            'status_change': SOCKET_EVENTS.MONITOR_ORDER_UPDATED,
+            'order_updated': SOCKET_EVENTS.MONITOR_ORDER_UPDATED
+          };
+
+          const execEvent = EXEC_EVENT_MAP[notif.type] || SOCKET_EVENTS.EXEC_ORDER_UPDATED;
+          const monitorEvent = MONITOR_EVENT_MAP[notif.type] || SOCKET_EVENTS.MONITOR_ORDER_UPDATED;
           
           // 🧠 Canonical State Sync (Overwrite Layer)
           const finalPayload = SecurityPolicyService.wrapPayload(canonicalOrder);
 
           targetRooms.forEach(room => {
             if (room.startsWith('room:exec:')) {
+              // Execution rooms get full payload (they need operational details)
               this.io.to(room).emit(execEvent, finalPayload);
               logger.debug(`[LayerSync] EXEC Event '${execEvent}' broadcasted to: ${room}`);
             } else if (room.startsWith('room:monitor:')) {
-              this.io.to(room).emit(monitorEvent, finalPayload);
-              logger.debug(`[LayerSync] MONITOR Event '${monitorEvent}' broadcasted to: ${room}`);
+              // 🛡️ Monitoring rooms get SANITIZED payload (PII stripped)
+              const sanitizedPayload = SecurityPolicyService.wrapPayload(
+                this._sanitizeForMonitoring(canonicalOrder)
+              );
+              this.io.to(room).emit(monitorEvent, sanitizedPayload);
+              logger.debug(`[LayerSync] MONITOR Event '${monitorEvent}' (sanitized) broadcasted to: ${room}`);
             }
           });
         }
@@ -425,6 +475,40 @@ class NotificationService {
       logger.error('[NotificationService] ❌ Failed to create notification record', { error: err.message });
       return null;
     }
+  }
+
+  /**
+   * 🛡️ Payload Sanitization for Monitoring Rooms
+   * Strips PII (Personally Identifiable Information) from payloads
+   * sent to admin monitoring rooms. Admins can see operational data
+   * but not sensitive customer details (phone, address, payment).
+   */
+  _sanitizeForMonitoring(payload) {
+    if (!payload || typeof payload !== 'object') return payload;
+    
+    const {
+      customerPhone,
+      customerAddress,
+      customer_phone,
+      address,
+      paymentDetails,
+      customerNotes,
+      ...safeData
+    } = payload;
+
+    return {
+      ...safeData,
+      // Replace phone with masked version (07xx xxx x89)
+      customerPhone: customerPhone ? 
+        customerPhone.slice(0, 4) + ' *** ' + customerPhone.slice(-2) : undefined,
+      // Strip exact address, keep zone/area only
+      hasAddress: !!(customerAddress || address),
+      addressArea: (customerAddress || address)?.split(',')[0] || null,
+      // Keep payment method only, strip card/account details
+      paymentMethod: paymentDetails?.method || payload.paymentMethod || null,
+      // Mark as sanitized for frontend awareness
+      _sanitized: true
+    };
   }
 
   _generateStatusContent(order, status) {

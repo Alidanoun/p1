@@ -39,6 +39,12 @@ const requireBranchAccess = async (req, res, next) => {
       targetBranchId = order.branchId;
     }
 
+    // 🛡️ Collection List Bypass: If no specific branch is requested for a read operation, 
+    // allow it. The Data Isolation layer (getHardenedFilter) will filter the results.
+    if (!targetBranchId && intent === 'read') {
+      return next();
+    }
+
     const isAuthorized = await SecurityPolicyService.canAccessBranch(user, targetBranchId, intent);
 
     if (isAuthorized) {

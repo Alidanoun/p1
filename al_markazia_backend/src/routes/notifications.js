@@ -1,13 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const notificationController = require('../controllers/notificationController');
-const { authenticateToken, isAdmin } = require('../middleware/auth');
+const { authenticateToken, isAdmin, isManager } = require('../middleware/auth');
 
 // ✅ Customer: own notifications
 router.get('/my-notifications', authenticateToken, notificationController.getMyNotifications);
 
 // ✅ Admin: all admin notifications
-router.get('/', authenticateToken, isAdmin, notificationController.getAdminNotifications);
+router.get('/', authenticateToken, isManager, notificationController.getAdminNotifications);
 
 // ✅ Test Push endpoint
 router.post('/test-push', authenticateToken, isAdmin, notificationController.testPush);

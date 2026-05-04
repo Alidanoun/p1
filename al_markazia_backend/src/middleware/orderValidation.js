@@ -31,13 +31,10 @@ exports.validatePartialCancelRequest = (req, res, next) => {
 };
 
 exports.validateHandlePartialCancel = (req, res, next) => {
-  const { action, rejectionReason, itemIds } = req.body;
+  const { action, reason, itemsToCancel, notificationId } = req.body;
 
-  if (!itemIds || !Array.isArray(itemIds) || itemIds.length === 0) {
-    return res.status(400).json({
-      success: false,
-      message: 'يجب تحديد الأصناف لمعالجة الطلب'
-    });
+  if (!notificationId) {
+    return res.status(400).json({ success: false, message: 'معرف الإشعار مطلوب' });
   }
 
   if (!['approve', 'reject'].includes(action)) {
@@ -47,7 +44,16 @@ exports.validateHandlePartialCancel = (req, res, next) => {
     });
   }
 
-  if (action === 'reject' && (!rejectionReason || typeof rejectionReason !== 'string' || rejectionReason.trim() === '')) {
+  if (action === 'approve') {
+    if (!itemsToCancel || !Array.isArray(itemsToCancel) || itemsToCancel.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'يجب تحديد الأصناف لمعالجة الطلب'
+      });
+    }
+  }
+
+  if (action === 'reject' && (!reason || typeof reason !== 'string' || reason.trim() === '')) {
     return res.status(400).json({
       success: false,
       message: 'يجب ذكر سبب الرفض عند رفض الطلب'

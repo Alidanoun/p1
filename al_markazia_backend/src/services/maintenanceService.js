@@ -164,6 +164,7 @@ class MaintenanceService {
         if (stuckOrders.length === 0) return 0;
 
         const orderService = require('../services/orderService');
+        const contractGateway = require('../services/contractGateway');
 
         let processedCount = 0;
         for (const order of stuckOrders) {
@@ -177,8 +178,14 @@ class MaintenanceService {
             }
 
             try {
-              await orderService.updateOrderStatus(order.id, 'preparing');
-              logger.info('🟢 Stuck Order Auto-Accepted by Cleanup Job', { 
+              // 🛡️ Route through ContractGateway for system mode check + circuit breaker
+              await contractGateway.execute(
+                order.id,
+                'AUTO_ACCEPT',
+                { reason: 'auto_cleanup', timestamp: Date.now(), idempotencyKey: `auto_accept_${order.id}_${Date.now()}` },
+                { id: 'SYSTEM', role: 'system' }
+              );
+              logger.info('🟢 Stuck Order Auto-Accepted by Cleanup Job (via Gateway)', { 
                 orderId: order.id, 
                 orderNumber: order.orderNumber 
               });
