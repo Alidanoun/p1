@@ -20,6 +20,9 @@ const requireBranchAccess = async (req, res, next) => {
     const SecurityPolicyService = require('../services/securityPolicyService');
     const intent = ['GET', 'HEAD'].includes(req.method) ? 'read' : 'write';
 
+    req.body = req.body || {};
+    req.query = req.query || {};
+
     // 🕵️ Resource-Based Isolation: Resolve target branch from params or body
     const orderId = req.params.id || req.params.orderId;
     let targetBranchId = req.body.branchId || req.query.branchId || req.params.branchId;
