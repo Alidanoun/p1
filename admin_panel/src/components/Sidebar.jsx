@@ -9,8 +9,9 @@ const Sidebar = () => {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
 
-  const isAdmin = user?.role === 'admin';
-  const isBranchManager = user?.role === 'manager' || user?.role?.toUpperCase() === 'BRANCH_MANAGER';
+  const role = user?.role?.toLowerCase();
+  const isAdmin = role === 'admin' || role === 'super_admin';
+  const isBranchManager = role === 'manager' || role === 'branch_manager';
 
   const navItems = [
     { name: 'مركز العمليات', icon: LayoutDashboard, path: '/', isLive: true, show: isAdmin || isBranchManager },

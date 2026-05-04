@@ -15,16 +15,16 @@ const BranchMenu = () => {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all'); // all, available, unavailable
 
+  const fetchData = async () => {
+    setLoading(true);
     try {
-      const branchId = selectedBranchId || user.branchId;
+      const branchId = selectedBranchId || user?.branchId;
       
-      // 🛡️ [SEC-FIX] If no branch is selected (e.g. Admin on refresh), don't fetch overrides
       if (!branchId) {
         setLoading(false);
         return;
       }
 
-      // Fetch items with branch context
       const [itemsRes, catsRes] = await Promise.all([
         api.get(`/items?branchId=${branchId}`),
         api.get('/categories')
@@ -42,19 +42,18 @@ const BranchMenu = () => {
 
   useEffect(() => {
     fetchData();
-  }, [user.branchId, selectedBranchId]);
+  }, [user?.branchId, selectedBranchId]);
 
   const toggleAvailability = async (itemId, currentStatus) => {
     const newStatus = !currentStatus;
-    
-    // 🧠 Optimistic UI Update
     const previousItems = [...items];
+    
     setItems(items.map(item => 
       item.id === itemId ? { ...item, isAvailable: newStatus } : item
     ));
 
     try {
-      const branchId = selectedBranchId || user.branchId;
+      const branchId = selectedBranchId || user?.branchId;
       const response = await api.post('/branch/items/toggle', {
         itemId,
         isAvailable: newStatus,
@@ -65,13 +64,11 @@ const BranchMenu = () => {
         toast.success(`تم ${newStatus ? 'تفعيل' : 'إيقاف'} الصنف بنجاح`, {
           icon: newStatus ? <CheckCircle2 className="text-emerald-500" /> : <XCircle className="text-danger" />
         });
-        // 🔄 Sync with server to ensure persistence is visible
         fetchData();
       }
     } catch (error) {
       console.error('Toggle failed:', error);
       toast.error('فشل تحديث حالة الصنف');
-      // Rollback on failure
       setItems(previousItems);
     }
   };
@@ -87,7 +84,7 @@ const BranchMenu = () => {
   });
 
   return (
-    <div className="p-8 max-w-[1600px] mx-auto animate-in fade-in duration-500">
+    <div className="p-8 max-w-[1600px] mx-auto animate-in fade-in duration-500 text-right" dir="rtl">
       {/* Header Section */}
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10">
         <div>
@@ -158,7 +155,7 @@ const BranchMenu = () => {
         </div>
       </section>
 
-      {/* Items Grid */}
+      {/* Main Content Area */}
       {loading ? (
         <div className="h-[400px] flex flex-col items-center justify-center gap-4">
           <Loader2 className="w-12 h-12 text-primary animate-spin" />
@@ -178,17 +175,12 @@ const BranchMenu = () => {
                   item.isAvailable ? 'border-border-subtle hover:border-primary/30' : 'border-danger/20 opacity-80'
                 }`}
               >
-                {/* Image & Overlay */}
                 <div className="relative aspect-video overflow-hidden">
                   <img 
                     src={item.image || 'https://via.placeholder.com/400x225?text=No+Image'} 
                     alt={item.title}
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                   />
-                  <div className={`absolute inset-0 bg-gradient-to-t transition-opacity duration-300 ${
-                    item.isAvailable ? 'from-black/60 to-transparent opacity-0 group-hover:opacity-100' : 'from-danger/40 to-danger/10 opacity-100'
-                  }`} />
-                  
                   {!item.isAvailable && (
                     <div className="absolute top-4 left-4 bg-danger text-white text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-wider shadow-lg">
                       غير متاح حالياً
@@ -196,7 +188,6 @@ const BranchMenu = () => {
                   )}
                 </div>
 
-                {/* Content */}
                 <div className="p-6 flex-1 flex flex-col">
                   <div className="flex justify-between items-start gap-4 mb-2">
                     <h3 className="font-bold text-lg text-text-main leading-tight">{item.title}</h3>
@@ -209,7 +200,6 @@ const BranchMenu = () => {
                       checked={item.isAvailable}
                       onChange={() => toggleAvailability(item.id, item.isAvailable)}
                     />
-
                     <div className="flex items-center gap-2.5">
                       <span className={`text-xs font-black tracking-tight transition-colors duration-300 ${item.isAvailable ? 'text-emerald-400' : 'text-slate-500'}`}>
                         {item.isAvailable ? 'نشط في الفرع' : 'متوقف مؤقتاً'}
