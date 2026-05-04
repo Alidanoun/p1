@@ -15,10 +15,15 @@ const BranchMenu = () => {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all'); // all, available, unavailable
 
-  const fetchData = async () => {
-    setLoading(true);
     try {
       const branchId = selectedBranchId || user.branchId;
+      
+      // 🛡️ [SEC-FIX] If no branch is selected (e.g. Admin on refresh), don't fetch overrides
+      if (!branchId) {
+        setLoading(false);
+        return;
+      }
+
       // Fetch items with branch context
       const [itemsRes, catsRes] = await Promise.all([
         api.get(`/items?branchId=${branchId}`),
@@ -60,6 +65,8 @@ const BranchMenu = () => {
         toast.success(`تم ${newStatus ? 'تفعيل' : 'إيقاف'} الصنف بنجاح`, {
           icon: newStatus ? <CheckCircle2 className="text-emerald-500" /> : <XCircle className="text-danger" />
         });
+        // 🔄 Sync with server to ensure persistence is visible
+        fetchData();
       }
     } catch (error) {
       console.error('Toggle failed:', error);
