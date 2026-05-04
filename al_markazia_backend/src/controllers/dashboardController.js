@@ -15,16 +15,19 @@ exports.getLiveMetrics = async (req, res) => {
     const { getContext } = require('../utils/securityContext');
     const isolationFilter = await SecurityPolicyService.getHardenedFilter(getContext(), 'Order');
 
-    // Extract branchId from the security filter
-    // Prisma filter for branchId is usually { in: [...] } or { equals: ... } or just UUID
-    let branchId = null;
-    if (isolationFilter.branchId) {
+    // 🎯 [FIX] Prioritize branchId from query for Admins
+    let branchId = req.query.branchId;
+    
+    if (!branchId && isolationFilter.branchId) {
       if (typeof isolationFilter.branchId === 'string') {
         branchId = isolationFilter.branchId;
       } else if (isolationFilter.branchId.in && isolationFilter.branchId.in.length === 1) {
         branchId = isolationFilter.branchId.in[0];
       }
     }
+
+    // 🛡️ [SEC-FIX] Sanitize stringified nulls
+    if (branchId === 'null' || branchId === 'undefined') branchId = null;
 
     res.json({
       success: true,
@@ -45,14 +48,19 @@ exports.getLiveOrders = async (req, res) => {
     const { getContext } = require('../utils/securityContext');
     const isolationFilter = await SecurityPolicyService.getHardenedFilter(getContext(), 'Order');
 
-    let branchId = null;
-    if (isolationFilter.branchId) {
+    // 🎯 [FIX] Prioritize branchId from query for Admins
+    let branchId = req.query.branchId;
+
+    if (!branchId && isolationFilter.branchId) {
       if (typeof isolationFilter.branchId === 'string') {
         branchId = isolationFilter.branchId;
       } else if (isolationFilter.branchId.in && isolationFilter.branchId.in.length === 1) {
         branchId = isolationFilter.branchId.in[0];
       }
     }
+
+    // 🛡️ [SEC-FIX] Sanitize stringified nulls
+    if (branchId === 'null' || branchId === 'undefined') branchId = null;
     
     const filteredOrders = orderProjection.getAllOrders(branchId);
     res.json({
