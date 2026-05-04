@@ -19,6 +19,8 @@ import RewardStoreManager from './pages/RewardStoreManager';
 import DeliveryZonesManager from './pages/DeliveryZonesManager';
 import AuditLog from './pages/AuditLog';
 import BranchMenu from './pages/BranchMenu';
+import ProtectedRoute from './components/ProtectedRoute';
+
 
 import ErrorBoundary from './components/ErrorBoundary';
 
@@ -69,8 +71,6 @@ const ProtectedLayout = ({ children }) => {
 };
 
 function App() {
-  const { user } = useAuth();
-
   return (
     <ThemeProvider>
       <Router>
@@ -84,16 +84,47 @@ function App() {
           <Route path="/orders" element={<ProtectedLayout><LiveOrders /></ProtectedLayout>} />
           <Route path="/menu" element={<ProtectedLayout><MenuManager /></ProtectedLayout>} />
           <Route path="/branch-menu" element={<ProtectedLayout><BranchMenu /></ProtectedLayout>} />
-          <Route path="/broadcast" element={<ProtectedLayout><BroadcastNotifications /></ProtectedLayout>} />
+          
+          <Route path="/broadcast" element={
+            <ProtectedRoute requiredRole={['super_admin', 'admin']}>
+              <ProtectedLayout><BroadcastNotifications /></ProtectedLayout>
+            </ProtectedRoute>
+          } />
+          
           <Route path="/reviews" element={<ProtectedLayout><ReviewsManager /></ProtectedLayout>} />
-          <Route path="/cancelled-orders" element={<ProtectedLayout><CancelledOrders /></ProtectedLayout>} />
+          
+          <Route path="/cancelled-orders" element={
+            <ProtectedRoute requiredRole={['super_admin', 'admin']}>
+              <ProtectedLayout><CancelledOrders /></ProtectedLayout>
+            </ProtectedRoute>
+          } />
+          
           <Route path="/loyalty" element={<ProtectedLayout><LoyaltyManager /></ProtectedLayout>} />
           <Route path="/rewards-store" element={<ProtectedLayout><RewardStoreManager /></ProtectedLayout>} />
           <Route path="/delivery-zones" element={<ProtectedLayout><DeliveryZonesManager /></ProtectedLayout>} />
-          <Route path="/analytics" element={<ProtectedLayout><Analytics /></ProtectedLayout>} />
-          <Route path="/reports" element={<ProtectedLayout><Reports /></ProtectedLayout>} />
-          <Route path="/settings" element={<ProtectedLayout><Settings /></ProtectedLayout>} />
-          <Route path="/audit" element={<ProtectedLayout><AuditLog /></ProtectedLayout>} />
+          
+          <Route path="/analytics" element={
+            <ProtectedRoute requiredRole={['super_admin', 'admin']}>
+              <ProtectedLayout><Analytics /></ProtectedLayout>
+            </ProtectedRoute>
+          } />
+          <Route path="/reports" element={
+            <ProtectedRoute requiredRole={['super_admin', 'admin']}>
+              <ProtectedLayout><Reports /></ProtectedLayout>
+            </ProtectedRoute>
+          } />
+          
+          <Route path="/settings" element={
+            <ProtectedRoute requiredRole="super_admin">
+              <ProtectedLayout><Settings /></ProtectedLayout>
+            </ProtectedRoute>
+          } />
+          
+          <Route path="/audit" element={
+            <ProtectedRoute requiredRole="super_admin">
+              <ProtectedLayout><AuditLog /></ProtectedLayout>
+            </ProtectedRoute>
+          } />
         </Routes>
       </Router>
     </ThemeProvider>

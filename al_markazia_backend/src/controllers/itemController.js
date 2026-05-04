@@ -51,7 +51,7 @@ exports.getAllItems = async (req, res) => {
         branchItems: (() => {
           const { getContext } = require('../utils/securityContext');
           const user = getContext();
-          const targetBranch = (user?.role !== 'super_admin') ? user?.branchId : req.query.branchId;
+          const targetBranch = (user?.role !== 'super_admin') ? user?.branchId : (req.query && req.query.branchId);
           
           if (!targetBranch) return false;
           

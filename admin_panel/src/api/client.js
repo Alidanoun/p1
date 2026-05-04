@@ -58,12 +58,26 @@ axiosRetry(api, {
   }
 });
 
-// Add a request interceptor to attach JWT token from MEMORY
+// Add a request interceptor to attach JWT token and Branch Context
 api.interceptors.request.use((config) => {
-  const token = tokenStore.get(); // 🔒 Secure: Read from memory, not localStorage
+  // 1. Attach JWT Token
+  const token = tokenStore.get();
   if (token) {
     config.headers['Authorization'] = `Bearer ${token}`;
   }
+
+  // 2. Attach Branch Context (Multi-tenancy isolation)
+  const selectedBranchId = sessionStorage.getItem('selectedBranchId');
+  const hasBranchInParams = config.params && config.params.branchId;
+  const hasBranchInUrl = config.url && config.url.includes('branchId=');
+
+  if (selectedBranchId && selectedBranchId !== 'null' && !hasBranchInParams && !hasBranchInUrl) {
+    config.params = {
+      ...config.params,
+      branchId: selectedBranchId
+    };
+  }
+
   return config;
 }, (error) => {
   return Promise.reject(error);
@@ -111,7 +125,7 @@ api.interceptors.response.use(
           return accessToken;
         } catch (err) {
           processQueue(err, null);
-          if (err.response?.status === 401 || err.response?.status === 403) {
+          if (err.response?.status === 401 || err.response?.status === 403 || err.response?.status === 429) {
             tokenStore.clear();
             forceLogout();
           }

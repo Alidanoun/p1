@@ -29,10 +29,19 @@ class SecurityPolicyService {
       throw new Error('INVALID_USER_ROLE');
     }
 
-    // 👑 Super Admin: Absolute Visibility (Bypass branch isolation)
+    // 👑 Super Admin: Absolute Visibility with optional branch isolation
     if (normalizedRole === 'super_admin') {
       const modelsWithSoftDelete = ['Order', 'Item', 'Category', 'Customer'];
-      return modelsWithSoftDelete.includes(modelName) ? { isDeleted: false } : {};
+      const filter = modelsWithSoftDelete.includes(modelName) ? { isDeleted: false } : {};
+      
+      // 🛡️ Apply manual branch isolation if requested
+      if (user.requestedBranchId && ['Order', 'BranchItem', 'FinancialLedger', 'DailyFinancialSnapshot'].includes(modelName)) {
+        filter.branchId = user.requestedBranchId;
+      } else if (user.requestedBranchId && modelName === 'Branch') {
+        filter.id = user.requestedBranchId;
+      }
+      
+      return filter;
     }
 
     // 🎯 Model-Aware Field Selection (Initialize filter)
@@ -138,19 +147,30 @@ class SecurityPolicyService {
       if (user.branchId) allowedBranchIds.push(user.branchId);
     }
 
-    // 🛡️ Strict Isolation Enforcement
-    if (allowedBranchIds.length === 0) {
-      logger.warn('[SecurityPolicy] Blocked attempt: User has no branch context', { userId: user.id, role: user.role });
-      // 🛡️ [FAIL-SAFE] Using { in: [] } is type-safe for both Int and String IDs in Prisma
-      return { id: { in: [] }, ...filter };
+    // 🛡️ [PHASE 4] Dynamic Branch Filtering
+    let targetBranchIds = allowedBranchIds;
+
+    // If a specific branch was requested, we must validate it against allowed list
+    if (user.requestedBranchId) {
+      if (allowedBranchIds.includes(user.requestedBranchId)) {
+        targetBranchIds = [user.requestedBranchId];
+      } else {
+        logger.security('UNAUTHORIZED_BRANCH_REQUEST', { 
+          userId: user.id, 
+          requestedBranchId: user.requestedBranchId, 
+          allowed: allowedBranchIds 
+        });
+        // Fail-safe: Return no results if requesting unauthorized branch
+        return { id: { in: [] }, ...filter };
+      }
     }
 
     // Apply branch filters based on model type
     const branchIsolationModels = ['Order', 'BranchItem', 'FinancialLedger', 'DailyFinancialSnapshot'];
     if (branchIsolationModels.includes(modelName)) {
-      filter.branchId = { in: allowedBranchIds };
+      filter.branchId = { in: targetBranchIds };
     } else if (modelName === 'Branch') {
-      filter.id = { in: allowedBranchIds };
+      filter.id = { in: targetBranchIds };
     }
 
     return filter;

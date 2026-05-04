@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const branchController = require('../controllers/branchController');
-const { authenticateToken, isAdmin } = require('../middleware/auth');
+const { authenticateToken, isAdmin, isManager } = require('../middleware/auth');
 const { requireBranchAccess, ensureBranchId } = require('../middleware/branchAuth');
 
 /**
@@ -9,8 +9,8 @@ const { requireBranchAccess, ensureBranchId } = require('../middleware/branchAut
  * Protected endpoints for branch operations and availability control.
  */
 
-// 📋 List All Branches (Only Admin/SuperAdmin can see all)
-router.get('/', authenticateToken, isAdmin, branchController.getAllBranches);
+// 📋 List All Branches (Filtered by role)
+router.get('/', authenticateToken, isManager, branchController.getAllBranches);
 
 // 🔄 Toggle Item Availability (Lazy Creation Strategy)
 router.post('/items/toggle', 

@@ -13,9 +13,7 @@ const BranchStats = () => {
 
   const fetchStats = async () => {
     try {
-      const url = selectedBranchId 
-        ? `/api/analytics/branch/report/today?branchId=${selectedBranchId}` 
-        : '/api/analytics/branch/report/today';
+      const url = '/api/analytics/branch/report/today';
       const response = await api.get(url);
       setStats(unwrap(response));
     } catch (err) {

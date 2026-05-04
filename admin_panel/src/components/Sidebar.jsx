@@ -9,11 +9,12 @@ const Sidebar = () => {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
 
-  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
-  const isBranchManager = user?.role === 'BRANCH_MANAGER' || user?.role === 'manager';
+  const isSuperAdmin = user?.role === 'super_admin';
+  const isAdmin = user?.role === 'admin' || isSuperAdmin;
+  const isBranchManager = user?.role?.toUpperCase() === 'BRANCH_MANAGER' || user?.role === 'manager';
 
   const navItems = [
-    { name: 'مركز العمليات', icon: LayoutDashboard, path: '/', isLive: true, show: isAdmin },
+    { name: 'مركز العمليات', icon: LayoutDashboard, path: '/', isLive: true, show: isAdmin || isBranchManager },
     { name: 'الطلبات الحية', icon: ListOrdered, path: '/orders', show: true },
     { name: 'إدارة القائمة', icon: MenuSquare, path: '/menu', show: isAdmin },
     { name: 'منيو الفرع', icon: Utensils, path: '/branch-menu', show: isBranchManager },
@@ -22,12 +23,12 @@ const Sidebar = () => {
     { name: 'إدارة التقييمات', icon: Star, path: '/reviews', show: isAdmin },
     { name: 'إدارة الولاء', icon: Stars, path: '/loyalty', show: isAdmin },
     { name: 'متجر المكافآت', icon: Gift, path: '/rewards-store', show: isAdmin },
-    { name: 'الطلبات الملغاة', icon: XCircle, path: '/cancelled-orders', show: true },
+    { name: 'الطلبات الملغاة', icon: XCircle, path: '/cancelled-orders', show: isAdmin },
     { name: 'الإحصائيات المتقدمة', icon: TrendingUp, path: '/analytics', show: isAdmin },
     { name: 'المالية والتقارير', icon: BarChart2, path: '/reports', show: isAdmin },
     { name: 'مناطق التوصيل', icon: MapPin, path: '/delivery-zones', show: isAdmin },
-    { name: 'سجل التدقيق', icon: ShieldCheck, path: '/audit', show: isAdmin },
-    { name: 'الإعدادات', icon: Settings, path: '/settings', show: isAdmin },
+    { name: 'سجل التدقيق', icon: ShieldCheck, path: '/audit', show: isSuperAdmin },
+    { name: 'الإعدادات', icon: Settings, path: '/settings', show: isSuperAdmin },
   ].filter(item => item.show);
 
   return (
