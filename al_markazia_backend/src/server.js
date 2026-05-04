@@ -158,6 +158,10 @@ async function startServer() {
       skip: (req, res) => req.originalUrl === '/health' || (process.env.NODE_ENV === 'production' && res.statusCode < 400)
     }));
 
+    // 🖼️ Serve Static Files (Uploaded Images)
+    const path = require('path');
+    app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
     // Routes
     app.use('/auth', governorGuard('MISSION_CRITICAL'), authRoutes);
     app.use('/items', itemRoutes);
