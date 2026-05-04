@@ -19,7 +19,8 @@ exports.toggleItemAvailability = async (req, res) => {
     const role = user.role?.toUpperCase();
 
     // 1. 🔐 Security & Role Check
-    if (role !== 'BRANCH_MANAGER' && role !== 'ADMIN') {
+    const ALLOWED_ROLES = ['BRANCH_MANAGER', 'MANAGER', 'ADMIN', 'STAFF'];
+    if (!ALLOWED_ROLES.includes(role)) {
       return response.error(res, 'غير مصرح لك بالقيام بهذا الإجراء', 'UNAUTHORIZED', 403);
     }
 
