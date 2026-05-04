@@ -18,25 +18,44 @@ class EventBus {
   }
 
   /**
-   * Publish an event to all subscribers.
+   * Publish an event to all subscribers with 🛡️ Deduplication Guard.
    */
   async publish(event) {
-    const handlers = this.handlers[event.type] || [];
+    const { type, payload } = event;
+    const aggregateId = payload?.orderId || payload?.id || payload?.aggregateId;
+    const version = payload?.version;
+
+    // 🛡️ [DEDUPLICATION] Prevent multiple processing of the same aggregate version
+    if (aggregateId && version) {
+      const redis = require('../lib/redis');
+      const dedupKey = `event_dedup:${type}:${aggregateId}:${version}`;
+      
+      const isProcessed = await redis.get(dedupKey);
+      if (isProcessed) {
+        logger.warn(`[EventBus] 🛡️ Skipping duplicate event: ${dedupKey}`);
+        return;
+      }
+      
+      // Set a short TTL (60s) to prevent immediate duplicates during retries
+      await redis.setex(dedupKey, 60, '1');
+    }
+
+    const handlers = this.handlers[type] || [];
     const globalHandlers = this.handlers['*'] || [];
     
     const allHandlers = [...handlers, ...globalHandlers];
     
-    logger.debug(`[EventBus] 📤 Publishing ${event.type} to ${allHandlers.length} handlers`);
+    logger.debug(`[EventBus] 📤 Publishing ${type} to ${allHandlers.length} handlers`);
 
     if (allHandlers.length === 0) {
-      logger.warn(`[EventBus] ⚠️ No subscribers found for event: ${event.type}`);
+      logger.warn(`[EventBus] ⚠️ No subscribers found for event: ${type}`);
     }
 
     const promises = allHandlers.map(async (handler, index) => {
       try {
         await handler(event);
       } catch (err) {
-        logger.error(`[EventBus] ❌ Error in handler #${index} for ${event.type}:`, { error: err.message });
+        logger.error(`[EventBus] ❌ Error in handler #${index} for ${type}:`, { error: err.message });
       }
     });
 
