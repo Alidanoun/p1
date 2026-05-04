@@ -22,6 +22,20 @@ exports.getAllItems = async (req, res) => {
 
     if (categoryId) filter.categoryId = parseInt(categoryId);
 
+    // 🛡️ [ISOLATION] Identify the target branch for strict filtering
+    const { getContext } = require('../utils/securityContext');
+    const userContext = getContext();
+    const targetBranchId = (userContext?.role !== 'super_admin' && userContext?.role !== 'admin') 
+      ? userContext?.branchId 
+      : (req.query.branchId || null);
+
+    // If a branch is identified, we must only show items present in that branch
+    if (targetBranchId) {
+      filter.branchItems = {
+        some: { branchId: targetBranchId }
+      };
+    }
+
     const items = await prisma.item.findMany({
       where: filter,
       select: {
@@ -48,18 +62,10 @@ exports.getAllItems = async (req, res) => {
           },
           orderBy: { sortOrder: 'asc' }
         },
-        branchItems: (() => {
-          const { getContext } = require('../utils/securityContext');
-          const user = getContext();
-          const targetBranch = (user?.role !== 'super_admin') ? user?.branchId : (req.query && req.query.branchId);
-          
-          if (!targetBranch) return false;
-          
-          return {
-            where: { branchId: targetBranch },
-            select: { isAvailable: true, branchId: true }
-          };
-        })()
+        branchItems: targetBranchId ? {
+          where: { branchId: targetBranchId },
+          select: { isAvailable: true, branchId: true }
+        } : false
       },
       orderBy: [
         { isFeatured: 'desc' },

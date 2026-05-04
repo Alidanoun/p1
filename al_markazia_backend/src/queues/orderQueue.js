@@ -38,6 +38,10 @@ const initOrderWorker = (io) => {
         }
 
         try {
+          // 🛡️ [ARCHITECTURE-HARDENING] Use Central System Identity
+          const { SYSTEM_USERS } = require('../shared/systemContext');
+          const SYSTEM_USER = SYSTEM_USERS.WORKER;
+
           // 1. Ensure order exists and is still pending (Avoid ghost jobs)
           const orderExists = await prisma.order.findUnique({ where: { id: orderId } });
           if (!orderExists) {
@@ -49,13 +53,17 @@ const initOrderWorker = (io) => {
              return { success: false, reason: 'ALREADY_PROCESSED' };
           }
 
-          // 🛡️ Architecture Fix: Use Service directly (never import Controllers in Workers)
-          const orderService = require('../services/orderService');
-          const result = await orderService.updateOrderStatus(orderId, 'preparing');
+          // 🚀 [GATEWAY-ORCHESTRATION] Route through ContractGateway for full logic protection
+          const contractGateway = require('../services/contractGateway');
+          const result = await contractGateway.execute(orderId, 'UPDATE_STATUS', {
+            status: 'preparing',
+            version: orderExists.version,
+            idempotencyKey: `auto_accept_${orderId}_${job.id}`
+          }, SYSTEM_USER);
           
           if (!result) {
-            logger.info(`[OrderWorker] Auto-accept SKIPPED for order ${orderId} (Already processed or not pending)`);
-            return { success: false, reason: 'ALREADY_PROCESSED' };
+            logger.info(`[OrderWorker] Auto-accept SKIPPED for order ${orderId} (Rejected by Gateway)`);
+            return { success: false, reason: 'REJECTED_BY_GATEWAY' };
           }
 
           const duration = Date.now() - startTime;

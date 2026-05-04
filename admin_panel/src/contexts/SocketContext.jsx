@@ -100,21 +100,25 @@ export const SocketProvider = ({ children }) => {
     // 🧪 Debug Exposure: Allow inspection in Console
     window.socket = newSocket;
 
-    newSocket.on('connect', () => {
-      console.log('Socket connected:', newSocket.id);
+    const handleSync = useCallback(() => {
+      console.log('📡 [Socket] Syncing state...');
       newSocket.emit('join:admin'); 
-      
-      // 🏢 Join Dashboard Context using unified branch:switch
-      newSocket.emit('branch:switch', { branchId: selectedBranchId }, (response) => {
-        if (response?.success) {
-          console.log(`[Socket] Branch context established: ${response.branchId}`);
+      newSocket.emit('branch:switch', { branchId: selectedBranchId }, (res) => {
+        if (res?.success) {
           fetchLiveMetrics();
-        } else {
-          console.error('[Socket] Branch context switch failed:', response?.error);
+          fetchNotifications();
         }
       });
+    }, [selectedBranchId, fetchLiveMetrics, fetchNotifications]);
 
-      fetchNotifications();
+    newSocket.on('connect', () => {
+      console.log('Socket connected:', newSocket.id);
+      handleSync();
+    });
+
+    newSocket.on('reconnect', () => {
+      console.log('Socket reconnected');
+      handleSync();
     });
 
     newSocket.on('connect_error', (err) => {
@@ -133,16 +137,24 @@ export const SocketProvider = ({ children }) => {
       });
     });
 
-    newSocket.on('reconnect', () => {
-      newSocket.emit('join:admin'); 
-      newSocket.emit('branch:switch', { branchId: selectedBranchId }, (res) => {
-        if (res?.success) fetchLiveMetrics();
-      });
-      fetchNotifications();
-    });
+    // 🛡️ [DEDUPLICATION] Event Tracking
+    const processedEvents = new Set();
+    const isDuplicate = (eventId) => {
+      if (!eventId) return false;
+      if (processedEvents.has(eventId)) return true;
+      processedEvents.add(eventId);
+      if (processedEvents.size > 100) {
+        const firstValue = processedEvents.values().next().value;
+        processedEvents.delete(firstValue);
+      }
+      return false;
+    };
 
     // 📡 Standardized System Notifications
-    newSocket.on('order:created', (order) => {
+    newSocket.on('order:created', (payload) => {
+      const { eventId, data: order } = payload;
+      if (isDuplicate(eventId)) return;
+
       toast.success('طلب جديد 🔔', {
         description: `طلب جديد رقم (${order.orderNumber}) بانتظار القبول.`,
         duration: 10000,
@@ -152,7 +164,10 @@ export const SocketProvider = ({ children }) => {
       fetchNotifications();
     });
 
-    newSocket.on('order:updated', (order) => {
+    newSocket.on('order:updated', (payload) => {
+      const { eventId, data: order } = payload;
+      if (isDuplicate(eventId)) return;
+
       if (['ready', 'in_route', 'cancelled'].includes(order.status)) {
         toast.info(`تحديث: ${order.orderNumber}`, {
           description: `الحالة الجديدة: ${order.status}`,
@@ -162,7 +177,10 @@ export const SocketProvider = ({ children }) => {
       fetchNotifications();
     });
 
-    newSocket.on('new_admin_notification', (notification) => {
+    newSocket.on('new_admin_notification', (payload) => {
+      const { eventId, data: notification } = payload;
+      if (isDuplicate(eventId)) return;
+
       setNotifications(prev => [notification, ...prev]);
       setUnreadCount(prev => prev + 1);
       toast.success(notification.title, {
@@ -194,7 +212,7 @@ export const SocketProvider = ({ children }) => {
 
     socketRef.current = newSocket;
     setSocket(newSocket);
-  }, [fetchLiveMetrics, fetchNotifications, cleanupSocket]);
+  }, [fetchLiveMetrics, fetchNotifications, cleanupSocket, selectedBranchId]);
 
   const debouncedBranchId = useDebounce(selectedBranchId, 300);
 
