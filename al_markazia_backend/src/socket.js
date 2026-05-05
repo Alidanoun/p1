@@ -3,10 +3,16 @@ const jwt = require('jsonwebtoken');
 const logger = require('./utils/logger');
 const TokenService = require('./services/tokenService');
 const SecurityPolicyService = require('./services/securityPolicyService');
+const auditService = require('./services/auditService');
+const { SOCKET_ROOMS } = require('./shared/socketEvents');
 
 let io;
 let isReady = false;
 let readyResolvers = [];
+
+const connections = new Map();
+const socketMetadata = new Map();
+const recentDisconnects = []; // Rolling buffer for diagnostics
 
 module.exports = {
   init: (httpServer) => {
@@ -17,8 +23,6 @@ module.exports = {
         credentials: true
       }
     });
-
-    const connections = new Map();
 
     // --- 🛡️ SECURITY: JWT Handshake Middleware (Hardened v2) ---
     io.use(async (socket, next) => {
@@ -109,7 +113,23 @@ module.exports = {
 
     const trackingService = require('./services/trackingService');
     io.on('connection', async (socket) => {
+      // 📊 [METRICS] Initialize Metadata
+      socketMetadata.set(socket.id, {
+        connectedAt: new Date(),
+        messageCount: 0,
+        ip: socket.handshake.address,
+        userAgent: socket.handshake.headers['user-agent'] || 'Unknown'
+      });
+
       const { id: userId, role, branchId } = socket.user;
+      
+      // 📊 [METRICS] Track activity
+      socket.use(([event, ...args], next) => {
+        const metadata = socketMetadata.get(socket.id);
+        if (metadata) metadata.messageCount++;
+        next();
+      });
+
       const { SOCKET_ROOMS, ROLES } = require('./shared/socketEvents');
 
       // 🛡️ [PHASE 2] Real-Time Isolation Layer
@@ -189,6 +209,14 @@ module.exports = {
           const canAccess = await SecurityPolicyService.canAccessBranch(socket.user, branchId, 'read');
           
           if (!canAccess) {
+            await auditService.log({
+              userId,
+              userRole: role,
+              action: 'BRANCH_SWITCH_FORBIDDEN',
+              severity: 'HIGH',
+              status: 'FAIL',
+              metadata: { requestedBranch: branchId }
+            });
             logger.security('FORBIDDEN_BRANCH_SWITCH_ATTEMPT', { userId, role, requestedBranch: branchId });
             if (ack) ack({ success: false, error: 'غير مصرح لك بالوصول لبيانات هذا الفرع' });
             return;
@@ -205,9 +233,17 @@ module.exports = {
           // 👁️ 5. Join New Branch Context
           const targetRoom = SOCKET_ROOMS.MONITOR_BRANCH(branchId);
           await socket.join(targetRoom);
-          socket.data.activeBranchId = branchId; 
-
+          socket.data.activeBranchId = branchId;
           logger.info(`[Socket] User ${userId} switched context to branch ${branchId}`);
+
+          // 📝 6. Audit Log (Success)
+          await auditService.logBranchSwitch(
+            userId,
+            role,
+            socket.data.activeBranchId, // Previous
+            branchId // New
+          );
+
           if (ack) ack({ success: true, branchId });
         } catch (err) {
           logger.error(`[Socket] Branch switch failed for user ${userId}`, err);
@@ -297,6 +333,56 @@ module.exports = {
           if (ack) ack({ success: false, error: 'Sync failed' });
         }
       });
+
+      // 📊 [MONITORING] Disconnect Audit
+      socket.on('disconnect', async (reason) => {
+        const metadata = socketMetadata.get(socket.id);
+        if (metadata) {
+          const duration = Math.floor((Date.now() - metadata.connectedAt) / 1000);
+          
+          // 🔍 Reason Analysis (Arabic mapping)
+          const reasonAr = {
+            'transport close': 'إغلاق قناة النقل (Transport Close)',
+            'client namespace disconnect': 'إغلاق من العميل (Client Disconnect)',
+            'server namespace disconnect': 'إغلاق من السيرفر (Server Disconnect)',
+            'ping timeout': 'انتهاء مهلة الاتصال (Ping Timeout)',
+            'transport error': 'خطأ في النقل (Transport Error)'
+          }[reason] || reason;
+
+          const severity = (reason === 'ping timeout' || reason === 'transport error') ? 'WARNING' : 'INFO';
+
+          await auditService.log({
+            userId,
+            userRole: role,
+            action: 'SOCKET_DISCONNECT',
+            status: 'SUCCESS',
+            severity,
+            metadata: {
+              reason,
+              reasonAr,
+              durationSeconds: duration,
+              messageCount: metadata.messageCount,
+              ip: metadata.ip,
+              userAgent: metadata.userAgent,
+              socketId: socket.id
+            }
+          });
+
+          // 📊 [DIAGNOSTICS] Push to rolling buffer
+          recentDisconnects.unshift({
+            userId,
+            socketId: socket.id,
+            reason,
+            reasonAr,
+            duration,
+            timestamp: new Date().toISOString()
+          });
+          if (recentDisconnects.length > 50) recentDisconnects.pop();
+
+          logger.info(`🔌 [Socket] Disconnected: ${userId} (${reason}) - Duration: ${duration}s`);
+          socketMetadata.delete(socket.id);
+        }
+      });
     });
 
     // 🕵️ System Audit: Monitor Active Sockets & Rooms every 5 mins
@@ -313,6 +399,18 @@ module.exports = {
     readyResolvers = [];
 
     return io;
+  },
+
+  // 📊 [DIAGNOSTICS] Expose Stats
+  getStats: () => {
+    if (!io) return null;
+    return {
+      totalConnections: io.engine.clientsCount,
+      totalRooms: io.sockets.adapter.rooms.size,
+      activeIdentities: connections.size,
+      recentDisconnects: [...recentDisconnects],
+      timestamp: new Date().toISOString()
+    };
   },
 
   /**

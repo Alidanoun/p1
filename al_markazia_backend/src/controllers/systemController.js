@@ -73,3 +73,35 @@ exports.checkIdentityConsistency = async (req, res) => {
     res.status(500).json({ error: 'Internal Audit Error' });
   }
 };
+
+/**
+ * 📊 Real-Time System Diagnostics
+ * Aggregates health metrics from Socket.IO and tiered Cache systems.
+ */
+exports.getSystemDiagnostics = async (req, res) => {
+  try {
+    const socketModule = require('../socket');
+    const cacheService = require('../services/cacheService');
+
+    const [socketStats, cacheStats] = await Promise.all([
+      Promise.resolve(socketModule.getStats ? socketModule.getStats() : { error: 'Socket stats not available' }),
+      cacheService.getStats()
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        socket: socketStats,
+        cache: cacheStats,
+        server: {
+          uptime: Math.floor(process.uptime()),
+          memory: process.memoryUsage(),
+          timestamp: new Date().toISOString()
+        }
+      }
+    });
+  } catch (err) {
+    logger.error('Diagnostics Fetch Failed', { error: err.message });
+    res.status(500).json({ error: 'Internal Diagnostics Error' });
+  }
+};

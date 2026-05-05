@@ -19,6 +19,8 @@ const settingsRoutes = require('./routes/settings');
 const metricsRoutes = require('./routes/metrics');
 const analyticsRoutes = require('./routes/analytics');
 const systemRoutes = require('./routes/system');
+const happyHourRoutes = require('./routes/happyHour');
+const { governorGuard } = require('./middleware/securityGuard');
 const deliveryZoneRoutes = require('./routes/deliveryZones');
 const dashboardRoutes = require('./routes/dashboard');
 const healthRoutes = require('./routes/health');
@@ -28,11 +30,12 @@ const orderModificationRoutes = require('./routes/orderModifications');
 const branchRoutes = require('./routes/branch');
 
 const http = require('http');
+const net = require('net');
+const os = require('os');
 const { initCronJobs } = require('./jobs/cronJobs');
 const { initOrderWorker, setupQueueDashboard } = require('./queues/orderQueue');
 const { initHealthWorker } = require('./queues/healthWorker');
 const { requestTracing } = require('./middleware/requestTracing');
-const { governorGuard } = require('./middleware/governorMiddleware');
 const { shadowMirrorMiddleware } = require('./middleware/shadowMirrorMiddleware');
 const IdempotencyService = require('./services/idempotencyService');
 const externalProbeController = require('./controllers/externalProbeController');
@@ -46,8 +49,18 @@ const server = http.createServer(app);
 
 async function startServer() {
   try {
-    // 1. Initialize Socket.IO
+    // 3. Initialize Distributed Services
+    const cacheService = require('./services/cacheService');
+    const happyHourService = require('./services/happyHourService');
+    
     const io = socketModule.init(server);
+    happyHourService.setIO(io);
+
+    await Promise.all([
+      happyHourService.initialize()
+    ]);
+    
+    logger.info('🚀 Systems Initialized: Cache, Socket, HappyHour');
 
     // 2. 🚀 Initialize Event-Driven Architecture (AWAITED)
     const eventSystem = require('./events/init');
@@ -162,6 +175,10 @@ async function startServer() {
     const path = require('path');
     app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
+    // 🕵️ System Audit (Sensitive Routes)
+    const auditMiddleware = require('./middleware/auditMiddleware');
+    app.use(auditMiddleware);
+
     // Routes
     app.use('/auth', governorGuard('MISSION_CRITICAL'), authRoutes);
     app.use('/items', itemRoutes);
@@ -174,7 +191,10 @@ async function startServer() {
     app.use('/reviews', governorGuard('AUXILIARY'), reviewRoutes);
     app.use('/settings', settingsRoutes);
     app.use('/metrics', metricsRoutes);
-    app.use('/system', systemRoutes);
+    app.use('/api/system', systemRoutes);
+    app.use('/api/happyhour', happyHourRoutes);
+    
+    app.get('/health', (req, res) => res.status(200).json({ status: 'ok', timestamp: new Date() }));
     app.use('/delivery-zones', deliveryZoneRoutes);
     app.use('/dashboard', dashboardRoutes);
     const financialRoutes = require('./routes/financial');
@@ -205,7 +225,34 @@ async function startServer() {
       process.exit(1);
     });
 
-    const PORT = process.env.PORT || 5000;
+    // --- 🔍 PORT RESOLUTION LOGIC ---
+    function checkPortAvailable(port) {
+      return new Promise((resolve) => {
+        const serverCheck = net.createServer();
+        serverCheck.once('error', (err) => {
+          if (err.code === 'EADDRINUSE') resolve(false);
+          else resolve(false);
+        });
+        serverCheck.once('listening', () => {
+          serverCheck.close();
+          resolve(true);
+        });
+        serverCheck.listen(port, '0.0.0.0');
+      });
+    }
+
+    async function findAvailablePort(startPort) {
+      const MAX_ATTEMPTS = 5;
+      for (let i = 0; i < MAX_ATTEMPTS; i++) {
+        const port = startPort + i;
+        if (await checkPortAvailable(port)) return port;
+        logger.warn(`⚠️  Port ${port} is occupied, trying next...`);
+      }
+      throw new Error(`Failed to find an available port after ${MAX_ATTEMPTS} attempts`);
+    }
+
+    const INITIAL_PORT = parseInt(process.env.PORT || 5000, 10);
+    const PORT = await findAvailablePort(INITIAL_PORT);
     server.listen(PORT, '0.0.0.0', async () => {
       logger.info(`🚀 Backend Server is running on port ${PORT}`);
       
@@ -228,6 +275,21 @@ async function startServer() {
         orderProjection.replay(),
         SecurityPolicyService.warmupSecurityCache()
       ]).catch(e => logger.error('Rehydration Failed', { error: e.message }));
+
+      // 📊 Periodic Health Status reporting
+      setInterval(() => {
+        const mem = process.memoryUsage();
+        logger.debug(`📊 [HealthReport] Heap: ${Math.round(mem.heapUsed / 1024 / 1024)}MB | Uptime: ${Math.floor(process.uptime())}s`);
+      }, 60000);
+    });
+
+    server.on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        logger.error(`❌ CRITICAL: Port ${PORT} was snatched just before binding!`);
+      } else {
+        logger.error('❌ Server Error:', err);
+      }
+      process.exit(1);
     });
 
   } catch (err) {
@@ -236,23 +298,31 @@ async function startServer() {
   }
 }
 
-// 🛑 Graceful Shutdown Logic
 async function shutdown(signal) {
   logger.info(`[${signal}] Received. Starting graceful shutdown...`);
   
+  const timeoutGuard = setTimeout(() => {
+    logger.error('❌ Shutdown forced after timeout.');
+    process.exit(1);
+  }, 10000);
+
   try {
-    // 1. Close HTTP Server
+    // 1. Close HTTP Server (Stop accepting new requests)
     server.close(() => {
       logger.info('HTTP server closed.');
     });
 
-    // 2. Disconnect from DB & Redis
-    await prisma.$disconnect();
-    logger.info('Prisma disconnected.');
+    // 2. Disconnect from DB & Cache
+    const cacheService = require('./services/cacheService');
+    const happyHourService = require('./services/happyHourService');
+    await Promise.all([
+      prisma.$disconnect(),
+      cacheService.destroy(),
+      happyHourService.destroy()
+    ]);
+    logger.info('DB, Cache and HappyHour disconnected.');
 
-    // 3. Close background workers if they have close methods
-    // (Add specific cleanup for Redis/Queues here if needed)
-
+    clearTimeout(timeoutGuard);
     process.exit(0);
   } catch (err) {
     logger.error('Error during shutdown', { error: err.message });

@@ -21,4 +21,7 @@ router.post('/items/toggle',
   branchController.toggleItemAvailability
 );
 
+// 🔄 Switch Branch Context (Audit Logged)
+router.post('/switch', authenticateToken, branchController.switchBranch);
+
 module.exports = router;

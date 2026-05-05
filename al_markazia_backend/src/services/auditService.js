@@ -29,6 +29,7 @@ class AuditService {
 
       const logEntry = {
         userId,
+        userEmail: params.userEmail || req?.user?.email || null,
         userRole,
         action,
         entityType,
@@ -104,6 +105,25 @@ class AuditService {
       }
     });
     return diff;
+  }
+
+  /**
+   * 🏢 Specialized: Log Branch Switch
+   */
+  async logBranchSwitch(userId, userRole, fromBranchId, toBranchId, req = null) {
+    return this.log({
+      userId,
+      userEmail: req?.user?.email || null,
+      userRole,
+      action: 'BRANCH_SWITCH',
+      severity: 'INFO',
+      metadata: {
+        from: fromBranchId,
+        to: toBranchId,
+        timestamp: new Date().toISOString()
+      },
+      req
+    });
   }
 }
 
