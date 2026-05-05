@@ -110,6 +110,7 @@ function initCronJobs(io = null) {
       await MaintenanceService.cleanupStuckOrders();
       await MaintenanceService.cleanupOldIdempotencyRecords();
       await MaintenanceService.cleanupNotificationLogs();
+      await MaintenanceService.expireFinancialApprovals();
       await otpService.cleanupExpired();
     } catch (err) {
       logger.error('Startup Cleanup Failed', { error: err.message });
@@ -161,6 +162,18 @@ function initCronJobs(io = null) {
         }
       } catch (err) {
         logger.error('Cron Job Failed: Loyalty Maintenance', { error: err.message });
+      }
+    });
+  });
+
+  // 9. 🕒 Financial Approval Expiry - Every 6 Hours
+  cron.schedule('0 */6 * * *', async () => {
+    await withLock('financial_approval_expiry', 300, async () => {
+      try {
+        logger.info('Cron Job Trace: Running Financial Approval Expiry...');
+        await MaintenanceService.expireFinancialApprovals();
+      } catch (err) {
+        logger.error('Cron Job Failed: Financial Approval Expiry', { error: err.message });
       }
     });
   });

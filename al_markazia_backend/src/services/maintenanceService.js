@@ -247,6 +247,30 @@ class MaintenanceService {
       return 0;
     }
   }
+
+  /**
+   * 🕒 Expiry Lifecycle: Marks pending financial approvals as EXPIRED after 48 hours.
+   */
+  static async expireFinancialApprovals() {
+    try {
+      const result = await prisma.financialApproval.updateMany({
+        where: {
+          status: 'PENDING',
+          createdAt: {
+            lt: new Date(Date.now() - 48 * 60 * 60 * 1000) // 48 Hours
+          }
+        },
+        data: { status: 'EXPIRED' }
+      });
+      if (result.count > 0) {
+        logger.info(`Maintenance: Expired ${result.count} pending financial approvals.`);
+      }
+      return result.count;
+    } catch (error) {
+      logger.error('Maintenance: Financial Approval Expiry Failed', { error: error.message });
+      return 0;
+    }
+  }
 }
 
 module.exports = MaintenanceService;

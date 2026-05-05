@@ -69,6 +69,19 @@ class FinancialApprovalService {
         });
       }
 
+      // 🛑 Handle Cancellation Approval
+      if (approval.operationType === 'CANCELLATION') {
+        const orderService = require('./orderService');
+        await orderService.handleCancellationRequest(
+          parseInt(approval.entityId),
+          adminUser,
+          'approve',
+          '',
+          tx,
+          approval.id // Pass approvalId to link with ledger
+        );
+      }
+
       logger.info('💎 FINANCIAL_APPROVAL_GRANTED', {
         approvalId,
         adminId: adminUser.id,
