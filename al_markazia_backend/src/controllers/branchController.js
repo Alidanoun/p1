@@ -140,3 +140,56 @@ exports.getAllBranches = async (req, res) => {
     return res.status(500).json({ success: false, error: 'Internal Server Error' });
   }
 };
+
+/**
+ * 🔄 Switch Branch Context (HTTP Endpoint)
+ */
+exports.switchBranch = async (req, res) => {
+  try {
+    const { from, to } = req.body;
+    const user = req.user;
+    
+    if (!to) {
+      return response.error(res, 'يجب تحديد الفرع المستهدف', 'BRANCH_REQUIRED', 400);
+    }
+
+    // 1. Validate Target Branch
+    const branch = await prisma.branch.findUnique({
+      where: { id: to },
+      select: { id: true, name: true, isActive: true }
+    });
+
+    if (!branch || !branch.isActive) {
+      return response.error(res, 'الفرع المحدد غير موجود أو غير نشط', 'INVALID_BRANCH', 400);
+    }
+
+    // 2. Security Check
+    const SecurityPolicyService = require('../services/securityPolicyService');
+    const canAccess = await SecurityPolicyService.canAccessBranch(user, to, 'read');
+
+    if (!canAccess) {
+      await auditService.log({
+        userId: user.id,
+        userRole: user.role,
+        action: 'BRANCH_SWITCH_FORBIDDEN',
+        severity: 'HIGH',
+        status: 'FAIL',
+        metadata: { from, to },
+        req
+      });
+      return response.error(res, 'غير مصرح لك بالوصول لهذا الفرع', 'FORBIDDEN', 403);
+    }
+
+    // 3. Audit Log (Success)
+    await auditService.logBranchSwitch(user.id, user.role, from, to, req);
+
+    return response.success(res, {
+      message: `تم الانتقال بنجاح إلى ${branch.name}`,
+      branchId: to
+    });
+
+  } catch (error) {
+    logger.error('Branch switch error', { error: error.message });
+    return response.error(res, 'حدث خطأ أثناء تبديل الفرع', 'SERVER_ERROR', 500);
+  }
+};
