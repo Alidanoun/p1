@@ -27,6 +27,7 @@ class FeatureFlagsService {
         'BRANCH_AWARE_SOCKET_ROOMS': false,    // Multi-tenant Socket.IO rooms
         'CSRF_STRICT_MODE': false,             // Global CSRF enforcement
         'DEVICE_FINGERPRINT_TOLERANCE': true,  // Allow IP changes if UA matches (ON by default for UX)
+        'USE_QUERY_OPTIMIZER': true,           // N+1 batch-loading for order lists (ON by default)
       };
       
       return defaults[flagName] || false;

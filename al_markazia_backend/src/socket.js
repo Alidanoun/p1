@@ -74,6 +74,7 @@ module.exports = {
         
         // 🛡️ [GRACEFUL TRANSITION] Allow super_admin and admin to be interchangeable
         const isUnifiedAdmin = (r) => r === 'admin' || r === 'super_admin';
+        const effectiveTokenRole = isUnifiedAdmin(tokenRole) ? 'admin' : tokenRole;
         
         if (dbIdentity?.role && !isUnifiedAdmin(dbRole) && dbRole !== effectiveTokenRole) {
           logger.security('🔌 [Socket] PERMISSION_DRIFT detected — token role does not match DB role', {

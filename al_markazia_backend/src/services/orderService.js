@@ -19,8 +19,22 @@ const { toNumber, toMoney } = require('../utils/number');
 const { safeJsonParse } = require('../utils/security');
 const { mapOrderResponse } = require('../mappers/order.mapper');
 const { ORDER_INCLUDE_FULL } = require('../shared/prismaConstants');
+const queryOptimizer = require('../utils/queryOptimizer');
+const FeatureFlagsService = require('./featureFlagsService');
 
 class OrderService {
+  /**
+   * 🛡️ Safe Feature Flag Check — defaults to optimizer ON if Redis is down
+   */
+  async _shouldUseOptimizer() {
+    try {
+      return await FeatureFlagsService.isEnabled('USE_QUERY_OPTIMIZER');
+    } catch (err) {
+      logger.error('[OrderService] Feature flag check failed, defaulting to optimizer ON', { error: err.message });
+      return true;
+    }
+  }
+
   async bumpBranchVersion(branchId) {
     if (!branchId) return;
     const redis = require('../lib/redis');
@@ -51,14 +65,20 @@ class OrderService {
 
     const pageNum = page ? Math.max(1, parseInt(page)) : null;
     const limitNum = limit ? Math.min(1000, parseInt(limit)) : 500;
+    const skipNum = pageNum ? (pageNum - 1) * limitNum : 0;
+
+    // 🚀 [PERF-FIX] Use QueryOptimizer to prevent N+1 on large result sets
+    const useOptimizer = await this._shouldUseOptimizer();
 
     const [orders, total] = await Promise.all([
-      prisma.order.findMany({
-        where,
-        include: ORDER_INCLUDE_FULL,
-        orderBy: { createdAt: 'desc' },
-        ...(pageNum ? { skip: (pageNum - 1) * limitNum, take: limitNum } : { take: limitNum })
-      }),
+      useOptimizer
+        ? queryOptimizer.fetchOrdersOptimized(where, { createdAt: 'desc' }, skipNum, limitNum)
+        : prisma.order.findMany({
+            where,
+            include: ORDER_INCLUDE_FULL,
+            orderBy: { createdAt: 'desc' },
+            ...(pageNum ? { skip: skipNum, take: limitNum } : { take: limitNum })
+          }),
       prisma.order.count({ where })
     ]);
 
@@ -132,14 +152,19 @@ class OrderService {
 
     Object.assign(where, isolationFilter);
 
+    // 🚀 [PERF-FIX] Use QueryOptimizer to prevent N+1 on dashboard lists
+    const useOptimizer = await this._shouldUseOptimizer();
+
     const [orders, total, statusCounts] = await Promise.all([
-      prisma.order.findMany({
-        where,
-        include: ORDER_INCLUDE_FULL,
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limit
-      }),
+      useOptimizer
+        ? queryOptimizer.fetchOrdersOptimized(where, { createdAt: 'desc' }, skip, limit)
+        : prisma.order.findMany({
+            where,
+            include: ORDER_INCLUDE_FULL,
+            orderBy: { createdAt: 'desc' },
+            skip,
+            take: limit
+          }),
       prisma.order.count({ where }),
       prisma.order.groupBy({
         by: ['status'],
@@ -176,17 +201,23 @@ class OrderService {
       return { upToDate: true, version: serverVersion };
     }
     
-    // Fetch live orders (preparing, ready, in_route, etc.)
-    const orders = await prisma.order.findMany({
-      where: { 
-        branchId, 
-        status: { notIn: ['delivered', 'cancelled'] },
-        isDeleted: false 
-      },
-      include: ORDER_INCLUDE_FULL,
-      orderBy: { updatedAt: 'desc' },
-      take: 200 // Safety threshold
-    });
+    const syncWhere = { 
+      branchId, 
+      status: { notIn: ['delivered', 'cancelled'] },
+      isDeleted: false 
+    };
+
+    // 🚀 [PERF-FIX] Use QueryOptimizer for sync (can be up to 200 orders)
+    const useOptimizer = await this._shouldUseOptimizer();
+
+    const orders = useOptimizer
+      ? await queryOptimizer.fetchOrdersOptimized(syncWhere, { updatedAt: 'desc' }, 0, 200)
+      : await prisma.order.findMany({
+          where: syncWhere,
+          include: ORDER_INCLUDE_FULL,
+          orderBy: { updatedAt: 'desc' },
+          take: 200
+        });
     
     return { 
       upToDate: false, 
@@ -217,14 +248,19 @@ class OrderService {
       where.status = status;
     }
 
+    // 🚀 [PERF-FIX] Use QueryOptimizer for customer order history
+    const useOptimizer = await this._shouldUseOptimizer();
+
     const [orders, total] = await Promise.all([
-      prisma.order.findMany({
-        where,
-        include: ORDER_INCLUDE_FULL,
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limit
-      }),
+      useOptimizer
+        ? queryOptimizer.fetchOrdersOptimized(where, { createdAt: 'desc' }, skip, limit)
+        : prisma.order.findMany({
+            where,
+            include: ORDER_INCLUDE_FULL,
+            orderBy: { createdAt: 'desc' },
+            skip,
+            take: limit
+          }),
       prisma.order.count({ where })
     ]);
 
@@ -516,17 +552,19 @@ class OrderService {
   /**
    * 🛠️ Manage Cancellation Requests (Approve/Reject)
    */
-  async handleCancellationRequest(orderId, user, action, rejectionReason) {
+  async handleCancellationRequest(orderId, user, action, rejectionReason, externalTx = null, approvalId = null) {
     const order = await prisma.order.findUnique({
       where: { id: orderId },
       include: { cancellation: true, customer: true }
     });
 
     if (!order) throw new Error('ORDER_NOT_FOUND');
-    if (order.status !== 'waiting_cancellation') throw new Error('NOT_PENDING_CANCELLATION');
+    if (order.status !== 'waiting_cancellation' && order.status !== 'waiting_cancellation_admin') {
+      throw new Error('NOT_PENDING_CANCELLATION');
+    }
 
     if (action === 'approve') {
-      const result = await prisma.$transaction(async (tx) => {
+      const executeApproval = async (tx) => {
         // 💰 [FINANCIAL-FIX] Refund on approval
         if (order.paymentMethod === 'wallet' && order.customerId) {
           const walletService = require('./walletService');
@@ -537,7 +575,8 @@ class OrderService {
             order.orderNumber,
             `استرداد المبلغ بعد موافقة الإدارة على الإلغاء #${order.orderNumber}`,
             `approve_cancel_${order.id}`,
-            tx
+            tx,
+            approvalId
           );
         }
 
@@ -567,7 +606,9 @@ class OrderService {
         const outbox = await outboxService.enqueue(eventTypes.ORDER_STATUS_CHANGED, resultData, tx);
 
         return { updatedOrder: updated, _outboxId: outbox.id };
-      });
+      };
+
+      const result = externalTx ? await executeApproval(externalTx) : await prisma.$transaction(executeApproval);
 
       const mapped = mapOrderResponse(result.updatedOrder);
       return { ...mapped, _outboxId: result._outboxId };
