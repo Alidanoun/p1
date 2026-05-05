@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const configService = require('../services/configService');
+const systemController = require('../controllers/systemController');
+const { authenticateToken, isAdmin } = require('../middleware/auth');
 
 /**
  * ⚙️ System Configuration Routes
@@ -39,5 +41,10 @@ router.post('/logs/frontend-error', async (req, res) => {
   });
   res.json({ success: true });
 });
+
+/**
+ * 🛡️ Diagnostic Control Plane
+ */
+router.get('/diagnostics', authenticateToken, isAdmin, systemController.getSystemDiagnostics);
 
 module.exports = router;

@@ -57,6 +57,7 @@ model Branch {
   orders    Order[]
   branchItems BranchItem[]
   financialLedger FinancialLedger[]
+  happyHours HappyHour[]
   snapshots      DailyFinancialSnapshot[] @relation("BranchSnapshots")
 }
 
@@ -527,6 +528,7 @@ model OtpCode {
 model SystemAuditLog {
   id           String   @id @default(uuid())
   userId       String?  // Can be User uuid or Customer uuid
+  userEmail    String?
   userRole     String?
   action       String   // LOGIN_SUCCESS, PRICE_UPDATE, etc.
   entityType   String?  // Order, Item, Setting, etc.
@@ -739,4 +741,47 @@ model DailyFinancialSnapshot {
   @@unique([date, branchId])
   @@index([date])
   @@index([branchId])
+}
+
+model HappyHour {
+  id               String   @id @default(uuid())
+  branchId         String
+  branch           Branch   @relation(fields: [branchId], references: [id])
+  dayOfWeek        Int      // 0-6
+  startTime        String   // HH:MM
+  endTime          String   // HH:MM
+  discount         Int      // percentage
+  description      String?
+  status           String   @default("active") // active/inactive
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  logs             HappyHourLog[]
+
+  @@index([branchId])
+  @@index([status])
+}
+
+model HappyHourLog {
+  id               String   @id @default(uuid())
+  happyHourId      String
+  happyHour        HappyHour @relation(fields: [happyHourId], references: [id])
+  branchId         String
+  startTime        DateTime
+  endTime          DateTime
+  discount         Int
+  createdAt        DateTime @default(now())
+
+  @@index([happyHourId])
+  @@index([branchId])
+  @@index([createdAt])
+}
+
+model UserBranchPreference {
+  id               String   @id @default(uuid())
+  userId           String   // UUID of User or Customer
+  branchId         String
+  notifications    Boolean  @default(true)
+  createdAt        DateTime @default(now())
+
+  @@unique([userId, branchId])
 }
