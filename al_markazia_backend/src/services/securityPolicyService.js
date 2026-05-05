@@ -290,7 +290,10 @@ class SecurityPolicyService {
     if (context.id && context.role) {
       rooms.add(SOCKET_ROOMS.CUSTOMER(context.id));
 
-      const role = context.role.toLowerCase();
+      let role = context.role.toLowerCase();
+      
+      // 🛡️ [GRACEFUL TRANSITION] Treat legacy super_admin as admin
+      if (role === 'super_admin') role = 'admin';
 
       // 👁️ MONITORING LAYER: Admins join the global monitoring room
       if (role === 'admin') {

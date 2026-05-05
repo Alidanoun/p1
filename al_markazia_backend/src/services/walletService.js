@@ -15,7 +15,7 @@ class WalletService {
   /**
    * ➕ Credit Wallet (with Idempotency Protection)
    */
-  async credit(customerId, amount, category, referenceId, description, idempotencyKey = null, tx = null) {
+  async credit(customerId, amount, category, referenceId, description, idempotencyKey = null, tx = null, approvalId = null) {
     if (toNumber(amount) <= 0) throw new Error('INVALID_AMOUNT');
 
     const client = tx || prisma;
@@ -23,11 +23,11 @@ class WalletService {
     // If no external transaction, we wrap it in its own
     if (!tx) {
       return await prisma.$transaction(async (innerTx) => {
-        return await this._creditInternal(customerId, amount, category, referenceId, description, idempotencyKey, innerTx);
+        return await this._creditInternal(customerId, amount, category, referenceId, description, idempotencyKey, innerTx, approvalId);
       });
     }
 
-    return await this._creditInternal(customerId, amount, category, referenceId, description, idempotencyKey, tx);
+    return await this._creditInternal(customerId, amount, category, referenceId, description, idempotencyKey, tx, approvalId);
   }
 
   /**
@@ -63,7 +63,7 @@ class WalletService {
     }
   }
 
-  async _creditInternal(customerId, amount, category, referenceId, description, idempotencyKey, tx) {
+  async _creditInternal(customerId, amount, category, referenceId, description, idempotencyKey, tx, approvalId = null) {
     // 🛡️ [PREVENTION-FIX] Pre-flight Integrity Audit
     await this._verifyIntegrity(customerId, tx);
 
@@ -101,6 +101,14 @@ class WalletService {
       }
     });
 
+    // 🛡️ [LINK-FIX] Link Approval if provided
+    if (approvalId) {
+      await tx.financialApproval.update({
+        where: { id: approvalId },
+        data: { ledgerEntryId: ledgerEntry.id }
+      });
+    }
+
     // 4. Update Cached Balance
     await tx.customer.update({
       where: { id: customerId },
@@ -124,21 +132,21 @@ class WalletService {
   /**
    * ➖ Debit Wallet
    */
-  async debit(customerId, amount, category, referenceId, description, idempotencyKey = null, tx = null) {
+  async debit(customerId, amount, category, referenceId, description, idempotencyKey = null, tx = null, approvalId = null) {
     if (toNumber(amount) <= 0) throw new Error('INVALID_AMOUNT');
 
     const client = tx || prisma;
 
     if (!tx) {
       return await prisma.$transaction(async (innerTx) => {
-        return await this._debitInternal(customerId, amount, category, referenceId, description, idempotencyKey, innerTx);
+        return await this._debitInternal(customerId, amount, category, referenceId, description, idempotencyKey, innerTx, approvalId);
       });
     }
 
-    return await this._debitInternal(customerId, amount, category, referenceId, description, idempotencyKey, tx);
+    return await this._debitInternal(customerId, amount, category, referenceId, description, idempotencyKey, tx, approvalId);
   }
 
-  async _debitInternal(customerId, amount, category, referenceId, description, idempotencyKey, tx) {
+  async _debitInternal(customerId, amount, category, referenceId, description, idempotencyKey, tx, approvalId = null) {
     // 🛡️ [PREVENTION-FIX] Pre-flight Integrity Audit
     await this._verifyIntegrity(customerId, tx);
 
@@ -173,6 +181,14 @@ class WalletService {
         metadata: idempotencyKey ? { idempotencyKey } : {}
       }
     });
+
+    // 🛡️ [LINK-FIX] Link Approval if provided
+    if (approvalId) {
+      await tx.financialApproval.update({
+        where: { id: approvalId },
+        data: { ledgerEntryId: ledgerEntry.id }
+      });
+    }
 
     // 3. Update Cached Balance
     await tx.customer.update({

@@ -612,6 +612,7 @@ model FinancialLedger {
   createdAt       DateTime @default(now())
 
   branch          Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  approvals       FinancialApproval[]
   @@index([customerId])
   @@index([orderId])
   @@index([branchId])
@@ -625,15 +626,27 @@ model FinancialApproval {
   requestedBy     Int
   requestedByRole String
   payload         Json     // Stores the intended change
-  status          String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  status          FinancialApprovalStatus @default(PENDING)
   approvedBy      Int?
   rejectionReason String?
+  
+  // Traceability Link
+  ledgerEntryId   Int?
+  ledgerEntry     FinancialLedger? @relation(fields: [ledgerEntryId], references: [id])
+
   expiresAt       DateTime
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   @@index([status])
   @@index([operationType])
+}
+
+enum FinancialApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
 }
 
 model OrderModificationEvent {

@@ -116,7 +116,7 @@ class OrderModificationService {
       const ledgerAmount = Math.abs(toNumber(delta.absoluteDifference));
       
       if (ledgerAmount > 0) {
-        await tx.financialLedger.create({
+        const ledgerEntry = await tx.financialLedger.create({
           data: {
             orderId: order.id,
             branchId: order.branchId,
@@ -132,6 +132,14 @@ class OrderModificationService {
             metadata: { eventId: event.id, delta }
           }
         });
+
+        // 🛡️ [LINK-FIX] Link Approval with Ledger
+        if (approval) {
+           await tx.financialApproval.update({
+             where: { id: approval.id },
+             data: { ledgerEntryId: ledgerEntry.id }
+           });
+        }
       }
 
       // 💰 Wallet Impact
