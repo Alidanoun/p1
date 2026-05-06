@@ -195,28 +195,42 @@ class TokenService {
 
       // 🔄 [GRACE PERIOD LOGIC] Handle concurrent refresh requests (e.g. React StrictMode)
       if (sessionData.status === 'ROTATED') {
-        // 🛡️ IP Check: Only allow grace period if the IP matches the one that rotated it
-        if (sessionData.rotatedIp !== clientIp) {
-          logger.security('[REFRESH_REUSE_FROM_DIFFERENT_IP] Critical: Rotated token used from different IP.', { 
+        // 🛡️ [SEC-FIX] Strict Dual Validation: IP + Fingerprint
+        const isSameIp = sessionData.rotatedIp === clientIp;
+        const isSameFingerprint = !sessionData.fingerprint || (currentFingerprint && sessionData.fingerprint === currentFingerprint.hash);
+
+        if (!isSameIp || !isSameFingerprint) {
+          logger.security('[REPLAY_ATTACK_DETECTED] Critical: Rotated token used from different device/IP.', { 
             userId, 
             oldJti, 
             originalIp: sessionData.rotatedIp, 
-            newIp: clientIp 
+            newIp: clientIp,
+            fingerprintMatch: isSameFingerprint
           });
+          
+          // 🚨 [PANIC-RESPONSE] Revoke all sessions immediately
           await this.revokeAllSessions(userId);
           throw new Error('SECURITY_BREACH');
+        }
+
+        // 🛡️ [SEC-FIX] Reduced Grace Window: 10s (Enough for concurrent UI retries, too short for hackers)
+        const rotatedAt = new Date(sessionData.rotatedAt).getTime();
+        if (Date.now() - rotatedAt > 10000) {
+          logger.warn('[REFRESH_GRACE_EXPIRED] Token reuse attempt outside 10s window', { userId, oldJti });
+          throw new Error('SESSION_EXPIRED');
         }
 
         logger.info('[REFRESH_GRACE_ACCEPTED] Idempotent retry handled successfully.', { 
           userId, 
           oldJti,
           withinGracePeriod: true,
-          gracePeriodSeconds: 30
+          gracePeriodSeconds: 10
         });
+
         return { 
           accessToken: sessionData.idempotentResponse.accessToken, 
           newRefreshToken: { token: sessionData.idempotentResponse.refreshToken },
-          user: { uuid: userId, role } // Basic user data for response
+          user: { uuid: userId, role }
         };
       }
 
@@ -282,7 +296,7 @@ class TokenService {
           refreshToken: newRefreshTokenString
         }
       };
-      await redis.set(sessionKey, JSON.stringify(gracePeriodData), 'EX', 60);
+      await redis.set(sessionKey, JSON.stringify(gracePeriodData), 'EX', 10);
 
       logger.info('[REFRESH_ROTATION] Token successfully rotated.', { 
         userId, 

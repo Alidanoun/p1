@@ -56,7 +56,9 @@ class RecoveryService {
     try {
       const cached = await redis.get(redisKey);
       if (cached) state = JSON.parse(cached);
-    } catch (err) {}
+    } catch (err) {
+      logger.logError('RecoveryService.handleServiceFailure', err, { serviceName });
+    }
 
     const now = Date.now();
     

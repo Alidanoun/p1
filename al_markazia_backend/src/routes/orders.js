@@ -37,7 +37,9 @@ const {
 const {
   validatePartialCancelRequest,
   validateHandlePartialCancel,
-  validateCancelOrder
+  validateCancelOrder,
+  validateOrderCreate,
+  validateOrderRating
 } = require('../middleware/orderValidation');
 
 const idempotency = require('../services/idempotencyService');
@@ -46,7 +48,7 @@ const router = express.Router();
 
 // Allow guests (app) to create orders while identifying registered customers
 // 🛡️ Gateway handles idempotency + system mode + circuit breaker
-router.post('/', guestOrderLimiter, optionalAuth, validateOrderBranch, healthGuard('db'), workingHoursGuard, orderLimiter, createOrder);
+router.post('/', guestOrderLimiter, optionalAuth, validateOrderBranch, healthGuard('db'), workingHoursGuard, orderLimiter, validateOrderCreate, createOrder);
 
 // New Secure Identity Route: Get orders for the authenticated customer
 router.get('/my-orders', authMiddleware, getMyOrders);
@@ -61,7 +63,7 @@ router.post('/accept-all', authMiddleware, managerMiddleware, requireBranchAcces
 router.patch('/:id/status', authMiddleware, managerMiddleware, requireBranchAccess, enforceIntent('write'), healthGuard('db'), idempotency.guard(true), validateId(), updateOrderStatus);
 router.patch('/:id/timer', authMiddleware, managerMiddleware, requireBranchAccess, enforceIntent('write'), idempotency.guard(true), validateId(), updateOrderTimer);
 router.patch('/:id/prep-time', authMiddleware, managerMiddleware, requireBranchAccess, enforceIntent('write'), idempotency.guard(true), validateId(), updatePreparationTime);
-router.patch('/:id/rate', authMiddleware, enforceIntent('write'), idempotency.guard(true), validateId(), submitOrderRating);
+router.patch('/:id/rate', authMiddleware, enforceIntent('write'), idempotency.guard(true), validateId(), validateOrderRating, submitOrderRating);
 
 // Cancel order (Unified logic for Customer and Admin)
 router.post('/:id/cancel', authMiddleware, requireBranchAccess, enforceIntent('write'), idempotency.guard(true), cancelOrder);

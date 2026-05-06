@@ -134,7 +134,7 @@ const toggleEmergencyClose = async (req, res) => {
     workingHoursService.invalidateCache();
 
     if (isOpen) {
-      eventBus.emitSafe('RESTAURANT_OPENED');
+      await eventBus.emitSafe('RESTAURANT_OPENED');
     }
 
     res.json({

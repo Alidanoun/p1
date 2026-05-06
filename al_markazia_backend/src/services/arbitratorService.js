@@ -65,7 +65,7 @@ class ArbitratorService {
       .set('system:last_transition', now.toString())
       .exec();
 
-    eventBus.emitSafe('SYSTEM_MODE_CHANGED', { from: prevMode, to: newMode });
+    await eventBus.emitSafe('SYSTEM_MODE_CHANGED', { from: prevMode, to: newMode });
   }
 
   _isUpgrading(from, to) {

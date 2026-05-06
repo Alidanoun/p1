@@ -2,7 +2,8 @@ const bcrypt = require('bcrypt');
 const prisma = require('../lib/prisma');
 const logger = require('../utils/logger');
 const SecurityPolicyService = require('../services/securityPolicyService');
-const { decrypt } = require('../utils/crypto');
+const { decrypt, hashBlind } = require('../utils/crypto');
+const { validatePasswordStrength } = require('../utils/security');
 
 const BOOLEAN_KEYS = ['notificationsEnabled', 'autoAcceptOrders'];
 
@@ -66,7 +67,8 @@ exports.updateAdminCredentials = async (req, res) => {
     }
 
     if (newPassword) {
-      if (newPassword.length < 6) return res.status(400).json({ error: 'كلمة المرور الجديدة يجب أن تكون 6 أحرف على الأقل' });
+      const validation = validatePasswordStrength(newPassword);
+      if (!validation.isValid) return res.status(400).json({ error: validation.message });
       updateData.password = await bcrypt.hash(newPassword, 10);
     }
 
@@ -122,7 +124,8 @@ exports.updateBranchCredentials = async (req, res) => {
       updateData.email = email;
     }
 
-    if (newPassword.length < 6) return res.status(400).json({ error: 'كلمة المرور الجديدة يجب أن تكون 6 أحرف على الأقل' });
+    const validation = validatePasswordStrength(newPassword);
+    if (!validation.isValid) return res.status(400).json({ error: validation.message });
     updateData.password = await bcrypt.hash(newPassword, 10);
 
     await prisma.user.update({
@@ -202,7 +205,7 @@ exports.updateAdvancedConfig = async (req, res) => {
         userRole: req.user.role,
         action: `UPDATE_${type.toUpperCase()}_CONFIG`,
         entityType: 'SystemSettings',
-        entityId: mainSettings.id.toString(),
+        entityId: masterConfig.id.toString(),
         metadata: { diff: data }
       }
     });

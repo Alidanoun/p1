@@ -57,8 +57,31 @@ function generateFingerprint(req) {
   };
 }
 
+/**
+ * 🔐 Password Complexity Validator
+ * Requirements: Min 8 chars, 1 Uppercase, 1 Lowercase, 1 Number, 1 Special Char
+ */
+const validatePasswordStrength = (password) => {
+  // Enhanced Regex: Allows common special characters like #, _, -, etc.
+  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#_\-])[A-Za-z\d@$!%*?&#_\-]{8,}$/;
+  
+  if (!password) {
+    return { isValid: false, message: 'كلمة المرور مطلوبة' };
+  }
+  
+  if (!passwordRegex.test(password)) {
+    return {
+      isValid: false,
+      message: 'كلمة المرور يجب أن تكون 8 خانات على الأقل وتحتوي على حرف كبير، حرف صغير، رقم، ورمز خاص (@$!%*?&#_-)'
+    };
+  }
+  
+  return { isValid: true };
+};
+
 module.exports = {
   safeJsonParse,
   validateId,
-  generateFingerprint
+  generateFingerprint,
+  validatePasswordStrength
 };

@@ -1,55 +1,83 @@
-const redis = require('../lib/redis');
-const logger = require('../utils/logger');
-
 /**
  * 🚦 Feature Flags Service (Enterprise Grade)
- * Allows dynamic toggling of security features without server restarts.
- * Uses Redis for distributed consistency across multiple backend instances.
  */
 class FeatureFlagsService {
-  /**
-   * Check if a specific security feature is enabled.
-   * @param {string} flagName - The identifier of the feature.
-   * @returns {Promise<boolean>}
-   */
-  static async isEnabled(flagName) {
+  constructor(container) {
+    this.container = container;
+    this.redis = container.redis;
+    this.logger = container.logger;
+  }
+
+  async isEnabled(flagName, userId = null) {
     try {
-      const flag = await redis.get(`feature:${flagName}`);
-      if (flag) {
-        const data = JSON.parse(flag);
-        return data.enabled === true;
-      }
+      const flag = await this.redis.get(`feature:${flagName}`);
+      let data = flag ? JSON.parse(flag) : null;
       
-      // Default Values (Safe Defaults: Most features OFF until manually verified)
       const defaults = {
-        'ENFORCE_BRANCH_ISOLATION': false,      // Global database-level filtering
-        'ENFORCE_USER_STATUS_CHECK': false,    // isActive check on every request
-        'BRANCH_AWARE_SOCKET_ROOMS': false,    // Multi-tenant Socket.IO rooms
-        'CSRF_STRICT_MODE': false,             // Global CSRF enforcement
-        'DEVICE_FINGERPRINT_TOLERANCE': true,  // Allow IP changes if UA matches (ON by default for UX)
-        'USE_QUERY_OPTIMIZER': true,           // N+1 batch-loading for order lists (ON by default)
+        'ENFORCE_BRANCH_ISOLATION': { enabled: false, rolloutPercentage: 100 },
+        'ENFORCE_USER_STATUS_CHECK': { enabled: false, rolloutPercentage: 100 },
+        'BRANCH_AWARE_SOCKET_ROOMS': { enabled: false, rolloutPercentage: 100 },
+        'CSRF_STRICT_MODE': { enabled: false, rolloutPercentage: 100 },
+        'DEVICE_FINGERPRINT_TOLERANCE': { enabled: true, rolloutPercentage: 100 },
+        'USE_QUERY_OPTIMIZER': { enabled: true, rolloutPercentage: 100 },
       };
-      
-      return defaults[flagName] || false;
+
+      if (!data) {
+        data = defaults[flagName] || { enabled: false, rolloutPercentage: 100 };
+      }
+
+      // 1. Absolute Disable
+      if (!data.enabled) return false;
+
+      // 2. Full Rollout or No User Context
+      if (!data.rolloutPercentage || data.rolloutPercentage >= 100 || !userId) {
+        return data.enabled;
+      }
+
+      // 3. 🚀 [SEC-FIX] Gradual Rollout: Sticky Bucket Logic
+      const hash = this._getHash(String(userId) + flagName);
+      const userBucket = hash % 100;
+
+      return userBucket < data.rolloutPercentage;
     } catch (err) {
-      logger.error('[FeatureFlag] Error checking flag, falling back to safe default', { flagName, error: err.message });
-      return false; // Fail-safe: feature disabled
+      this.logger.error('[FeatureFlag] Error checking flag', { flagName, error: err.message });
+      return false;
     }
   }
 
-  /**
-   * Update a feature flag status.
-   * @param {string} flagName 
-   * @param {boolean} enabled 
-   */
-  static async setFlag(flagName, enabled) {
+  async setFlag(flagName, enabled, rolloutPercentage = 100) {
     const payload = { 
       enabled, 
+      rolloutPercentage: Math.min(100, Math.max(0, rolloutPercentage)),
       updatedAt: new Date().toISOString() 
     };
-    await redis.setex(`feature:${flagName}`, 86400, JSON.stringify(payload));
-    logger.info(`[FeatureFlag] Security feature '${flagName}' is now ${enabled ? 'ENABLED' : 'DISABLED'}`);
+    await this.redis.setex(`feature:${flagName}`, 86400, JSON.stringify(payload));
+    this.logger.info(`[FeatureFlag] '${flagName}': enabled=${enabled}, rollout=${payload.rolloutPercentage}%`);
+  }
+
+  /**
+   * 🛡️ Consistent Numeric Hash
+   */
+  _getHash(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = (hash << 5) - hash + str.charCodeAt(i);
+      hash |= 0;
+    }
+    return Math.abs(hash);
   }
 }
 
-module.exports = FeatureFlagsService;
+// --- 🛡️ Backward Compatibility ---
+const getContainer = () => require('../lib/container');
+const proxy = new Proxy({}, {
+  get: (target, prop) => {
+    if (prop === 'FeatureFlagsService') return FeatureFlagsService;
+    const service = getContainer().featureFlagsService;
+    const val = service[prop];
+    return typeof val === 'function' ? val.bind(service) : val;
+  }
+});
+
+module.exports = proxy;
+module.exports.FeatureFlagsService = FeatureFlagsService;

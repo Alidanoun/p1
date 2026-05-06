@@ -104,7 +104,7 @@ class CustomerRiskService {
     const expiresAt = durationDays ? new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000) : null;
 
     return await prisma.$transaction(async (tx) => {
-      const current = await tx.customer.findUnique({ where: { id: customerId } });
+      const current = await tx.customer.findUnique({ where: { id: customerId } }, { timeout: 15000 });
       if (!current) throw new Error('العميل غير موجود');
 
       // Update Customer (Dual-field legacy sync)
@@ -155,7 +155,7 @@ class CustomerRiskService {
     const { email: adminEmail, role: adminRole, requestId, ip, userAgent, requestSource } = adminData;
 
     return await prisma.$transaction(async (tx) => {
-      const current = await tx.customer.findUnique({ where: { id: customerId } });
+      const current = await tx.customer.findUnique({ where: { id: customerId } }, { timeout: 15000 });
       if (!current) throw new Error('العميل غير موجود');
 
       const updated = await tx.customer.update({

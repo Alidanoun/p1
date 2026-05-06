@@ -97,7 +97,9 @@ class CacheService {
           const { key, targetId, originInstance } = JSON.parse(message);
           if (originInstance === this.instanceId) return;
           this.clearLocal(key, targetId);
-        } catch (e) {}
+        } catch (e) {
+          logger.logError('CacheService.pubSub.onMessage', e);
+        }
       }
     });
   }
@@ -106,7 +108,9 @@ class CacheService {
     try {
       await this.pubSub.subscribe('cache:invalidate');
       this.isSubscribed = true;
-    } catch (err) {}
+    } catch (err) {
+      logger.logError('CacheService.subscribe', err);
+    }
   }
 
   clearLocal(cacheKey, targetId = null) {
@@ -200,7 +204,9 @@ class CacheService {
       this.localCache.flushAll();
       await this.redis.quit();
       await this.pubSub.quit();
-    } catch (err) {}
+    } catch (err) {
+      logger.logError('CacheService.destroy', err);
+    }
   }
 
   async getStats() {
@@ -218,7 +224,5 @@ class CacheService {
     }
   }
 }
-
-module.exports = new CacheService();
 
 module.exports = new CacheService();

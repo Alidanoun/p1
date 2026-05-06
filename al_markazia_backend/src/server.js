@@ -8,26 +8,8 @@ const morgan = require('morgan');
 require('dotenv').config();
 require('./config/secrets');
 
-const authRoutes = require('./routes/auth');
-const itemRoutes = require('./routes/items');
-const orderRoutes = require('./routes/orders');
-const categoryRoutes = require('./routes/categories');
-const notificationRoutes = require('./routes/notifications');
-const customerRoutes = require('./routes/customers');
-const reviewRoutes = require('./routes/reviews');
-const settingsRoutes = require('./routes/settings');
-const metricsRoutes = require('./routes/metrics');
-const analyticsRoutes = require('./routes/analytics');
-const systemRoutes = require('./routes/system');
-const happyHourRoutes = require('./routes/happyHour');
-const { governorGuard } = require('./middleware/governorMiddleware');
-const deliveryZoneRoutes = require('./routes/deliveryZones');
-const dashboardRoutes = require('./routes/dashboard');
-const healthRoutes = require('./routes/health');
-const restaurantRoutes = require('./routes/restaurant');
-const loyaltyRoutes = require('./routes/loyalty');
-const orderModificationRoutes = require('./routes/orderModifications');
-const branchRoutes = require('./routes/branch');
+// 🌐 Centralized API Router (Versioned)
+const apiV1Router = require('./routes/index');
 
 const http = require('http');
 const net = require('net');
@@ -37,7 +19,6 @@ const { initOrderWorker, setupQueueDashboard } = require('./queues/orderQueue');
 const { initHealthWorker } = require('./queues/healthWorker');
 const { requestTracing } = require('./middleware/requestTracing');
 const { shadowMirrorMiddleware } = require('./middleware/shadowMirrorMiddleware');
-const IdempotencyService = require('./services/idempotencyService');
 const externalProbeController = require('./controllers/externalProbeController');
 const warmupService = require('./services/warmupService');
 const prisma = require('./lib/prisma');
@@ -46,6 +27,10 @@ const socketModule = require('./socket');
 
 const app = express();
 const server = http.createServer(app);
+
+// 🛡️ [SEC-FIX] Trust Proxy Configuration
+// Enable trusting the immediate proxy (like Nginx/loopback) to get the real client IP
+app.set('trust proxy', 'loopback');
 
 async function startServer() {
   try {
@@ -114,7 +99,7 @@ async function startServer() {
     
     // Apply CSRF protection selectively
     app.use((req, res, next) => {
-      const isAuthRoute = req.path.startsWith('/auth') || req.path.startsWith('/api/auth');
+      const isAuthRoute = req.path.startsWith('/auth') || req.path.startsWith('/api/auth') || req.path.startsWith('/api/v1/auth');
       const hasAuthHeader = req.headers.authorization;
       
       if (isAuthRoute || hasAuthHeader) {
@@ -198,37 +183,34 @@ async function startServer() {
     const auditMiddleware = require('./middleware/auditMiddleware');
     app.use(auditMiddleware);
 
-    // Routes
-    app.use('/auth', governorGuard('MISSION_CRITICAL'), authRoutes);
-    app.use('/items', itemRoutes);
-    app.use('/admin/audit', require('./routes/audit'));
-    app.use('/api/analytics', analyticsRoutes);
-    app.use('/orders', governorGuard('MISSION_CRITICAL'), IdempotencyService.guard(), orderRoutes);
-    app.use('/categories', categoryRoutes);
-    app.use('/notifications', notificationRoutes);
-    app.use('/customers', customerRoutes);
-    app.use('/reviews', governorGuard('AUXILIARY'), reviewRoutes);
-    app.use('/settings', settingsRoutes);
-    app.use('/metrics', metricsRoutes);
-    app.use('/api/system', systemRoutes);
-    app.use('/api/happyhour', happyHourRoutes);
-    
-    // Health Checks
-    const healthCheckRoutes = require('./routes/healthCheck');
-    app.use('/api/health', healthCheckRoutes);
-    app.use('/health', healthCheckRoutes); // Support both paths
-    app.use('/delivery-zones', deliveryZoneRoutes);
-    app.use('/dashboard', dashboardRoutes);
-    const financialRoutes = require('./routes/financial');
+    // ─── API Deprecation Policy (Lifecycle Management) ───────
+    const deprecation = require('./middleware/deprecation');
+    app.use((req, res, next) => {
+      const isVersioned = req.path.startsWith('/api/v1');
+      const isInternal = req.path.startsWith('/uploads') || 
+                        req.path.startsWith('/socket.io') || 
+                        req.path === '/health/external';
 
-    // API Routes
-    app.use('/api/financial', financialRoutes);
-    app.use('/api/auth', authRoutes);
-    app.use('/restaurant', restaurantRoutes);
-    app.use('/loyalty', loyaltyRoutes);
-    app.use('/order-modifications', governorGuard('MISSION_CRITICAL'), IdempotencyService.guard(), orderModificationRoutes);
-    app.use('/branch', branchRoutes);
+      if (!isVersioned && !isInternal) {
+        return deprecation({
+          alternative: `/api/v1${req.path}`,
+          date: '2026-12-31' // End of support for legacy endpoints
+        })(req, res, next);
+      }
+      next();
+    });
+
+    // ─── API Routes (Versioned) ──────────────────────────────
+    // Primary: All new clients should use /api/v1/
+    app.use('/api/v1', apiV1Router);
+
+    // Legacy: Backward compatibility for existing Flutter app & admin panels
+    // TODO: Remove after all clients migrate to /api/v1/
+    app.use('/', apiV1Router);
+
+    // Health Checks (external probes — always at root)
     app.get('/health/external', externalProbeController.pings);
+
 
     // 🚨 Global Error Handler (Centralized Survival Layer)
     const { handleError } = require('./utils/errorHandler');

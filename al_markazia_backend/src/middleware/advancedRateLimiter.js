@@ -25,9 +25,7 @@ const refreshTokenLimiter = rateLimit({
   legacyHeaders: false,
   validate: false, // 🛡️ Fix for ERR_ERL_KEY_GEN_IPV6
   keyGenerator: (req) => {
-    const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
-    const ua = req.headers['user-agent'] || 'unknown';
-    return `${ip}:${ua.substring(0, 50)}`;
+    return `refresh:${req.ip}`;
   },
   handler: (req, res) => {
     logger.security('RATE_LIMIT_EXCEEDED', {
@@ -56,8 +54,7 @@ const loginLimiter = rateLimit({
   validate: false,
   keyGenerator: (req) => {
     const email = req.body.email || 'unknown';
-    const ip = req.ip || 'unknown';
-    return `${ip}:${email}`;
+    return `login:${req.ip}:${email}`;
   },
   handler: (req, res) => {
     logger.security('LOGIN_RATE_LIMIT_EXCEEDED', {
@@ -83,7 +80,8 @@ const otpLimiter = rateLimit({
   max: 5, // 5 محاولات فقط
   validate: false,
   keyGenerator: (req) => {
-    return req.body.email || req.ip || 'unknown';
+    const email = req.body.email || 'unknown';
+    return `otp:${email}:${req.ip}`;
   },
   handler: (req, res) => {
     logger.security('OTP_RATE_LIMIT_EXCEEDED', {
@@ -109,10 +107,8 @@ const apiLimiter = rateLimit({
   max: 200, // 200 طلب في الدقيقة
   validate: false,
   keyGenerator: (req) => {
-    if (req.user && req.user.id) {
-      return `user:${req.user.id}`;
-    }
-    return `ip:${req.ip}`;
+    const identifier = req.user?.id ? `user:${req.user.id}` : `ip:${req.ip}`;
+    return `api:${identifier}`;
   },
   handler: (req, res) => {
     logger.warn('API_RATE_LIMIT_EXCEEDED', {
@@ -139,7 +135,8 @@ const uploadLimiter = rateLimit({
   max: 30, // 30 تحميل في الساعة
   validate: false,
   keyGenerator: (req) => {
-    return req.user?.id || req.ip || 'unknown';
+    const identifier = req.user?.id ? `user:${req.user.id}` : `ip:${req.ip}`;
+    return `upload:${identifier}`;
   }
 });
 
