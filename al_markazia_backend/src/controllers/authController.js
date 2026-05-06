@@ -2,13 +2,14 @@ const bcrypt = require('bcrypt');
 const prisma = require('../lib/prisma');
 const logger = require('../utils/logger');
 const { generateFingerprint } = require('../utils/security');
+const { encrypt, decrypt } = require('../utils/crypto');
 const TokenService = require('../services/tokenService');
 const auditService = require('../services/auditService');
 const { REFRESH_TOKEN_EXPIRY_MS, BCRYPT_ROUNDS = 10 } = require('../config/secrets');
 const { OTP_EXPIRY } = require('../config/constants');
 const response = require('../utils/response');
 
-const passwordRegex = /^(?=.*[a-zA-Z])(?=.*[\d!@#$%^&*]).{8,}$/;
+const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
 
 // ── Helper: Token Sanitizer ───────────────────────────
 /**
@@ -140,10 +141,10 @@ const login = async (req, res) => {
     const lockoutKey = `${req.ip}_${cleanEmail}`;
     
     const user = await prisma.user.findUnique({ 
-      where: { email: cleanEmail },
+      where: { emailHash: hashBlind(cleanEmail) },
       include: { branch: true }
     });
-    const customer = !user ? await prisma.customer.findUnique({ where: { email: cleanEmail } }) : null;
+    const customer = !user ? await prisma.customer.findUnique({ where: { emailHash: hashBlind(cleanEmail) } }) : null;
     const account = user || customer;
 
     // 🛡️ Account Lockout Check
@@ -220,13 +221,17 @@ const login = async (req, res) => {
     }
 
     // --- 📡 Smart FCM Token Sync ---
-    if (fcmToken && fcmToken !== account.fcmToken) {
-      if (user) {
-        await prisma.user.update({ where: { id: user.id }, data: { fcmToken } });
-      } else {
-        await prisma.customer.update({ where: { id: customer.id }, data: { fcmToken } });
+    if (fcmToken) {
+      const encryptedFcm = encrypt(fcmToken);
+      // Only update if changed (comparing decrypted values to avoid unnecessary re-encryption of same token)
+      if (decrypt(account.fcmToken) !== fcmToken) {
+        if (user) {
+          await prisma.user.update({ where: { id: user.id }, data: { fcmToken: encryptedFcm } });
+        } else {
+          await prisma.customer.update({ where: { id: customer.id }, data: { fcmToken: encryptedFcm } });
+        }
+        logger.info('FCM Token updated (Encrypted)', { accountId: account.uuid });
       }
-      logger.info('FCM Token updated', { accountId: account.uuid });
     }
 
     // 🛡️ [SEC-FIX] Device Fingerprinting
@@ -252,9 +257,9 @@ const login = async (req, res) => {
       refreshToken: refreshToken,
       user: { 
         id: account.uuid,
-        email: account.email, 
-        name: account.name,
-        phone: account.phone,
+        email: decrypt(account.email), 
+        name: decrypt(account.name),
+        phone: decrypt(account.phone),
         role: account.role || 'customer',
         branchId: account.branchId || null,
         branchName: user?.branch?.name || null
@@ -304,9 +309,9 @@ const getMe = async (req, res) => {
       success: true, 
       data: {
         id: user.uuid,
-        email: user.email || null,
-        phone: user.phone || null,
-        name: user.name || null,
+        email: decrypt(user.email) || null,
+        phone: decrypt(user.phone) || null,
+        name: decrypt(user.name) || null,
         role: user.role || 'customer',
         branchId: user.branchId || null,
         branchName: user.branch?.name || null,
@@ -332,20 +337,22 @@ const register = async (req, res) => {
 
     // 0. Validate Password Strength
     if (!passwordRegex.test(password)) {
-      return response.error(res, 'كلمة المرور يجب أن تكون 8 خانات على الأقل وتحتوي على حرف ورقم أو رمز', 'WEAK_PASSWORD', 400);
+      return response.error(res, 'كلمة المرور يجب أن تكون 8 خانات على الأقل وتحتوي على حرف كبير، حرف صغير، رقم، ورمز خاص (@$!%*?&)', 'WEAK_PASSWORD', 400);
     }
 
     // 1. Validate if account exists in either table (Email or Phone)
-    const existingUser = await prisma.user.findUnique({ where: { email: cleanEmail } });
-    const existingCustomer = await prisma.customer.findUnique({ where: { email: cleanEmail } });
+    const emailHash = hashBlind(cleanEmail);
+    const existingUser = await prisma.user.findUnique({ where: { emailHash } });
+    const existingCustomer = await prisma.customer.findUnique({ where: { emailHash } });
     
     if (existingUser || existingCustomer) {
       return response.error(res, 'البريد الإلكتروني مسجل مسبقاً', 'EMAIL_EXISTS', 400);
     }
 
     if (phone) {
-      const existingUserPhone = await prisma.user.findUnique({ where: { phone } });
-      const existingCustomerPhone = await prisma.customer.findUnique({ where: { phone } });
+      const phoneHash = hashBlind(phone);
+      const existingUserPhone = await prisma.user.findUnique({ where: { phoneHash } });
+      const existingCustomerPhone = await prisma.customer.findUnique({ where: { phoneHash } });
       if (existingUserPhone || existingCustomerPhone) {
         return response.error(res, 'رقم الجوال مسجل مسبقاً', 'PHONE_EXISTS', 400);
       }
@@ -362,10 +369,17 @@ const register = async (req, res) => {
     await prisma.otpCode.create({
       data: {
         email: cleanEmail,
+        emailHash: hashBlind(cleanEmail),
         codeHash: await bcrypt.hash(otp, BCRYPT_ROUNDS),
         purpose: 'registration',
         expiresAt,
-        metadata: { name, email: cleanEmail, password: hashedPassword, phone }
+        metadata: { 
+          name, 
+          email: cleanEmail, 
+          password: hashedPassword, 
+          phone,
+          fcmToken // Include fcmToken if provided
+        }
       }
     });
 
@@ -392,7 +406,7 @@ const verifyRegistration = async (req, res) => {
 
     // 1. Find the latest valid OTP
     const otpRecord = await prisma.otpCode.findFirst({
-      where: { email: cleanEmail, purpose: 'registration', used: false },
+      where: { emailHash: hashBlind(cleanEmail), purpose: 'registration', used: false },
       orderBy: { createdAt: 'desc' }
     });
 
@@ -412,9 +426,12 @@ const verifyRegistration = async (req, res) => {
     const account = await prisma.customer.create({
       data: {
         name,
-        email: cleanEmail,
+        email: encrypt(cleanEmail),
+        emailHash: hashBlind(cleanEmail),
         password,
-        phone
+        phone: phone ? encrypt(phone) : null,
+        phoneHash: phone ? hashBlind(phone) : null,
+        fcmToken: otpRecord.metadata.fcmToken ? encrypt(otpRecord.metadata.fcmToken) : null
       }
     });
 
@@ -440,9 +457,9 @@ const verifyRegistration = async (req, res) => {
       refreshToken: token,
       user: { 
         id: account.uuid, 
-        email: account.email, 
-        name: account.name, 
-        phone: account.phone, 
+        email: decrypt(account.email), 
+        name: decrypt(account.name), 
+        phone: decrypt(account.phone), 
         role: 'customer' 
       } 
     });
@@ -473,9 +490,10 @@ const forgotPassword = async (req, res) => {
   const cleanEmail = email.toLowerCase().trim();
 
   try {
-    // 🛡️ Search both User (Admin) and Customer tables
-    const user = await prisma.user.findUnique({ where: { email: cleanEmail } });
-    const customer = !user ? await prisma.customer.findUnique({ where: { email: cleanEmail } }) : null;
+    // 🛡️ Search both User (Admin) and Customer tables using hashes
+    const targetHash = hashBlind(cleanEmail);
+    const user = await prisma.user.findUnique({ where: { emailHash: targetHash } });
+    const customer = !user ? await prisma.customer.findUnique({ where: { emailHash: targetHash } }) : null;
 
     // 🛡️ Anti-enumeration: Always return 200 even if neither exists
     if (!user && !customer) {
@@ -513,11 +531,11 @@ const resetPassword = async (req, res) => {
   try {
     // 0. Validate Password Strength
     if (!passwordRegex.test(newPassword)) {
-      return response.error(res, 'كلمة المرور يجب أن تكون 8 خانات على الأقل وتحتوي على حرف ورقم أو رمز', 'WEAK_PASSWORD', 400);
+      return response.error(res, 'كلمة المرور يجب أن تكون 8 خانات على الأقل وتحتوي على حرف كبير، حرف صغير، رقم، ورمز خاص (@$!%*?&)', 'WEAK_PASSWORD', 400);
     }
 
     const otpRecord = await prisma.otpCode.findFirst({
-      where: { email: cleanEmail, purpose: 'password_reset', used: false },
+      where: { emailHash: hashBlind(cleanEmail), purpose: 'password_reset', used: false },
       orderBy: { createdAt: 'desc' }
     });
 
@@ -533,11 +551,12 @@ const resetPassword = async (req, res) => {
     const hashedPassword = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
     
     // ✅ Check user type and update accordingly
-    let account = await prisma.user.findUnique({ where: { email: cleanEmail } });
+    const targetHash = hashBlind(cleanEmail);
+    let account = await prisma.user.findUnique({ where: { emailHash: targetHash } });
     let isUser = true;
 
     if (!account) {
-      account = await prisma.customer.findUnique({ where: { email: cleanEmail } });
+      account = await prisma.customer.findUnique({ where: { emailHash: targetHash } });
       isUser = false;
     }
 
@@ -549,13 +568,13 @@ const resetPassword = async (req, res) => {
     await prisma.$transaction(async (tx) => {
       if (isUser) {
         updatedAccount = await tx.user.update({
-          where: { email: cleanEmail },
-          data: { password: hashedPassword }
+          where: { emailHash: targetHash },
+          data: { password: hashedPassword, failedAttempts: 0, lockUntil: null }
         });
       } else {
         updatedAccount = await tx.customer.update({
-          where: { email: cleanEmail },
-          data: { password: hashedPassword }
+          where: { emailHash: targetHash },
+          data: { password: hashedPassword, failedAttempts: 0, lockUntil: null }
         });
       }
 
@@ -600,9 +619,9 @@ const resetPassword = async (req, res) => {
       refreshToken: token,
       user: { 
         id: updatedAccount.uuid, 
-        email: updatedAccount.email, 
-        name: updatedAccount.name, 
-        phone: updatedAccount.phone, 
+        email: decrypt(updatedAccount.email), 
+        name: decrypt(updatedAccount.name), 
+        phone: decrypt(updatedAccount.phone), 
         role: updatedAccount.role || 'customer' 
       }
     });

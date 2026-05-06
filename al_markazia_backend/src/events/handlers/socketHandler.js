@@ -26,9 +26,14 @@ const emitBranchMetrics = (event, context) => {
   const branchId = order.branchId;
   const branchMetrics = analyticsProjection.getMetrics(branchId);
   
-  // 🏢 Broadcast ONLY to the specific branch room
+  // 🏢 Broadcast to the specific branch room
   io.to(SOCKET_ROOMS.MONITOR_BRANCH(branchId)).emit(SOCKET_EVENTS.DASHBOARD_METRICS_UPDATE, branchMetrics);
-  logger.debug(`[SocketHandler] Metrics updated for ${context} -> Branch: ${branchId}`);
+  
+  // 🌍 Also broadcast global metrics to the global monitor room
+  const globalMetrics = analyticsProjection.getMetrics(null);
+  io.to(SOCKET_ROOMS.MONITOR_GLOBAL).emit(SOCKET_EVENTS.DASHBOARD_METRICS_UPDATE, globalMetrics);
+  
+  logger.debug(`[SocketHandler] Metrics updated for ${context} -> Branch: ${branchId} & Global`);
 };
 
 // 1. Order Created (Update Dashboard Metrics)

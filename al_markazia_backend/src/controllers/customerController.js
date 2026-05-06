@@ -1,6 +1,6 @@
-
 const prisma = require('../lib/prisma');
 const logger = require('../utils/logger');
+const { encrypt, decrypt, hashBlind } = require('../utils/crypto');
 const { success, error: responseError } = require('../utils/response');
 const customerRiskService = require('../services/customerRiskService');
 const TokenService = require('../services/tokenService');
@@ -21,7 +21,7 @@ const updateFcmToken = async (req, res) => {
     // 🛡️ Ensure we update based on UUID (Source of Truth)
     const customer = await prisma.customer.update({
       where: { uuid },
-      data: { fcmToken }
+      data: { fcmToken: encrypt(fcmToken) }
     });
 
     logger.info('FCM Token secured and updated', { uuid: customer.uuid, phone: customer.phone });
@@ -46,7 +46,9 @@ const requestLoginOtp = async (req, res) => {
       return responseError(res, 'تنسيق رقم الهاتف غير صحيح', 'INVALID_FORMAT', 400);
     }
 
-    const customer = await prisma.customer.findUnique({ where: { phone: cleanPhone } });
+    const customer = await prisma.customer.findUnique({ 
+      where: { phoneHash: hashBlind(cleanPhone) } 
+    });
 
     if (customer) {
       try {
@@ -114,7 +116,9 @@ const loginCustomer = async (req, res) => {
     }
 
     // 2. Resolve Identity
-    const customer = await prisma.customer.findUnique({ where: { phone: cleanPhone } });
+    const customer = await prisma.customer.findUnique({ 
+      where: { phoneHash: hashBlind(cleanPhone) } 
+    });
     if (!customer) {
       return responseError(res, 'الحساب غير موجود', 'NOT_FOUND', 404);
     }
@@ -143,8 +147,8 @@ const loginCustomer = async (req, res) => {
       refreshToken,
       user: {
         id: customer.uuid,
-        name: customer.name,
-        phone: customer.phone,
+        name: decrypt(customer.name),
+        phone: decrypt(customer.phone),
         username: customer.username,
         isBlacklisted: enrichedCustomer.isBlacklisted
       }
@@ -164,7 +168,9 @@ const requestRegistrationOtp = async (req, res) => {
     if (!phone) return responseError(res, 'رقم الهاتف مطلوب', 'MISSING_FIELD', 400);
 
     const cleanPhone = otpService.normalizePhone(phone);
-    const existing = await prisma.customer.findUnique({ where: { phone: cleanPhone } });
+    const existing = await prisma.customer.findUnique({ 
+      where: { phoneHash: hashBlind(cleanPhone) } 
+    });
 
     if (existing) {
       await new Promise(resolve => setTimeout(resolve, 200));
@@ -199,7 +205,7 @@ const requestRegistrationOtp = async (req, res) => {
  */
 const registerCustomer = async (req, res) => {
   try {
-    const { name, phone, code } = req.body;
+    const { name, phone, code, fcmToken } = req.body;
     if (!name || !phone) {
       return responseError(res, 'الاسم والرقم مطلوبان', 'MISSING_FIELDS', 400);
     }
@@ -219,7 +225,8 @@ const registerCustomer = async (req, res) => {
     }
 
     // 2. Final duplication check (prevention of race conditions)
-    const existing = await prisma.customer.findUnique({ where: { phone: cleanPhone } });
+    const phoneHash = hashBlind(cleanPhone);
+    const existing = await prisma.customer.findUnique({ where: { phoneHash } });
     if (existing) {
       return responseError(res, 'الرقم مسجّل مسبقاً', 'DUPLICATE', 400);
     }
@@ -228,8 +235,10 @@ const registerCustomer = async (req, res) => {
     const customer = await prisma.customer.create({
       data: { 
         name, 
-        phone: cleanPhone, 
-        phoneVerifiedAt: new Date() 
+        phone: encrypt(cleanPhone),
+        phoneHash: hashBlind(cleanPhone),
+        phoneVerifiedAt: new Date(),
+        fcmToken: fcmToken ? encrypt(fcmToken) : null
       }
     });
 
@@ -244,8 +253,8 @@ const registerCustomer = async (req, res) => {
       refreshToken,
       user: {
         id: customer.uuid,
-        name: customer.name,
-        phone: customer.phone,
+        name: decrypt(customer.name),
+        phone: decrypt(customer.phone),
         username: customer.username
       }
     });
@@ -287,7 +296,11 @@ const getBlacklistedCustomers = async (req, res) => {
 
     // Enhanced Pagination Object
     success(res, {
-      customers,
+      customers: customers.map(c => ({
+        ...c,
+        name: decrypt(c.name),
+        phone: decrypt(c.phone)
+      })),
       pagination: { 
         total, 
         limit, 

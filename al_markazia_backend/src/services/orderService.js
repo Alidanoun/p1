@@ -8,6 +8,7 @@ const redis = require('../lib/redis');
 const xss = require('xss');
 const bcrypt = require('bcrypt');
 const logger = require('../utils/logger');
+const { encrypt, decrypt, hashBlind } = require('../utils/crypto');
 const AuditLogger = require('../utils/auditLogger');
 const analyticsService = require('./analyticsService');
 const loyaltyService = require('./loyaltyService');
@@ -1019,7 +1020,8 @@ class OrderService {
         data: {
           orderNumber,
           customerName: customerName || 'زبون',
-          customerPhone: resolvedCustomer.phone,
+          customerPhone: encrypt(resolvedCustomer.phone),
+          customerPhoneHash: hashBlind(resolvedCustomer.phone),
           customerId: resolvedCustomer.id,
           orderType: orderType || 'takeaway',
           paymentMethod: paymentMethod || 'cash',
@@ -1149,7 +1151,7 @@ class OrderService {
 
     const count = await prisma.orderCancellation.count({
       where: {
-        order: { customerPhone: phone },
+        order: { customerPhoneHash: hashBlind(phone) },
         createdAt: { gte: since },
       },
     });
@@ -1157,12 +1159,11 @@ class OrderService {
     if (count >= limit) {
       const expires = new Date(Date.now() + window * 60 * 1000);
       await prisma.customer.update({
-        where: { phone },
+        where: { phoneHash: hashBlind(phone) },
         data: {
           isBlacklisted: true,
           blacklistExpiresAt: expires,
-          blacklistReason: `Spam detected: ${count} cancellations in ${window}m`,
-          blacklistType: 'auto'
+          blacklistReason: `Spam detected: ${count} cancellations in ${window}m`
         }
       });
       throw new Error('SPAM_LIMIT_EXCEEDED');
@@ -1179,7 +1180,7 @@ class OrderService {
     if (authUser) {
       customer = await prisma.customer.findUnique({ where: { uuid: authUser.id } });
       if (customer) {
-        resolvedPhone = customer.phone;
+        resolvedPhone = decrypt(customer.phone);
         logger.debug(`[OrderService] Found customer by UUID ${authUser.id}: ID ${customer.id}`);
       } else {
         logger.debug(`[OrderService] No customer found for UUID ${authUser.id}. User role: ${authUser.role}`);
@@ -1192,8 +1193,10 @@ class OrderService {
       }
     }
 
-    if (!customer) {
-      customer = await prisma.customer.findUnique({ where: { phone: resolvedPhone } });
+    if (!customer && resolvedPhone) {
+      customer = await prisma.customer.findUnique({ 
+        where: { phoneHash: hashBlind(resolvedPhone) } 
+      });
       if (customer) {
         logger.debug(`[OrderService] Found customer by Phone ${resolvedPhone}: ID ${customer.id}`);
       } else {

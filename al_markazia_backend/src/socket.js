@@ -16,9 +16,26 @@ const recentDisconnects = []; // Rolling buffer for diagnostics
 
 module.exports = {
   init: (httpServer) => {
+    const allowedOrigins = (process.env.CORS_ORIGIN || '').split(',').map(o => o.trim()).filter(Boolean);
+    const allowedOriginRegexes = allowedOrigins.map(origin => {
+      const escaped = origin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return new RegExp(`^${escaped}$`);
+    });
+
     io = new Server(httpServer, {
       cors: {
-        origin: (process.env.CORS_ORIGIN || '').split(',').map(o => o.trim()).filter(Boolean),
+        origin: (origin, callback) => {
+          if (!origin) return callback(null, true);
+          const isLocal = /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3})(:\d+)?$/.test(origin);
+          const isAllowed = allowedOriginRegexes.some(regex => regex.test(origin));
+          
+          if (isLocal || isAllowed) {
+            callback(null, true);
+          } else {
+            logger.warn(`🛡️ [SocketCORS] Rejected unauthorized origin: ${origin}`);
+            callback(new Error('Not allowed by CORS'), false);
+          }
+        },
         methods: ["GET", "POST"],
         credentials: true
       }
@@ -184,24 +201,27 @@ module.exports = {
             return;
           }
 
-          // 🛡️ [SEC-FIX] Validate branchId presence to prevent Prisma crash
-          if (!branchId) {
+          // 🛡️ [SEC-FIX] Validate branchId (Allow null for admins for 'All Branches' view)
+          const isAdmin = ['admin', 'super_admin'].includes(role);
+          if (!branchId && !isAdmin) {
             logger.warn(`[Socket] Branch switch rejected: Missing branchId for user ${userId}`);
             if (ack) ack({ success: false, error: 'Branch ID is required' });
             return;
           }
 
-          // 🛡️ 2. Validate Target Branch Existence & Status
-          const prisma = require('./lib/prisma');
-          const branch = await prisma.branch.findUnique({
-            where: { id: branchId },
-            select: { id: true, isActive: true }
-          });
+          // 🛡️ 2. Validate Target Branch Existence & Status (If specific branch requested)
+          if (branchId) {
+            const prisma = require('./lib/prisma');
+            const branch = await prisma.branch.findUnique({
+              where: { id: branchId },
+              select: { id: true, isActive: true }
+            });
 
-          if (!branch || !branch.isActive) {
-            logger.warn(`[Socket] Branch switch rejected: Invalid or inactive branch ${branchId}`);
-            if (ack) ack({ success: false, error: 'الفرع المحدد غير موجود أو غير نشط' });
-            return;
+            if (!branch || !branch.isActive) {
+              logger.warn(`[Socket] Branch switch rejected: Invalid or inactive branch ${branchId}`);
+              if (ack) ack({ success: false, error: 'الفرع المحدد غير موجود أو غير نشط' });
+              return;
+            }
           }
 
           // 🔐 3. SecurityPolicy Authorization Check
@@ -230,10 +250,10 @@ module.exports = {
             }
           }
 
-          // 👁️ 5. Join New Branch Context
-          const targetRoom = SOCKET_ROOMS.MONITOR_BRANCH(branchId);
+          // 👁️ 5. Join New Branch Context (Global or Specific)
+          const targetRoom = branchId ? SOCKET_ROOMS.MONITOR_BRANCH(branchId) : SOCKET_ROOMS.MONITOR_GLOBAL;
           await socket.join(targetRoom);
-          socket.data.activeBranchId = branchId;
+          socket.data.activeBranchId = branchId || 'GLOBAL';
           logger.info(`[Socket] User ${userId} switched context to branch ${branchId}`);
 
           // 📝 6. Audit Log (Success)

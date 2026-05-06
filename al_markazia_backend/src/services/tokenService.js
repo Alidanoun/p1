@@ -273,6 +273,8 @@ class TokenService {
       // Increased from 30s to 60s to handle slow networks/proxies
       const gracePeriodData = {
         status: 'ROTATED',
+        role: user.role || 'customer',
+        branchId: user.branchId || null,
         rotatedAt: new Date().toISOString(),
         rotatedIp: clientIp,
         idempotentResponse: {
