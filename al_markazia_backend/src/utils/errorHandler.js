@@ -15,7 +15,10 @@ class AppError extends Error {
 }
 
 const handleError = (err, req, res, next) => {
-  let { statusCode, message, code } = err;
+  const isProduction = process.env.NODE_ENV === 'production';
+  let statusCode = err.statusCode || 500;
+  let message = err.message;
+  let code = err.code || 'INTERNAL_ERROR';
 
   // 1. Log the full error internally
   logger.error(`[API ERROR] ${req.method} ${req.originalUrl}`, {
@@ -23,14 +26,20 @@ const handleError = (err, req, res, next) => {
     code: err.code,
     stack: err.stack,
     userId: req.user?.id,
-    ip: req.ip
+    ip: req.ip,
+    requestId: req.id
   });
 
-  // 2. Filter out sensitive DB/Prisma errors for the client
-  if (err.name?.includes('Prisma') || err.name?.includes('Database')) {
-    statusCode = 500;
-    message = 'حدث خطأ في قاعدة البيانات، يرجى المحاولة لاحقاً';
-    code = 'DATABASE_ERROR';
+  // 2. Filter out sensitive DB/Prisma errors for the client in Production
+  if (isProduction) {
+    if (err.name?.includes('Prisma') || err.name?.includes('Database')) {
+      statusCode = 500;
+      message = 'حدث خطأ في معالجة البيانات، يرجى المحاولة لاحقاً';
+      code = 'DATABASE_ERROR';
+    } else if (!err.isOperational && statusCode === 500) {
+      message = 'حدث خطأ داخلي في النظام، تم إبلاغ الفريق التقني';
+      code = 'INTERNAL_SERVER_ERROR';
+    }
   }
 
   if (err.name === 'ValidationError') {
@@ -38,13 +47,15 @@ const handleError = (err, req, res, next) => {
     code = 'VALIDATION_ERROR';
   }
 
-  // 3. Standard Production-Grade Response
-  res.status(statusCode || 500).json({
+  // 3. Standard Secure Response
+  res.status(statusCode).json({
     success: false,
     error: {
       message: message || 'حدث خطأ غير متوقع',
-      code: code || 'UNKNOWN_ERROR',
-      requestId: req.id // Traceable ID for debugging
+      code: code,
+      // 🛠️ Include stack trace ONLY in development
+      ...(!isProduction && { stack: err.stack }),
+      requestId: req.id // Traceable ID for matching with logs
     }
   });
 };

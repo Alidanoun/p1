@@ -21,7 +21,7 @@ class OrderModificationService {
     financialGuard.assertPermission(user, 'MODIFY_CONFIRMED_ORDER');
 
     const event = await prisma.$transaction(async (tx) => {
-      const order = await tx.order.findUnique({ where: { id: orderId } });
+      const order = await tx.order.findUnique({ where: { id: orderId } }, { timeout: 15000 });
       if (!order) throw new Error('ORDER_NOT_FOUND');
 
       const { oldSummary, newSummary, delta, ...modifications } = enrichedModifications;
@@ -94,7 +94,7 @@ class OrderModificationService {
     financialGuard.assertPermission(user, 'MODIFY_CONFIRMED_ORDER');
 
     const result = await prisma.$transaction(async (tx) => {
-      const event = await tx.orderModificationEvent.findUnique({ where: { id: eventId } });
+      const event = await tx.orderModificationEvent.findUnique({ where: { id: eventId } }, { timeout: 15000 });
       if (!event || event.status === 'APPLIED') throw new Error('EVENT_NOT_ACTIVE');
       
       // Check for Approval if required

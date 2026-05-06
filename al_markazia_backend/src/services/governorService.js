@@ -68,7 +68,9 @@ class GovernorService {
         .incr(redisKey)
         .expire(redisKey, 10)
         .exec();
-    } catch (err) {}
+    } catch (err) {
+      logger.logError('GovernorService.trackRequest', err);
+    }
   }
 }
 

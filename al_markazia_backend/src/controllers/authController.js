@@ -1,15 +1,13 @@
 const bcrypt = require('bcrypt');
 const prisma = require('../lib/prisma');
 const logger = require('../utils/logger');
-const { generateFingerprint } = require('../utils/security');
-const { encrypt, decrypt } = require('../utils/crypto');
+const { generateFingerprint, validatePasswordStrength } = require('../utils/security');
+const { encrypt, decrypt, hashBlind } = require('../utils/crypto');
 const TokenService = require('../services/tokenService');
 const auditService = require('../services/auditService');
 const { REFRESH_TOKEN_EXPIRY_MS, BCRYPT_ROUNDS = 10 } = require('../config/secrets');
 const { OTP_EXPIRY } = require('../config/constants');
 const response = require('../utils/response');
-
-const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
 
 // ── Helper: Token Sanitizer ───────────────────────────
 /**
@@ -336,8 +334,9 @@ const register = async (req, res) => {
     const cleanEmail = email.toLowerCase().trim();
 
     // 0. Validate Password Strength
-    if (!passwordRegex.test(password)) {
-      return response.error(res, 'كلمة المرور يجب أن تكون 8 خانات على الأقل وتحتوي على حرف كبير، حرف صغير، رقم، ورمز خاص (@$!%*?&)', 'WEAK_PASSWORD', 400);
+    const passwordValidation = validatePasswordStrength(password);
+    if (!passwordValidation.isValid) {
+      return response.error(res, passwordValidation.message, 'WEAK_PASSWORD', 400);
     }
 
     // 1. Validate if account exists in either table (Email or Phone)
@@ -530,8 +529,9 @@ const resetPassword = async (req, res) => {
 
   try {
     // 0. Validate Password Strength
-    if (!passwordRegex.test(newPassword)) {
-      return response.error(res, 'كلمة المرور يجب أن تكون 8 خانات على الأقل وتحتوي على حرف كبير، حرف صغير، رقم، ورمز خاص (@$!%*?&)', 'WEAK_PASSWORD', 400);
+    const passwordValidation = validatePasswordStrength(newPassword);
+    if (!passwordValidation.isValid) {
+      return response.error(res, passwordValidation.message, 'WEAK_PASSWORD', 400);
     }
 
     const otpRecord = await prisma.otpCode.findFirst({

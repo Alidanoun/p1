@@ -17,9 +17,19 @@ if (!ENCRYPTION_KEY || ENCRYPTION_KEY.length < 32) {
 /**
  * 🔐 Encrypts a string using AES-256-CBC with a random IV.
  * Format: iv:encrypted_data
+ * [IDEMPOTENT]: Detects if already encrypted to avoid double-encryption.
  */
 function encrypt(text) {
   if (!text || typeof text !== 'string') return text;
+
+  // 🛡️ [SEC-FIX] Avoid Double Encryption
+  // Check if string follows the pattern 'hex(32):hex'
+  if (text.includes(':')) {
+    const [ivHex] = text.split(':');
+    if (ivHex.length === 32 && /^[0-9a-fA-F]+$/.test(ivHex)) {
+      return text; // Already encrypted
+    }
+  }
   
   try {
     const iv = crypto.randomBytes(IV_LENGTH);

@@ -34,11 +34,11 @@ class IntelligenceEngine {
 
     if (status === 'HEALTHY' && score > 95) {
       if (now - lastCanary > 30000) { // 30s throttle
-        eventBus.emitSafe('CANARY_PROMOTION_ALLOWED');
+        await eventBus.emitSafe('CANARY_PROMOTION_ALLOWED');
         this.decisions.set('last_canary_emit', now);
       }
     } else {
-      eventBus.emitSafe('CANARY_PROMOTION_BLOCKED', { reason: status });
+      await eventBus.emitSafe('CANARY_PROMOTION_BLOCKED', { reason: status });
     }
 
     this.decisions.set('last_orchestration', { timestamp: now, score, status });
@@ -50,7 +50,7 @@ class IntelligenceEngine {
     // Globally disable non-critical experimental features
     await redis.set('feature_flags:emergency_mode', 'true', 'EX', 3600);
     
-    eventBus.emitSafe('SYSTEM_EMERGENCY_KILLSWITCH', { reason });
+    await eventBus.emitSafe('SYSTEM_EMERGENCY_KILLSWITCH', { reason });
   }
 
   async activatePredictiveThrottling() {

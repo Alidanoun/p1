@@ -1,19 +1,21 @@
-const prisma = require('../lib/prisma');
-const logger = require('../utils/logger');
-const auditService = require('./auditService');
-
 /**
  * 🧮 Financial & Loyalty Logic Service (Centralized Integrity Layer)
  * Handles all point increments, price calculations, and ledger entries.
  */
 class FinancialService {
+  constructor(container) {
+    this.container = container;
+    this.prisma = container.prisma;
+    this.logger = container.logger;
+  }
+
   /**
    * 🪙 Atomic Point Reward
    * Uses Prisma's atomic increment to prevent race conditions.
    */
   async awardPoints(customerId, amount, type, tx = null) {
     if (amount <= 0) return null;
-    const db = tx || prisma;
+    const db = tx || this.prisma;
 
     const result = await db.customer.update({
       where: { id: customerId },
@@ -22,7 +24,7 @@ class FinancialService {
       }
     });
 
-    await auditService.log({
+    await this.container.auditService.log({
       userId: result.uuid,
       userRole: 'customer',
       action: 'POINTS_AWARDED',
@@ -38,7 +40,7 @@ class FinancialService {
    * 💸 Atomic Points Deduction (with Check)
    */
   async deductPoints(customerId, amount, tx = null) {
-    const db = tx || prisma;
+    const db = tx || this.prisma;
     
     // We check balance inside the transaction if tx is provided
     const customer = await db.customer.findUnique({ where: { id: customerId } });
@@ -53,7 +55,7 @@ class FinancialService {
       }
     });
 
-    await auditService.log({
+    await this.container.auditService.log({
       userId: result.uuid,
       userRole: 'customer',
       action: 'POINTS_DEDUCTED',
@@ -87,4 +89,16 @@ class FinancialService {
   }
 }
 
-module.exports = new FinancialService();
+// --- 🛡️ Backward Compatibility ---
+const getContainer = () => require('../lib/container');
+const proxy = new Proxy({}, {
+  get: (target, prop) => {
+    if (prop === 'FinancialService') return FinancialService;
+    const service = getContainer().financialService;
+    const val = service[prop];
+    return typeof val === 'function' ? val.bind(service) : val;
+  }
+});
+
+module.exports = proxy;
+module.exports.FinancialService = FinancialService;

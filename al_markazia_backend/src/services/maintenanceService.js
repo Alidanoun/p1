@@ -36,7 +36,7 @@ class MaintenanceService {
         const archiveData = logs.map(log => {
           const { id, ...data } = log;
           return data;
-        });
+        }, { timeout: 15000 });
 
         await tx.orderAuditLogArchive.createMany({ data: archiveData });
         await tx.orderAuditLog.deleteMany({

@@ -1,86 +1,89 @@
 /**
  * 🛡️ Infrastructure Idempotency Service
- * Prevents duplicate request processing at the infrastructure level.
- * Uses Redis as a high-speed lock and result cache.
  */
-
-const redis = require('../lib/redis');
-const logger = require('../utils/logger');
-
 class IdempotencyService {
-  constructor() {
-    this.TTL = 3600; // 1 hour default
+  constructor(container) {
+    this.container = container;
+    this.redis = container.redis;
+    this.logger = container.logger;
+    this.TTL = 3600;
   }
 
-  /**
-   * 🔒 Start processing a request
-   * Returns true if request is unique and can proceed.
-   */
   async start(key) {
-    if (!key) return true; // Bypass if no key provided
-
+    if (!key) return true;
     const fullKey = `idempotency:${key}`;
     
-    // Attempt to set 'processing' status with NX (Only if not exists)
-    const acquired = await redis.set(fullKey, 'processing', 'NX', 'EX', 300); // 5 min lock
+    // 1. Try to acquire the idempotency lock
+    let acquired = await this.redis.set(fullKey, 'processing', 'NX', 'EX', 300);
     
+    // 2. If locked, the request might be in-flight. Use Smart Polling.
     if (!acquired) {
-      const status = await redis.get(fullKey);
-      if (status === 'processing') {
-        throw new Error('IDEMPOTENCY_LOCKED: Request already in progress.');
+      this.logger.debug(`[Idempotency] Request ${key} is already processing. Polling for result...`);
+      
+      // Polling loop: Wait up to 3 seconds for the original request to complete
+      for (let i = 0; i < 3; i++) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        const status = await this.redis.get(fullKey);
+        
+        // Success: Original request finished and saved the result
+        if (status && status !== 'processing') {
+          return false; // Tells the guard to return the existing result
+        }
+        
+        // Recovery: Original request failed (Rollback). Try to take over.
+        if (!status) {
+          acquired = await this.redis.set(fullKey, 'processing', 'NX', 'EX', 300);
+          if (acquired) return true;
+        }
       }
-      return false; // Already completed (will be handled by getResult)
+      
+      // Still processing after 3s: Reject to prevent hanging the client
+      throw new Error('IDEMPOTENCY_LOCKED: الطلب قيد المعالجة حالياً، يرجى الانتظار لحظة.');
     }
 
     return true;
   }
 
-  /**
-   * 💾 Save final result of a request
-   */
   async commit(key, result) {
     if (!key) return;
-    const fullKey = `idempotency:${key}`;
-    await redis.set(fullKey, JSON.stringify(result), 'EX', this.TTL);
-    logger.debug(`[Idempotency] Result committed for key: ${key}`);
+    await this.redis.set(`idempotency:${key}`, JSON.stringify(result), 'EX', this.TTL);
   }
 
-  /**
-   * 🔍 Get cached result for a key
-   */
   async getResult(key) {
     if (!key) return null;
-    const result = await redis.get(`idempotency:${key}`);
+    const result = await this.redis.get(`idempotency:${key}`);
     return result && result !== 'processing' ? JSON.parse(result) : null;
   }
 
-  /**
-   * ❌ Rollback in case of failure
-   */
   async rollback(key) {
     if (!key) return;
-    await redis.del(`idempotency:${key}`);
+    await this.redis.del(`idempotency:${key}`);
   }
 
-  /**
-   * 🛡️ HTTP Middleware Guard
-   * Extracts idempotency key from headers and enforces presence if required.
-   */
   guard(required = false) {
     return (req, res, next) => {
       const key = req.headers['x-idempotency-key'];
-      
       if (!key && required) {
         const response = require('../utils/response');
-        return response.error(res, 'يجب توفير x-idempotency-key لهذه العملية الحساسة لضمان عدم تكرارها.', 'IDEMPOTENCY_KEY_REQUIRED', 400);
+        return response.error(res, 'IDEMPOTENCY_KEY_REQUIRED', 'IDEMPOTENCY_KEY_REQUIRED', 400);
       }
-
-      if (key) {
-        req.idempotencyKey = key;
-      }
+      if (key) req.idempotencyKey = key;
       next();
     };
   }
 }
 
-module.exports = new IdempotencyService();
+// --- 🛡️ Backward Compatibility ---
+const getContainer = () => require('../lib/container');
+const proxy = new Proxy({}, {
+  get: (target, prop) => {
+    if (prop === 'IdempotencyService') return IdempotencyService;
+    const service = getContainer().idempotencyService;
+    const val = service[prop];
+    return typeof val === 'function' ? val.bind(service) : val;
+  }
+});
+
+module.exports = proxy;
+module.exports.IdempotencyService = IdempotencyService;
