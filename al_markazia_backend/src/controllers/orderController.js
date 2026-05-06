@@ -1,5 +1,7 @@
-const logger = require('../utils/logger');
-const orderService = require('../services/orderService');
+const container = require('../lib/container');
+const logger = container.logger;
+const orderService = container.orderService;
+const contractGateway = container.contractGateway;
 
 /**
  * 🥡 Order Controller (Performance Optimized)

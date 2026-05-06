@@ -229,7 +229,7 @@ exports.toggleApproval = async (req, res) => {
     });
 
     // 🚀 Update Item Cache (Background)
-    updateItemStats(review.itemId).catch(e => logger.error('Cache update failed', { error: e.message }));
+    await updateItemStats(review.itemId);
 
     res.json(review);
   } catch (error) {
@@ -266,7 +266,7 @@ exports.deleteReview = async (req, res) => {
     const review = await prisma.review.delete({ where: { id: reviewId } });
 
     // 🚀 Update Item Cache (Background)
-    updateItemStats(review.itemId).catch(e => logger.error('Cache update failed', { error: e.message }));
+    await updateItemStats(review.itemId);
 
     res.json({ success: true });
   } catch (error) {

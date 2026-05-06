@@ -14,6 +14,7 @@ model User {
   phone        String?  @unique
   phoneHash    String?  @unique
   name         String?
+  /// @validate { minLength: 8, pattern: "Complexity Required: 1 Upper, 1 Lower, 1 Number, 1 Special" }
   password     String
   role         String   @default("admin")
   isActive     Boolean  @default(true)
@@ -204,6 +205,7 @@ model Order {
   @@index([tenantId])
   @@index([branchId])
   @@index([branchId, status])
+  @@index([branchId, isDeleted, status])
 }
 
 model Event {
@@ -257,6 +259,7 @@ model Customer {
   phoneHash           String?            @unique
   email               String?            @unique
   emailHash           String?            @unique
+  /// @validate { minLength: 8, pattern: "Complexity Required: 1 Upper, 1 Lower, 1 Number, 1 Special" }
   password            String?
   address             String?
   fcmToken            String?
@@ -626,6 +629,7 @@ model FinancialLedger {
   @@index([orderId])
   @@index([branchId])
   @@index([createdAt])
+  @@index([branchId, type, createdAt])
 }
 
 model FinancialApproval {

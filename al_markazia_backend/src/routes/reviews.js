@@ -3,12 +3,13 @@ const router = express.Router();
 const reviewController = require('../controllers/reviewController');
 const { authenticateToken, isAdmin } = require('../middleware/auth');
 const { reviewLimiter, flagLimiter } = require('../middleware/rateLimiter');
+const { validateOrderRating } = require('../middleware/orderValidation');
 
 // 📖 Public: Read approved reviews for an item
 router.get('/item/:itemId', reviewController.getItemReviews);
 
 // 🔒 Customer: Submit a review (Verified Purchase + Rate Limited)
-router.post('/', authenticateToken, reviewLimiter, reviewController.submitReview);
+router.post('/', authenticateToken, reviewLimiter, validateOrderRating, reviewController.submitReview);
 
 // 🚩 Customer: Report/Flag a review for moderation
 router.post('/:id/flag', authenticateToken, flagLimiter, reviewController.flagReview);

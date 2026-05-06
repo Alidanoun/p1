@@ -43,9 +43,9 @@ class FinancialApprovalService {
    */
   async approve(approvalId, adminUser, reason = '') {
     return await prisma.$transaction(async (tx) => {
-      const approval = await tx.financialApproval.findUnique({
-        where: { id: approvalId }
-      });
+      // 🛡️ [SEC-FIX] Pessimistic Lock: Prevent concurrent approval processing
+      const approvals = await tx.$queryRaw`SELECT * FROM "FinancialApproval" WHERE id = ${approvalId} FOR UPDATE`;
+      const approval = approvals[0];
 
       if (!approval || approval.status !== 'PENDING') {
         throw new Error('APPROVAL_NOT_PENDING_OR_NOT_FOUND');
@@ -89,7 +89,7 @@ class FinancialApprovalService {
       });
 
       return { success: true, approvalId };
-    });
+    }, { timeout: 15000 });
   }
 
   /**
@@ -99,9 +99,9 @@ class FinancialApprovalService {
     if (!reason) throw new Error('REJECTION_REASON_REQUIRED');
 
     await prisma.$transaction(async (tx) => {
-      const approval = await tx.financialApproval.findUnique({
-        where: { id: approvalId }
-      });
+      // 🛡️ [SEC-FIX] Pessimistic Lock: Prevent concurrent rejection/approval
+      const approvals = await tx.$queryRaw`SELECT * FROM "FinancialApproval" WHERE id = ${approvalId} FOR UPDATE`;
+      const approval = approvals[0];
 
       if (!approval || approval.status !== 'PENDING') {
         throw new Error('APPROVAL_NOT_PENDING');
@@ -130,7 +130,7 @@ class FinancialApprovalService {
           data: { modificationStatus: 'NONE' }
         });
       }
-    });
+    }, { timeout: 15000 });
 
     return { success: true };
   }

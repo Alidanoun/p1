@@ -127,14 +127,14 @@ class ObservabilityService {
       }
 
       if (nextState.status !== prevState.status) {
-        eventBus.emitSafe('HEALTH_STATUS_CHANGED', { from: prevState.status, to: nextState.status });
+        await eventBus.emitSafe('HEALTH_STATUS_CHANGED', { from: prevState.status, to: nextState.status });
       }
 
-      results.forEach(res => {
+      for (const res of results) {
         if (!res.ok) {
-          eventBus.emitSafe(`SERVICE_DOWN_${res.name.toUpperCase()}`, { error: res.error });
+          await eventBus.emitSafe(`SERVICE_DOWN_${res.name.toUpperCase()}`, { error: res.error });
         }
-      });
+      }
 
       return nextState;
     } catch (err) {

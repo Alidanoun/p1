@@ -1,6 +1,4 @@
 const Redis = require('ioredis');
-const prisma = require('../lib/prisma');
-const logger = require('../utils/logger');
 const { sanitizeForAudit } = require('../utils/auditSanitizer');
 
 /**
@@ -9,7 +7,10 @@ const { sanitizeForAudit } = require('../utils/auditSanitizer');
  * Supports distributed real-time broadcasting via Redis.
  */
 class AuditService {
-  constructor() {
+  constructor(container) {
+    this.container = container;
+    this.prisma = container.prisma;
+    this.logger = container.logger;
     this.instanceId = process.env.INSTANCE_ID || `inst-${Math.random().toString(36).substr(2, 5)}`;
     
     // 📡 Redis Cluster Sync
@@ -31,7 +32,7 @@ class AuditService {
   setupSubscriber() {
     this.subscriber.on('connect', () => {
       this.subscriber.subscribe('audit:log_broadcast');
-      logger.info(`🕵️ [AuditSync] Subscriber Active: ${this.instanceId}`);
+      this.logger.info(`🕵️ [AuditSync] Subscriber Active: ${this.instanceId}`);
     });
 
     this.subscriber.on('message', (channel, message) => {
@@ -47,7 +48,7 @@ class AuditService {
             }
           }
         } catch (err) {
-          logger.error('[AuditSync] Parse failed', { error: err.message });
+          this.logger.error('[AuditSync] Parse failed', { error: err.message });
         }
       }
     });
@@ -88,7 +89,7 @@ class AuditService {
       };
 
       // 1. Persist to DB
-      const entry = await prisma.systemAuditLog.create({
+      const entry = await this.prisma.systemAuditLog.create({
         data: logEntry
       });
 
@@ -100,7 +101,7 @@ class AuditService {
           timestamp: new Date().toISOString()
         }));
       } catch (rErr) {
-        logger.error('[AUDIT_REDIS_BROADCAST] Failed', { error: rErr.message });
+        this.logger.error('[AUDIT_REDIS_BROADCAST] Failed', { error: rErr.message });
       }
 
       // 📡 3. Local Socket Broadcast (To local admins)
@@ -115,7 +116,7 @@ class AuditService {
 
       // 4. High Severity Alerting (Console/External)
       if (severity === 'CRITICAL' || status === 'FAIL') {
-        logger.security(`[AUDIT_ALERT] ${action} - Status: ${status}`, {
+        this.logger.security(`[AUDIT_ALERT] ${action} - Status: ${status}`, {
           userId,
           entityId,
           severity,
@@ -125,7 +126,7 @@ class AuditService {
 
       return entry;
     } catch (err) {
-      logger.error('[AUDIT_LOG_FAILURE]', { error: err.message, action });
+      this.logger.error('[AUDIT_LOG_FAILURE]', { error: err.message, action });
       return null;
     }
   }
@@ -191,4 +192,16 @@ class AuditService {
   }
 }
 
-module.exports = new AuditService();
+// --- 🛡️ Backward Compatibility ---
+const getContainer = () => require('../lib/container');
+const proxy = new Proxy({}, {
+  get: (target, prop) => {
+    if (prop === 'AuditService') return AuditService;
+    const service = getContainer().auditService;
+    const val = service[prop];
+    return typeof val === 'function' ? val.bind(service) : val;
+  }
+});
+
+module.exports = proxy;
+module.exports.AuditService = AuditService;

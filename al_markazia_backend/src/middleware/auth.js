@@ -1,6 +1,7 @@
 const logger = require('../utils/logger');
 const TokenService = require('../services/tokenService');
 const { error: responseError } = require('../utils/response');
+const { generateFingerprint } = require('../utils/security');
 
 const redis = require('../lib/redis');
 
@@ -40,6 +41,24 @@ const authenticateToken = async (req, res, next) => {
     }
 
     const sessionData = JSON.parse(sessionDataRaw);
+
+    // 🛡️ [SEC-FIX] Device Binding Check: Prevent Session Hijacking
+    // Compares the request signature against the one established at login.
+    const currentFingerprint = generateFingerprint(req);
+    if (sessionData.fingerprint && sessionData.fingerprint !== currentFingerprint.hash) {
+      logger.security('[SESSION_HIJACKING_DETECTED] Identity mismatch', { 
+        userId, 
+        jti, 
+        stored: sessionData.fingerprint, 
+        current: currentFingerprint.hash,
+        ip: req.ip 
+      });
+      
+      // 🚨 Immediate Revocation: Kill the compromised session
+      await redis.del(`session:${userId}:${jti}`);
+      return responseError(res, 'تنبيه أمني: تم اكتشاف محاولة وصول من جهاز غير معروف. يرجى تسجيل الدخول مجدداً.', 'SECURITY_BREACH', 401);
+    }
+
     const currentRole = sessionData.role || decoded.role;
     const currentBranchId = sessionData.branchId || decoded.branchId;
 
@@ -171,6 +190,16 @@ const optionalAuth = async (req, res, next) => {
       }
 
       const sessionData = JSON.parse(sessionDataRaw);
+
+      // 🛡️ [SEC-FIX] Device Binding Check (Optional Auth)
+      const currentFingerprint = generateFingerprint(req);
+      if (sessionData.fingerprint && sessionData.fingerprint !== currentFingerprint.hash) {
+        logger.security('[SESSION_HIJACKING_DETECTED_OPTIONAL] Identity mismatch', { userId, jti, ip: req.ip });
+        await redis.del(`session:${userId}:${jti}`);
+        req.user = null;
+        return runInContext(null, () => next());
+      }
+
       const currentRole = sessionData.role || decoded.role;
       const currentBranchId = sessionData.branchId || decoded.branchId;
 

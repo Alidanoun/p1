@@ -48,8 +48,8 @@ class EventBus {
   /**
    * 📬 Temporary Polyfill for Safe Redirect (Alias Layer)
    */
-  emitSafe(event, data = {}, ...args) {
-    return this.publish({ type: event, payload: data });
+  async emitSafe(event, data = {}, ...args) {
+    return await this.publish({ type: event, payload: data });
   }
 
   on(event, handler) {

@@ -1,27 +1,22 @@
-const logger = require('../utils/logger');
-const redis = require('../lib/redis');
-const eventBus = require('../lib/eventBus');
-
 /**
  * 🛡️ Global Circuit Breaker Service
- * Manages service availability states (CLOSED, OPEN, HALF_OPEN)
- * with Redis persistence and In-memory fallback.
  */
 class CircuitBreakerService {
-  constructor() {
-    this.states = new Map(); // In-memory fallback
+  constructor(container) {
+    this.container = container;
+    this.redis = container.redis;
+    this.logger = container.logger;
+    this.states = new Map();
     this.failureCounters = new Map();
-    this.config = {
-      failureThreshold: 3,
-      resetTimeout: 30000, // 30 seconds to attempt Half-Open
-    };
+    this.config = { failureThreshold: 3, resetTimeout: 30000 };
   }
 
   async getState(serviceName) {
     try {
-      const state = await redis.get(`circuit:${serviceName}:state`);
+      const state = await this.redis.get(`circuit:${serviceName}:state`);
       return state || this.states.get(serviceName) || 'CLOSED';
     } catch (err) {
+      this.logger.logError('CircuitBreaker.getState', err, { serviceName });
       return this.states.get(serviceName) || 'CLOSED';
     }
   }
@@ -34,62 +29,61 @@ class CircuitBreakerService {
   async recordFailure(serviceName) {
     const count = (this.failureCounters.get(serviceName) || 0) + 1;
     this.failureCounters.set(serviceName, count);
-
-    logger.warn(`[CircuitBreaker] Failure recorded for ${serviceName}`, { count });
-
-    if (count >= this.config.failureThreshold) {
-      await this.openCircuit(serviceName);
-    }
+    this.logger.warn(`[CircuitBreaker] Failure recorded for ${serviceName}`, { count });
+    if (count >= this.config.failureThreshold) await this.openCircuit(serviceName);
   }
 
   async recordSuccess(serviceName) {
     this.failureCounters.set(serviceName, 0);
     const currentState = await this.getState(serviceName);
-    
-    if (currentState !== 'CLOSED') {
-      await this.closeCircuit(serviceName);
-    }
+    if (currentState !== 'CLOSED') await this.closeCircuit(serviceName);
   }
 
   async openCircuit(serviceName) {
-    logger.error(`[CircuitBreaker] 🚨 OPENING CIRCUIT for ${serviceName}. Hard gate activated.`);
-    
+    this.logger.error(`[CircuitBreaker] 🚨 OPENING CIRCUIT for ${serviceName}.`);
     this.states.set(serviceName, 'OPEN');
     try {
-      await redis.set(`circuit:${serviceName}:state`, 'OPEN', 'PX', this.config.resetTimeout);
+      await this.redis.set(`circuit:${serviceName}:state`, 'OPEN', 'PX', this.config.resetTimeout);
     } catch (err) {
-      logger.error('[CircuitBreaker] Redis write failed, using memory fallback');
+      this.logger.logError('CircuitBreaker.openCircuit', err, { serviceName });
     }
-
-    eventBus.emitSafe('CIRCUIT_OPENED', { service: serviceName });
-
-    // Schedule auto-healing attempt (Half-Open)
+    
+    // Fallback to local require if eventBus not in container
+    const eventBus = require('../lib/eventBus');
+    await eventBus.emitSafe('CIRCUIT_OPENED', { service: serviceName });
     setTimeout(() => this.halfOpenCircuit(serviceName), this.config.resetTimeout);
   }
 
   async halfOpenCircuit(serviceName) {
     const state = await this.getState(serviceName);
     if (state !== 'OPEN') return;
-
-    logger.info(`[CircuitBreaker] 🟡 Attempting HALF-OPEN transition for ${serviceName}`);
+    this.logger.info(`[CircuitBreaker] 🟡 HALF-OPEN transition for ${serviceName}`);
     this.states.set(serviceName, 'HALF_OPEN');
-    try {
-      await redis.set(`circuit:${serviceName}:state`, 'HALF_OPEN');
-    } catch (err) {}
-    
-    eventBus.emitSafe('CIRCUIT_HALF_OPEN', { service: serviceName });
+    try { await this.redis.set(`circuit:${serviceName}:state`, 'HALF_OPEN'); } catch (err) {
+      this.logger.logError('CircuitBreaker.halfOpenCircuit', err, { serviceName });
+    }
   }
 
   async closeCircuit(serviceName) {
-    logger.info(`[CircuitBreaker] ✅ CLOSING CIRCUIT for ${serviceName}. Service restored.`);
+    this.logger.info(`[CircuitBreaker] ✅ CLOSING CIRCUIT for ${serviceName}.`);
     this.states.set(serviceName, 'CLOSED');
     this.failureCounters.set(serviceName, 0);
-    try {
-      await redis.del(`circuit:${serviceName}:state`);
-    } catch (err) {}
-
-    eventBus.emitSafe('CIRCUIT_CLOSED', { service: serviceName });
+    try { await this.redis.del(`circuit:${serviceName}:state`); } catch (err) {
+      this.logger.logError('CircuitBreaker.closeCircuit', err, { serviceName });
+    }
   }
 }
 
-module.exports = new CircuitBreakerService();
+// --- 🛡️ Backward Compatibility ---
+const getContainer = () => require('../lib/container');
+const proxy = new Proxy({}, {
+  get: (target, prop) => {
+    if (prop === 'CircuitBreakerService') return CircuitBreakerService;
+    const service = getContainer().circuitBreakerService;
+    const val = service[prop];
+    return typeof val === 'function' ? val.bind(service) : val;
+  }
+});
+
+module.exports = proxy;
+module.exports.CircuitBreakerService = CircuitBreakerService;

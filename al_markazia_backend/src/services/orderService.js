@@ -3,44 +3,36 @@
  * Purpose: Centralized business logic for all order-related operations.
  * Features: Atomic transactions, multi-factor validation, and idempotency support.
  */
-const prisma = require('../lib/prisma');
-const redis = require('../lib/redis');
-const xss = require('xss');
-const bcrypt = require('bcrypt');
-const logger = require('../utils/logger');
-const { encrypt, decrypt, hashBlind } = require('../utils/crypto');
-const AuditLogger = require('../utils/auditLogger');
-const analyticsService = require('./analyticsService');
-const loyaltyService = require('./loyaltyService');
-const { orderQueue } = require('../queues/orderQueue');
-const memoryCache = require('../lib/memoryCache');
+const { ORDER_INCLUDE_FULL } = require('../shared/prismaConstants');
+const { hashBlind } = require('../utils/crypto');
+const { mapOrderResponse } = require('../mappers/order.mapper');
 const { publishEvent } = require('../events/eventPublisher');
 const eventTypes = require('../events/eventTypes');
-const { toNumber, toMoney } = require('../utils/number');
-const { safeJsonParse } = require('../utils/security');
-const { mapOrderResponse } = require('../mappers/order.mapper');
-const { ORDER_INCLUDE_FULL } = require('../shared/prismaConstants');
 const queryOptimizer = require('../utils/queryOptimizer');
-const FeatureFlagsService = require('./featureFlagsService');
 
 class OrderService {
+  constructor(container) {
+    this.container = container;
+    this.prisma = container.prisma;
+    this.redis = container.redis;
+    this.logger = container.logger;
+  }
   /**
    * 🛡️ Safe Feature Flag Check — defaults to optimizer ON if Redis is down
    */
   async _shouldUseOptimizer() {
     try {
-      return await FeatureFlagsService.isEnabled('USE_QUERY_OPTIMIZER');
+      return await this.container.featureFlagsService.isEnabled('USE_QUERY_OPTIMIZER');
     } catch (err) {
-      logger.error('[OrderService] Feature flag check failed, defaulting to optimizer ON', { error: err.message });
+      this.logger.error('[OrderService] Feature flag check failed', { error: err.message });
       return true;
     }
   }
 
   async bumpBranchVersion(branchId) {
     if (!branchId) return;
-    const redis = require('../lib/redis');
-    await redis.incr(`branch_version:${branchId}`);
-    logger.debug(`[OrderSync] 🆙 Version bumped for branch ${branchId}`);
+    await this.redis.incr(`branch_version:${branchId}`);
+    this.logger.debug(`[OrderSync] 🆙 Version bumped for branch ${branchId}`);
   }
 
   /**
@@ -60,7 +52,7 @@ class OrderService {
     // 🏢 Multi-Branch Isolation (v3.0: SecurityPolicyService)
     const SecurityPolicyService = require('./securityPolicyService');
     const { getContext } = require('../utils/securityContext');
-    const isolationFilter = await SecurityPolicyService.getHardenedFilter(getContext(), 'Order');
+    const isolationFilter = await this.container.securityPolicyService.getHardenedFilter(getContext(), 'Order');
 
     Object.assign(where, isolationFilter);
 
@@ -74,13 +66,13 @@ class OrderService {
     const [orders, total] = await Promise.all([
       useOptimizer
         ? queryOptimizer.fetchOrdersOptimized(where, { createdAt: 'desc' }, skipNum, limitNum)
-        : prisma.order.findMany({
+        : this.prisma.order.findMany({
             where,
             include: ORDER_INCLUDE_FULL,
             orderBy: { createdAt: 'desc' },
             ...(pageNum ? { skip: skipNum, take: limitNum } : { take: limitNum })
           }),
-      prisma.order.count({ where })
+      this.prisma.order.count({ where })
     ]);
 
     // 🚀 [PERF-FIX] Dedicated Summary Aggregation (Optimized DB Query)
@@ -100,17 +92,17 @@ class OrderService {
    */
   async _calculateReportSummary(where) {
     const [aggregates, realizedAggregates, deliveredCount] = await Promise.all([
-      prisma.order.aggregate({
+      this.prisma.order.aggregate({
         where,
         _sum: { total: true },
         _count: { id: true },
         _avg: { total: true }
       }),
-      prisma.order.aggregate({
+      this.prisma.order.aggregate({
         where: { ...where, status: 'delivered' },
         _sum: { total: true }
       }),
-      prisma.order.count({
+      this.prisma.order.count({
         where: { ...where, status: 'delivered' }
       })
     ]);
@@ -149,7 +141,7 @@ class OrderService {
     // 🏢 Multi-Branch Isolation (v3.0: SecurityPolicyService)
     const SecurityPolicyService = require('./securityPolicyService');
     const { getContext } = require('../utils/securityContext');
-    const isolationFilter = await SecurityPolicyService.getHardenedFilter(getContext(), 'Order');
+    const isolationFilter = await this.container.securityPolicyService.getHardenedFilter(getContext(), 'Order');
 
     Object.assign(where, isolationFilter);
 
@@ -159,15 +151,15 @@ class OrderService {
     const [orders, total, statusCounts] = await Promise.all([
       useOptimizer
         ? queryOptimizer.fetchOrdersOptimized(where, { createdAt: 'desc' }, skip, limit)
-        : prisma.order.findMany({
+        : this.prisma.order.findMany({
             where,
             include: ORDER_INCLUDE_FULL,
             orderBy: { createdAt: 'desc' },
             skip,
             take: limit
           }),
-      prisma.order.count({ where }),
-      prisma.order.groupBy({
+      this.prisma.order.count({ where }),
+      this.prisma.order.groupBy({
         by: ['status'],
         _count: { id: true }
       })
@@ -213,7 +205,7 @@ class OrderService {
 
     const orders = useOptimizer
       ? await queryOptimizer.fetchOrdersOptimized(syncWhere, { updatedAt: 'desc' }, 0, 200)
-      : await prisma.order.findMany({
+      : await this.prisma.order.findMany({
           where: syncWhere,
           include: ORDER_INCLUDE_FULL,
           orderBy: { updatedAt: 'desc' },
@@ -234,7 +226,7 @@ class OrderService {
     const { status, active_only } = query;
     const { page, limit, skip } = require('../utils/pagination').parsePagination(query);
 
-    const customer = await prisma.customer.findUnique({
+    const customer = await this.prisma.customer.findUnique({
       where: { uuid: userUuid },
       select: { id: true }
     });
@@ -255,14 +247,14 @@ class OrderService {
     const [orders, total] = await Promise.all([
       useOptimizer
         ? queryOptimizer.fetchOrdersOptimized(where, { createdAt: 'desc' }, skip, limit)
-        : prisma.order.findMany({
+        : this.prisma.order.findMany({
             where,
             include: ORDER_INCLUDE_FULL,
             orderBy: { createdAt: 'desc' },
             skip,
             take: limit
           }),
-      prisma.order.count({ where })
+      this.prisma.order.count({ where })
     ]);
 
     return {
@@ -277,14 +269,14 @@ class OrderService {
    * ⚠️ Request Partial Cancellation/Modification
    */
   async requestPartialCancel(orderId, items, reason, metadata = {}) {
-    const order = await prisma.order.findUnique({
+    const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: { customer: true }
     });
 
     if (!order) throw new Error('ORDER_NOT_FOUND');
 
-    await prisma.notification.create({
+    await this.prisma.notification.create({
       data: {
         title: 'طلب إلغاء جزئي ⚠️',
         message: `طلب تعديل للطلب #${order.orderNumber} من ${order.customerName}\nالمبلغ المسترد المتوقع: ${metadata.refundAmount || 0}`,
@@ -315,7 +307,7 @@ class OrderService {
   async applyPartialCancellation(orderId, itemIdsToCancel, actor, notificationId) {
     const { toNumber } = require('../utils/number');
     
-    return await prisma.$transaction(async (tx) => {
+    return await this.prisma.$transaction(async (tx) => {
       // 1. Fetch order with items
       const order = await tx.order.findUnique({
         where: { id: orderId },
@@ -385,7 +377,7 @@ class OrderService {
 
       // 7. Notify Customer
       const notificationService = require('./notificationService');
-      await notificationService.sendToUser(order.customerId, {
+      await this.container.notificationService.sendToUser(order.customerId, {
         title: 'تعديل طلبك بنجاح ✅',
         message: `تمت الموافقة على تعديل الطلب #${order.orderNumber}. المبلغ المسترد: ${refundAmount.toFixed(2)}`,
         type: 'order_adjusted',
@@ -397,7 +389,7 @@ class OrderService {
         order: updatedOrder,
         refundAmount
       };
-    });
+    }, { timeout: 15000 });
   }
 
   /**
@@ -407,7 +399,7 @@ class OrderService {
     const date = new Date(estimatedReadyAt);
     if (isNaN(date.getTime())) throw new Error('INVALID_DATE');
 
-    const currentOrder = await prisma.order.findUnique({ where: { id: orderId } });
+    const currentOrder = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!currentOrder) throw new Error('ORDER_NOT_FOUND');
 
     // 🛡️ [SEC-FIX] Branch Isolation (Defense in Depth)
@@ -419,7 +411,7 @@ class OrderService {
       }
     }
 
-    const order = await prisma.order.update({
+    const order = await this.prisma.order.update({
       where: { id: orderId, version: currentOrder.version },
       data: { estimatedReadyAt: date, version: { increment: 1 } },
       include: ORDER_INCLUDE_FULL
@@ -435,7 +427,7 @@ class OrderService {
    * 👩‍🍳 Update Preparation Time (Minutes)
    */
   async updatePreparationTime(orderId, minutes, user = null) {
-    const order = await prisma.order.findUnique({ where: { id: orderId } });
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order) throw new Error('ORDER_NOT_FOUND');
 
     // 🛡️ [SEC-FIX] Branch Isolation (Defense in Depth)
@@ -453,7 +445,7 @@ class OrderService {
     const newReadyAt = new Date(order.createdAt.getTime() + prepMinutes * 60000);
     const newArrivalAt = new Date(order.createdAt.getTime() + (prepMinutes + delMinutes) * 60000);
 
-    const updated = await prisma.order.update({
+    const updated = await this.prisma.order.update({
       where: { id: orderId, version: order.version },
       data: {
         preparationTimeMinutes: prepMinutes,
@@ -495,7 +487,7 @@ class OrderService {
       throw new Error('INVALID_RATING');
     }
 
-    const order = await prisma.order.findUnique({
+    const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: { customer: true }
     });
@@ -531,7 +523,7 @@ class OrderService {
 
     const isFirstTimeRating = !order.rating;
 
-    const updatedOrder = await prisma.order.update({
+    const updatedOrder = await this.prisma.order.update({
       where: { id: orderId },
       data: { rating, ratingComment: comment, isRatingApproved: false },
       include: ORDER_INCLUDE_FULL
@@ -541,7 +533,7 @@ class OrderService {
     if (isFirstTimeRating && order.customerId) {
        try {
          const loyaltyService = require('./loyaltyService');
-         await loyaltyService.awardEngagementPoints(order.customerId, 'REVIEW');
+         await this.container.loyaltyService.awardEngagementPoints(order.customerId, 'REVIEW');
        } catch (err) {
          logger.error('Failed to award review points', { error: err.message, orderId });
        }
@@ -554,7 +546,7 @@ class OrderService {
    * 🛠️ Manage Cancellation Requests (Approve/Reject)
    */
   async handleCancellationRequest(orderId, user, action, rejectionReason, externalTx = null, approvalId = null) {
-    const order = await prisma.order.findUnique({
+    const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: { cancellation: true, customer: true }
     });
@@ -604,12 +596,12 @@ class OrderService {
         
         // 📮 [RESILIENCE-FIX] Transactional Outbox Enqueue
         const outboxService = require('./outboxService');
-        const outbox = await outboxService.enqueue(eventTypes.ORDER_STATUS_CHANGED, resultData, tx);
+        const outbox = await this.container.outboxService.enqueue(eventTypes.ORDER_STATUS_CHANGED, resultData, tx);
 
         return { updatedOrder: updated, _outboxId: outbox.id };
       };
 
-      const result = externalTx ? await executeApproval(externalTx) : await prisma.$transaction(executeApproval);
+      const result = externalTx ? await executeApproval(externalTx) : await this.prisma.$transaction(executeApproval, { timeout: 15000 });
 
       const mapped = mapOrderResponse(result.updatedOrder);
       return { ...mapped, _outboxId: result._outboxId };
@@ -618,7 +610,7 @@ class OrderService {
       const previousStatus = order.cancellation?.previousStatus || 'preparing';
       const result = await this.updateOrderStatus(orderId, previousStatus, null, user);
       if (order.cancellation) {
-        await prisma.orderCancellation.update({
+        await this.prisma.orderCancellation.update({
           where: { orderId },
           data: { status: 'rejected', rejectionReason, adminName: user?.email }
         });
@@ -631,7 +623,7 @@ class OrderService {
    * 🎯 Fetch Unique Order with Details
    */
   async getOrderById(orderId, user = null) {
-    const order = await prisma.order.findUnique({
+    const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
         ...ORDER_INCLUDE_FULL,
@@ -643,12 +635,12 @@ class OrderService {
 
     // 🛡️ [SECURITY-UNIFICATION] Use Central Policy
     const SecurityPolicyService = require('./securityPolicyService');
-    const hasAccess = await SecurityPolicyService.canAccessBranch(user, order.branchId);
+    const hasAccess = await this.container.securityPolicyService.canAccessBranch(user, order.branchId);
     
     if (!hasAccess) {
       // For customers, specifically check if they own the order
       if (user.role === 'customer') {
-        const customer = await prisma.customer.findUnique({ where: { uuid: user.id }, select: { id: true } });
+        const customer = await this.prisma.customer.findUnique({ where: { uuid: user.id }, select: { id: true } });
         if (!customer || order.customerId !== customer.id) {
           throw new Error('ORDER_FORBIDDEN');
         }
@@ -664,7 +656,7 @@ class OrderService {
    * 🛑 Cancel Order with Multi-tier Validation (Cancellation Engine v2)
    */
   async cancelOrder(orderId, user, reason) {
-    const order = await prisma.order.findUnique({
+    const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: { customer: true, cancellation: true }
     });
@@ -713,7 +705,7 @@ class OrderService {
    */
   async _executeFinalCancellation(order, user, reason) {
     const previousStatus = order.status;
-    const updatedOrder = await prisma.$transaction(async (tx) => {
+    const updatedOrder = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.order.update({
         where: { id: order.id, version: order.version },
         data: {
@@ -734,7 +726,7 @@ class OrderService {
         create: { orderId: order.id, reason: reason || 'Approved', cancelledBy: user?.role || 'system', previousStatus, status: 'approved', adminName: user?.email || 'Admin' }
       });
       return updated;
-    });
+    }, { timeout: 15000 });
 
     const EventBus = require('../events/eventBus');
     EventBus.publish({ type: 'order.cancelled', payload: { order: updatedOrder, user } });
@@ -748,7 +740,7 @@ class OrderService {
     const previousStatus = order.status;
     const targetStatus = level === 'HIGH' ? 'waiting_cancellation_admin' : 'waiting_cancellation';
 
-    const updatedOrder = await prisma.$transaction(async (tx) => {
+    const updatedOrder = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.order.update({
         where: { id: order.id, version: order.version },
         data: { status: targetStatus, version: { increment: 1 } },
@@ -790,7 +782,7 @@ class OrderService {
       }
 
       return updated;
-    });
+    }, { timeout: 15000 });
 
     const EventBus = require('../events/eventBus');
     EventBus.publish({ type: 'order.cancellation_requested', payload: { order: updatedOrder, user, level } });
@@ -801,7 +793,7 @@ class OrderService {
    * ✅ Approve a pending cancellation request
    */
   async approveCancellation(orderId, user) {
-    const order = await prisma.order.findUnique({
+    const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: { cancellation: true }
     });
@@ -826,7 +818,7 @@ class OrderService {
    * ❌ Reject a pending cancellation request
    */
   async rejectCancellation(orderId, user, rejectionReason) {
-    const order = await prisma.order.findUnique({
+    const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: { cancellation: true }
     });
@@ -840,7 +832,7 @@ class OrderService {
 
     const previousStatus = order.cancellation.previousStatus || 'pending';
 
-    const updatedOrder = await prisma.$transaction(async (tx) => {
+    const updatedOrder = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.order.update({
         where: { id: order.id, version: order.version },
         data: { 
@@ -860,7 +852,7 @@ class OrderService {
       });
 
       return updated;
-    });
+    }, { timeout: 15000 });
 
     const EventBus = require('../events/eventBus');
     EventBus.publish({ type: 'order.cancellation_rejected', payload: { order: updatedOrder, user, rejectionReason } });
@@ -929,12 +921,12 @@ class OrderService {
       // Managers/Branch Managers: Must have explicit branch access
       if (['manager', 'branch_manager'].includes(role)) {
         const SecurityPolicyService = require('./securityPolicyService');
-        const hasAccess = await SecurityPolicyService.canAccessBranch(authUser, targetBranchId, 'write');
+        const hasAccess = await this.container.securityPolicyService.canAccessBranch(authUser, targetBranchId, 'write');
         
         if (!hasAccess) {
           // 🚨 CRITICAL: Log unauthorized attempt
           const auditService = require('./auditService');
-          await auditService.log({
+          await this.container.auditService.log({
             userId: authUser.id,
             userRole: role,
             action: 'SERVICE_LAYER_BRANCH_ACCESS_DENIED',
@@ -955,7 +947,7 @@ class OrderService {
 
     // 1.7 🛡️ [RACE-CONDITION-GUARD] Re-verify branch is still active
     // Protects against branch being deactivated between middleware check and order creation
-    const branchStatus = await prisma.branch.findUnique({
+    const branchStatus = await this.prisma.branch.findUnique({
       where: { id: targetBranchId },
       select: { isActive: true, name: true }
     });
@@ -982,7 +974,7 @@ class OrderService {
     let pointsToDeduct = 0;
 
     if (data.usePoints === true) {
-      const loyaltyConfig = await loyaltyService.getConfig();
+      const loyaltyConfig = await this.container.loyaltyService.getConfig();
       const minPoints = loyaltyConfig.minPointsToRedeem || 500;
       const rate = loyaltyConfig.pointsToJodRate || 100;
       
@@ -1007,7 +999,7 @@ class OrderService {
       const redisSettings = await redis.get('system:settings');
       if (redisSettings) sysSettings = safeJsonParse(redisSettings);
       else {
-        const dbSetting = await prisma.systemSettings.findUnique({ where: { key: 'autoAcceptOrders' } });
+        const dbSetting = await this.prisma.systemSettings.findUnique({ where: { key: 'autoAcceptOrders' } });
         sysSettings = { autoAcceptOrders: dbSetting?.value === 'true' };
       }
     }
@@ -1015,7 +1007,7 @@ class OrderService {
     const initialStatus = isAutoAccept ? 'preparing' : 'pending';
 
     // 6. 💎 Atomic Transactional Persistence
-    const { newOrder } = await prisma.$transaction(async (tx) => {
+    const { newOrder } = await this.prisma.$transaction(async (tx) => {
       const order = await tx.order.create({
         data: {
           orderNumber,
@@ -1097,7 +1089,7 @@ class OrderService {
       }
 
       return { newOrder: order };
-    });
+    }, { timeout: 20000 });
 
     // 7. 🚀 Async Side Effects (Non-blocking)
     this._triggerPostOrderEffects(newOrder);
@@ -1137,7 +1129,7 @@ class OrderService {
         settings = safeJsonParse(redisSettings);
         memoryCache.set('system:settings', settings, 300); // 5 mins
       } else {
-        settings = await prisma.systemSettings.findFirst();
+        settings = await this.prisma.systemSettings.findFirst();
         if (settings) {
           await redis.set('system:settings', JSON.stringify(settings), 'EX', 3600);
           memoryCache.set('system:settings', settings, 300);
@@ -1149,7 +1141,7 @@ class OrderService {
     const window = settings?.spamTimeWindowMinutes ?? 30;
     const since = new Date(Date.now() - window * 60 * 1000);
 
-    const count = await prisma.orderCancellation.count({
+    const count = await this.prisma.orderCancellation.count({
       where: {
         order: { customerPhoneHash: hashBlind(phone) },
         createdAt: { gte: since },
@@ -1158,7 +1150,7 @@ class OrderService {
 
     if (count >= limit) {
       const expires = new Date(Date.now() + window * 60 * 1000);
-      await prisma.customer.update({
+      await this.prisma.customer.update({
         where: { phoneHash: hashBlind(phone) },
         data: {
           isBlacklisted: true,
@@ -1178,7 +1170,7 @@ class OrderService {
     let customer = null;
 
     if (authUser) {
-      customer = await prisma.customer.findUnique({ where: { uuid: authUser.id } });
+      customer = await this.prisma.customer.findUnique({ where: { uuid: authUser.id } });
       if (customer) {
         resolvedPhone = decrypt(customer.phone);
         logger.debug(`[OrderService] Found customer by UUID ${authUser.id}: ID ${customer.id}`);
@@ -1194,7 +1186,7 @@ class OrderService {
     }
 
     if (!customer && resolvedPhone) {
-      customer = await prisma.customer.findUnique({ 
+      customer = await this.prisma.customer.findUnique({ 
         where: { phoneHash: hashBlind(resolvedPhone) } 
       });
       if (customer) {
@@ -1206,7 +1198,7 @@ class OrderService {
 
     if (customer?.isBlacklisted) {
       if (customer.blacklistExpiresAt && customer.blacklistExpiresAt < new Date()) {
-        customer = await prisma.customer.update({
+        customer = await this.prisma.customer.update({
           where: { id: customer.id },
           data: { isBlacklisted: false, blacklistExpiresAt: null }
         });
@@ -1231,19 +1223,19 @@ class OrderService {
 
     // 1. If it's already a valid UUID of an existing branch
     if (input.length > 30) {
-      const branch = await prisma.branch.findUnique({ where: { id: input }, select: { id: true } });
+      const branch = await this.prisma.branch.findUnique({ where: { id: input }, select: { id: true } });
       logger.debug(`[_resolveBranchId] UUID check result for ${input}:`, { branch });
       if (branch) return branch.id;
     }
 
     // 2. If it's a code (e.g. 'KHALDA' or 'CITY')
     if (typeof input === 'string') {
-      let branch = await prisma.branch.findUnique({ where: { code: input }, select: { id: true } });
+      let branch = await this.prisma.branch.findUnique({ where: { code: input }, select: { id: true } });
       
       // 🕵️ Fallback: Search by Name if code doesn't match (handles Arabic names from app)
       if (!branch) {
         logger.debug(`[_resolveBranchId] Code mismatch for "${input}", trying Name lookup...`);
-        branch = await prisma.branch.findFirst({ 
+        branch = await this.prisma.branch.findFirst({ 
           where: { 
             OR: [
               { name: { contains: input, mode: 'insensitive' } },
@@ -1257,7 +1249,7 @@ class OrderService {
       // 🕵️ Extreme Fallback: Handle "فرع ..." prefix if app sends it
       if (!branch && input.includes('فرع')) {
         const cleanName = input.replace('فرع', '').trim();
-        branch = await prisma.branch.findFirst({
+        branch = await this.prisma.branch.findFirst({
           where: { name: { contains: cleanName, mode: 'insensitive' } },
           select: { id: true }
         });
@@ -1280,7 +1272,7 @@ class OrderService {
     const validatedItems = [];
 
     for (const item of cartItems) {
-      const dbItem = await prisma.item.findUnique({
+      const dbItem = await this.prisma.item.findUnique({
         where: { id: parseInt(item.productId || item.id) },
         include: { 
           optionGroups: { 
@@ -1321,7 +1313,7 @@ class OrderService {
 
       // 1. Process client-provided options
       if (incomingOptionIds.length > 0) {
-        const dbOptions = await prisma.itemOption.findMany({
+        const dbOptions = await this.prisma.itemOption.findMany({
           where: { id: { in: incomingOptionIds } },
           include: { group: true }
         });
@@ -1385,11 +1377,11 @@ class OrderService {
     if (type !== 'delivery') return { fee: 0, zoneId: null, zoneName: null, minOrder: 0 };
 
     if (!zoneId) {
-      const settings = await prisma.systemSettings.findFirst();
+      const settings = await this.prisma.systemSettings.findFirst();
       return { fee: toNumber(settings?.defaultDeliveryFee, 1), zoneId: null, zoneName: 'Default', minOrder: 0 };
     }
 
-    const zone = await prisma.deliveryZone.findUnique({ where: { id: zoneId } });
+    const zone = await this.prisma.deliveryZone.findUnique({ where: { id: zoneId } });
     if (!zone || !zone.isActive) throw new Error('INVALID_DELIVERY_ZONE');
 
     const fee = toNumber(zone.fee);
@@ -1443,7 +1435,7 @@ class OrderService {
       });
 
       // 3. Analytics Pulse
-      analyticsService.updateCacheIncrementally({
+      this.container.analyticsService.updateCacheIncrementally({
         type: 'ORDER_CREATED',
         amount: toNumber(order.total),
         orderNumber: order.orderNumber,
@@ -1464,7 +1456,7 @@ class OrderService {
    * Defered as per Business Design Cycle.
    */
   _onOrderCompleted(orderId) {
-    loyaltyService.awardPointsForOrder(orderId).catch(err => {
+    this.container.loyaltyService.awardPointsForOrder(orderId).catch(err => {
       logger.error('[Loyalty] Failed to award points on completion', { orderId, error: err.message });
     });
   }
@@ -1478,7 +1470,7 @@ class OrderService {
 
     while (attempts < maxRetries) {
       try {
-        const order = await prisma.order.findUnique({
+        const order = await this.prisma.order.findUnique({
           where: { id: orderId },
           include: { customer: true }
         });
@@ -1509,7 +1501,7 @@ class OrderService {
           throw new Error(`Invalid status transition from ${previousStatus} to ${newStatus}`);
         }
 
-        const { updatedOrder, _outboxId } = await prisma.$transaction(async (tx) => {
+        const { updatedOrder, _outboxId } = await this.prisma.$transaction(async (tx) => {
           const updated = await tx.order.update({
             where: { id: order.id },
             data: { status: newStatus, version: { increment: 1 } },
@@ -1520,7 +1512,7 @@ class OrderService {
           let pointsEarned = 0;
           if (newStatus === 'delivered') {
             try {
-              pointsEarned = await loyaltyService.awardPointsForOrder(updated, tx);
+              pointsEarned = await this.container.loyaltyService.awardPointsForOrder(updated, tx);
             } catch (err) {
               logger.error('[Loyalty] Failed to award points on status update', { orderId: updated.id, error: err.message });
             }
@@ -1528,7 +1520,7 @@ class OrderService {
 
           // 📮 Transactional Outbox Enqueue
           const outboxService = require('./outboxService');
-          const outbox = await outboxService.enqueue(eventTypes.ORDER_STATUS_CHANGED, {
+          const outbox = await this.container.outboxService.enqueue(eventTypes.ORDER_STATUS_CHANGED, {
             previousStatus,
             newStatus,
             order: {
@@ -1538,12 +1530,12 @@ class OrderService {
           }, tx);
 
           return { updatedOrder: updated, _outboxId: outbox.id };
-        });
+        }, { timeout: 15000 });
 
         const mappedOrder = mapOrderResponse(updatedOrder);
 
         // 📊 Incremental Analytics Update
-        analyticsService.updateCacheIncrementally({
+        this.container.analyticsService.updateCacheIncrementally({
           type: 'ORDER_STATUS_CHANGE',
           amount: toNumber(updatedOrder.total),
           status: newStatus,
@@ -1568,7 +1560,7 @@ class OrderService {
 
         // 🛡️ [UX-ENHANCEMENT] After all retries, return the ACTUAL current state instead of crashing
         if (error.code === 'P2025' || error.message === 'CONCURRENCY_CONFLICT') {
-          const finalOrder = await prisma.order.findUnique({ 
+          const finalOrder = await this.prisma.order.findUnique({ 
             where: { id: orderId },
             include: ORDER_INCLUDE_FULL
           });
@@ -1594,7 +1586,7 @@ class OrderService {
 
     // 🛡️ [SECURITY-UNIFICATION] Branch Isolation via Central Policy
     const SecurityPolicyService = require('./securityPolicyService');
-    const branchFilter = await SecurityPolicyService.getHardenedFilter(user, 'Order');
+    const branchFilter = await this.container.securityPolicyService.getHardenedFilter(user, 'Order');
     
     const where = { 
       status: 'pending', 
@@ -1603,7 +1595,7 @@ class OrderService {
     };
 
     try {
-      const { accepted, skipped, processedOrders } = await prisma.$transaction(async (tx) => {
+      const { accepted, skipped, processedOrders } = await this.prisma.$transaction(async (tx) => {
         let acceptedCount = 0;
         let skippedCount = 0;
         const processed = [];
@@ -1658,7 +1650,7 @@ class OrderService {
         }
 
         return { accepted: acceptedCount, skipped: skippedCount, processedOrders: processed };
-      }, { timeout: 10000 }); // ⏱️ Higher timeout for large batches
+      }); // ⏱️ Higher timeout for large batches
 
       results.accepted = accepted;
       results.skipped = skipped;
@@ -1677,7 +1669,7 @@ class OrderService {
                 version: order.version
               });
 
-              analyticsService.updateCacheIncrementally({
+              this.container.analyticsService.updateCacheIncrementally({
                 type: 'ORDER_STATUS_CHANGE',
                 amount: toNumber(order.total),
                 status: 'preparing',
@@ -1700,4 +1692,16 @@ class OrderService {
   }
 }
 
-module.exports = new OrderService();
+// --- 🛡️ Backward Compatibility ---
+const getContainer = () => require('../lib/container');
+const proxy = new Proxy({}, {
+  get: (target, prop) => {
+    if (prop === 'OrderService') return OrderService;
+    const service = getContainer().orderService;
+    const val = service[prop];
+    return typeof val === 'function' ? val.bind(service) : val;
+  }
+});
+
+module.exports = proxy;
+module.exports.OrderService = OrderService;

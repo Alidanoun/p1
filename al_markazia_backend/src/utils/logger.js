@@ -2,6 +2,7 @@ const winston = require('winston');
 require('winston-daily-rotate-file');
 const path = require('path');
 const fs = require('fs');
+const { getRequestId } = require('./context');
 
 const logDir = path.join(__dirname, '../../logs');
 if (!fs.existsSync(logDir)) {
@@ -32,34 +33,54 @@ winston.addColors({
   debug: 'white',
 });
 
-// Partial masking for PII (like phone numbers)
-const maskPhone = (phone) => {
-  if (!phone) return phone;
-  const str = String(phone);
-  if (str.length <= 4) return '***';
-  return str.slice(0, 4) + '***' + str.slice(-2); // Simple mask
+const SENSITIVE_KEYS = [
+  'otp', 'code', 'password', 'token', 'refreshToken', 'codeHash', 
+  'jwt', 'secret', 'authorization', 'signature', 'payload', 
+  'email', 'phone', 'customerPhone', 'creditCard', 'cvv'
+];
+
+/**
+ * 🛡️ Deep Redactor
+ * Recursively scans objects and arrays to mask sensitive data at any depth.
+ * [IDEMPOTENT]: Preserves non-object values and standard Winston symbols.
+ */
+const deepRedact = (obj) => {
+  if (!obj || typeof obj !== 'object' || obj instanceof Date) return obj;
+
+  if (Array.isArray(obj)) {
+    return obj.map(item => deepRedact(item));
+  }
+
+  const redacted = {};
+  for (const [key, value] of Object.entries(obj)) {
+    const lowerKey = key.toLowerCase();
+    
+    // 1. Check for sensitive keys
+    if (SENSITIVE_KEYS.some(sk => lowerKey.includes(sk.toLowerCase()))) {
+      redacted[key] = '[REDACTED]';
+    } 
+    // 2. Recursive redaction for nested objects
+    else if (typeof value === 'object' && value !== null) {
+      redacted[key] = deepRedact(value);
+    } 
+    // 3. Copy safe values
+    else {
+      redacted[key] = value;
+    }
+  }
+  return redacted;
 };
 
-const { getRequestId } = require('../utils/context');
-
-const SENSITIVE_KEYS = ['otp', 'code', 'password', 'token', 'refreshToken', 'codeHash', 'jwt', 'secret', 'authorization', 'signature', 'payload'];
-
 const sanitizeMetadata = winston.format((info) => {
-  if (info.phone) info.phone = maskPhone(info.phone);
-  if (info.customerPhone) info.customerPhone = maskPhone(info.customerPhone);
+  // 🛡️ Apply Deep Redaction across all log data
+  const cleanInfo = deepRedact(info);
   
-  // 🛡️ Redact sensitive keys
-  Object.keys(info).forEach(key => {
-    if (SENSITIVE_KEYS.some(sk => key.toLowerCase().includes(sk.toLowerCase()))) {
-      info[key] = '[REDACTED]';
-    }
-  });
+  // Re-assign to info object (Preserving Winston's internal symbols)
+  Object.assign(info, cleanInfo);
 
   // 🔍 Trace Integration: Automatically attach RequestID if in context
   const requestId = getRequestId();
-  if (requestId) {
-    info.requestId = requestId;
-  }
+  if (requestId) info.requestId = requestId;
 
   // Attach standard service tag
   info.service = 'al-markazia-backend';
@@ -161,6 +182,21 @@ logger.security = (message, meta = {}) => {
 // 🏛️ Custom helper for Legacy Migration tracking
 logger.deprecate = (message, meta = {}) => {
   logger.warn(`DEPRECATED: ${message}`, { ...meta, isDeprecationEvent: true });
+};
+
+/**
+ * 🛡️ Enhanced Error Logger
+ * يضمن تسجيل الخطأ مع كامل السياق التقني
+ */
+logger.logError = (context, error, metadata = {}) => {
+  const errorDetails = {
+    context: context, // مكان حدوث الخطأ (مثلاً: CacheService.subscribe)
+    message: error.message,
+    stack: error.stack,
+    ...metadata // أي بيانات إضافية مثل userId أو orderId
+  };
+
+  logger.error(`[${context}] ${error.message}`, errorDetails);
 };
 
 module.exports = logger;

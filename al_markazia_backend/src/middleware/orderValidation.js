@@ -1,6 +1,53 @@
 /**
  * Middleware for validating order-related requests
  */
+const xss = require('xss');
+
+/**
+ * 🛡️ Comprehensive Order Creation Validator
+ */
+exports.validateOrderCreate = (req, res, next) => {
+  const { customerName, address, notes, cartItems } = req.body;
+
+  // 1. Sanitization & XSS Prevention
+  if (customerName) req.body.customerName = xss(customerName.trim()).substring(0, 100);
+  if (address) req.body.address = xss(address.trim()).substring(0, 500);
+  if (notes) req.body.notes = xss(notes.trim()).substring(0, 500);
+
+  // 2. Structural Integrity
+  if (!cartItems || !Array.isArray(cartItems) || cartItems.length === 0) {
+    return res.status(400).json({ success: false, error: 'يجب إضافة منتجات للطلب' });
+  }
+
+  // 3. Cart Item Hardening
+  for (const item of cartItems) {
+    if (!item.itemId || !item.quantity || item.quantity <= 0) {
+      return res.status(400).json({ success: false, error: 'بيانات المنتجات غير صالحة' });
+    }
+    // 🛡️ Price Hijack Prevention: Force recalculation in service layer
+    delete item.unitPrice; 
+    delete item.lineTotal;
+  }
+
+  next();
+};
+
+/**
+ * 🛡️ Order Rating Validator
+ */
+exports.validateOrderRating = (req, res, next) => {
+  const { rating, comment } = req.body;
+  
+  if (rating === undefined || rating < 1 || rating > 5) {
+    return res.status(400).json({ success: false, error: 'التقييم يجب أن يكون بين 1 و 5' });
+  }
+
+  if (comment) {
+    req.body.comment = xss(comment.trim()).substring(0, 500);
+  }
+
+  next();
+};
 
 exports.validatePartialCancelRequest = (req, res, next) => {
   const { itemIds, reason } = req.body;

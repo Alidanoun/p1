@@ -1,18 +1,20 @@
-const redis = require('../lib/redis');
-const logger = require('../utils/logger');
-
 /**
  * 🛡️ Security Policy Service (The Fortress)
  * The single source of truth for all authorization and data isolation logic.
  */
 class SecurityPolicyService {
+  constructor({ prisma, redis, logger }) {
+    this.prisma = prisma;
+    this.redis = redis;
+    this.logger = logger;
+  }
+
   /**
    * Generates a hardened filter for database queries based on user context.
-   * @param {Object} user - The requesting user from JWT.
-   * @param {string} modelName - The Prisma model name being queried.
-   * @returns {Promise<Object>} Prisma where clause filter.
    */
-  static async getHardenedFilter(user, modelName = 'Generic') {
+  async getHardenedFilter(user, modelName = 'Generic') {
+    const logger = this.logger;
+    const redis = this.redis;
     if (!user) throw new Error('UNAUTHORIZED: No security context provided');
 
     // 🛡️ [PHASE 2] Context Integrity Validation
@@ -141,7 +143,7 @@ class SecurityPolicyService {
         const extraIds = JSON.parse(cached);
         allowedBranchIds = [...new Set([...allowedBranchIds, ...extraIds])];
       } else {
-        const prisma = require('../lib/prisma'); // 🛡️ Local require to break circular dependency
+        const prisma = this.prisma;
         
         // 🛡️ [SECURITY-FIX] Identity Resolution (Number vs UUID)
         let numericUserId = typeof user.id === 'number' ? user.id : null;
@@ -206,11 +208,8 @@ class SecurityPolicyService {
 
   /**
    * 🔒 High-Level Authorization: Checks if a user is allowed to access a branch.
-   * @param {Object} user - Requesting user.
-   * @param {string} branchId - Target branch.
-   * @param {string} intent - 'read' or 'write' (Default: 'write' for safety)
    */
-  static async canAccessBranch(user, branchId, intent = 'write') {
+  async canAccessBranch(user, branchId, intent = 'write') {
     if (!user) return false;
     const role = user.role?.toLowerCase();
 
@@ -254,13 +253,8 @@ class SecurityPolicyService {
 
   /**
    * 🎯 Get Maximum Intent Level for a User
-   * Determines whether a user can only READ or also WRITE.
-   * This is the centralized authority for intent resolution.
-   * 
-   * @param {Object} user - User object with role
-   * @returns {'read' | 'write'} Maximum allowed intent
    */
-  static getMaxIntent(user) {
+  getMaxIntent(user) {
     if (!user) return 'read';
     const role = user.role?.toLowerCase();
     
@@ -279,10 +273,9 @@ class SecurityPolicyService {
 
   /**
    * Identifies target Socket.IO rooms for a user or an event.
-   * @param {Object} context - User object or Event metadata.
-   * @returns {Promise<string[]>} List of room identifiers.
    */
-  static async getTargetRooms(context) {
+  async getTargetRooms(context) {
+    const redis = this.redis;
     const { SOCKET_ROOMS } = require('../shared/socketEvents');
     const rooms = new Set();
 
@@ -346,9 +339,8 @@ class SecurityPolicyService {
 
   /**
    * 🏷️ Standardized Event Wrapper
-   * Wraps the payload with metadata including a unique eventId for frontend deduplication.
    */
-  static wrapPayload(data) {
+  wrapPayload(data) {
     const { v4: uuidv4 } = require('uuid');
     return {
       eventId: uuidv4(),
@@ -359,12 +351,10 @@ class SecurityPolicyService {
 
   /**
    * 🛡️ Real-Time Audit: Validates user status (Active/Blacklisted) 
-   * against the DB in real-time.
    */
-  static async checkUserStatus(userId) {
+  async checkUserStatus(userId) {
+    const prisma = this.prisma;
     if (!userId) return { isActive: false, isBlacklisted: true };
-
-    const prisma = require('../lib/prisma'); // 🛡️ Local require to break circular dependency
 
     // Fetch from DB (Check both User and Customer tables)
     let identity = await prisma.user.findUnique({
@@ -392,10 +382,10 @@ class SecurityPolicyService {
   }
   /**
    * 🏥 Rehydration System (Cold Start Safety)
-   * Pre-loads security permissions into Redis for all active administrative users.
    */
-  static async warmupSecurityCache() {
-    const prisma = require('../lib/prisma');
+  async warmupSecurityCache() {
+    const prisma = this.prisma;
+    const logger = this.logger;
     try {
       const activeUsers = await prisma.user.findMany({
         where: { 
@@ -420,9 +410,10 @@ class SecurityPolicyService {
 
   /**
    * 🛡️ Invalidate User Permissions Cache
-   * Purges the Redis cache and forces active sockets to re-calculate their room boundaries.
    */
-  static async invalidateUserPermissions(userId) {
+  async invalidateUserPermissions(userId) {
+    const redis = this.redis;
+    const logger = this.logger;
     const cacheKey = `user:branches:${userId}`;
     await redis.del(cacheKey);
     logger.warn('[SECURITY] Permissions invalidated', { userId, timestamp: Date.now() });
@@ -440,7 +431,7 @@ class SecurityPolicyService {
         logger.info(`[SecurityPolicy] Force-syncing rooms for socket ${socket.id} (User: ${userId})`);
         
         // 1. Refresh socket user context (to avoid stale role/branchId)
-        const prisma = require('../lib/prisma');
+        const prisma = this.prisma;
         const freshUser = await prisma.user.findUnique({
           where: { uuid: userId },
           select: { id: true, role: true, branchId: true }
@@ -478,4 +469,33 @@ class SecurityPolicyService {
   }
 }
 
+// --- 🛡️ Backward Compatibility Layer (Static Proxies) ---
+// These ensure existing code doesn't break while we migrate.
+const getContainer = () => require('../lib/container');
+
+SecurityPolicyService.getHardenedFilter = (user, modelName) => 
+  getContainer().securityPolicyService.getHardenedFilter(user, modelName);
+
+SecurityPolicyService.canAccessBranch = (user, branchId, intent) => 
+  getContainer().securityPolicyService.canAccessBranch(user, branchId, intent);
+
+SecurityPolicyService.getMaxIntent = (user) => 
+  getContainer().securityPolicyService.getMaxIntent(user);
+
+SecurityPolicyService.getTargetRooms = (context) => 
+  getContainer().securityPolicyService.getTargetRooms(context);
+
+SecurityPolicyService.wrapPayload = (data) => 
+  getContainer().securityPolicyService.wrapPayload(data);
+
+SecurityPolicyService.checkUserStatus = (userId) => 
+  getContainer().securityPolicyService.checkUserStatus(userId);
+
+SecurityPolicyService.warmupSecurityCache = () => 
+  getContainer().securityPolicyService.warmupSecurityCache();
+
+SecurityPolicyService.invalidateUserPermissions = (userId) => 
+  getContainer().securityPolicyService.invalidateUserPermissions(userId);
+
 module.exports = SecurityPolicyService;
+module.exports.SecurityPolicyService = SecurityPolicyService;

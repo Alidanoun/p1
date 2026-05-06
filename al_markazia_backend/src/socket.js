@@ -40,6 +40,45 @@ module.exports = {
         credentials: true
       }
     });
+    
+    // --- 🛡️ SECURITY: CSRF Protection Middleware (Double Cookie Pattern) ---
+    io.use(async (socket, next) => {
+      try {
+        const { cookie: cookieHeader } = socket.handshake.headers;
+        
+        // 🛠️ Simple Cookie Parser
+        const parseCookies = (str) => {
+          if (!str) return {};
+          return str.split(';').reduce((acc, c) => {
+            const [key, ...v] = c.trim().split('=');
+            acc[key] = v.join('=');
+            return acc;
+          }, {});
+        };
+
+        const cookies = parseCookies(cookieHeader);
+        const csrfTokenFromCookie = cookies['XSRF-TOKEN'];
+        const csrfTokenFromHeader = socket.handshake.headers['x-xsrf-token'];
+
+        // 🛡️ [SEC-FIX] Double Cookie Submit Validation
+        // Note: Only enforce if cookies are present (Browser context). 
+        // Mobile apps don't use cookies and aren't vulnerable to browser CSRF.
+        if (cookieHeader && csrfTokenFromCookie) {
+          if (csrfTokenFromCookie !== csrfTokenFromHeader) {
+            logger.security('🔌 [SocketCSRF] Connection rejected: CSRF token mismatch or missing header', {
+              ip: socket.handshake.address,
+              userAgent: socket.handshake.headers['user-agent']
+            });
+            return next(new Error('CSRF_VALIDATION_FAILED'));
+          }
+        }
+
+        next();
+      } catch (err) {
+        logger.error('🔌 [SocketCSRF] Unexpected error during validation', { error: err.message });
+        next(new Error('INTERNAL_SECURITY_ERROR'));
+      }
+    });
 
     // --- 🛡️ SECURITY: JWT Handshake Middleware (Hardened v2) ---
     io.use(async (socket, next) => {
