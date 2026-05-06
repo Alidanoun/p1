@@ -42,7 +42,7 @@ const maskPhone = (phone) => {
 
 const { getRequestId } = require('../utils/context');
 
-const SENSITIVE_KEYS = ['otp', 'code', 'password', 'token', 'refreshToken', 'codeHash'];
+const SENSITIVE_KEYS = ['otp', 'code', 'password', 'token', 'refreshToken', 'codeHash', 'jwt', 'secret', 'authorization', 'signature', 'payload'];
 
 const sanitizeMetadata = winston.format((info) => {
   if (info.phone) info.phone = maskPhone(info.phone);

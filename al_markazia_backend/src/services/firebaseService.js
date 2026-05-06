@@ -2,6 +2,7 @@ const admin = require('firebase-admin');
 const path = require('path');
 const fs = require('fs');
 const logger = require('../utils/logger');
+const { decrypt } = require('../utils/crypto');
 
 // ⚙️ Advanced FCM Configuration
 const MAX_RETRIES = 3;
@@ -111,10 +112,12 @@ const sendToToken = async (token, title, body, data = {}) => {
     stringData[key] = String(data[key]);
   });
 
+  const decryptedToken = decrypt(token);
+
   const message = {
     notification: { title, body },
     data: stringData,
-    token: token,
+    token: decryptedToken,
     android: {
       priority: 'high',
       notification: {

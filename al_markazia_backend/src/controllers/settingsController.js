@@ -2,6 +2,7 @@ const bcrypt = require('bcrypt');
 const prisma = require('../lib/prisma');
 const logger = require('../utils/logger');
 const SecurityPolicyService = require('../services/securityPolicyService');
+const { decrypt } = require('../utils/crypto');
 
 const BOOLEAN_KEYS = ['notificationsEnabled', 'autoAcceptOrders'];
 
@@ -52,7 +53,7 @@ exports.updateAdminCredentials = async (req, res) => {
     if (currentPassword) {
       const isValid = await bcrypt.compare(currentPassword, admin.password);
       if (!isValid) return res.status(401).json({ error: 'كلمة المرور الحالية غير صحيحة' });
-    } else if (newPassword || email !== admin.email) {
+    } else if (newPassword || (email && email !== decrypt(admin.email))) {
       return res.status(401).json({ error: 'يجب إدخال كلمة المرور الحالية لتأكيد التغييرات' });
     }
 
@@ -115,7 +116,7 @@ exports.updateBranchCredentials = async (req, res) => {
     if (!manager) return res.status(404).json({ error: 'لم يتم العثور على مدير لهذا الفرع' });
 
     const updateData = {};
-    if (email && email !== manager.email) {
+    if (email && email !== decrypt(manager.email)) {
       const existingUser = await prisma.user.findUnique({ where: { email } });
       if (existingUser) return res.status(400).json({ error: 'هذا البريد الإلكتروني مستخدم مسبقاً' });
       updateData.email = email;

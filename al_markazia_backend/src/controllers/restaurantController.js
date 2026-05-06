@@ -1,6 +1,7 @@
 const workingHoursService = require('../services/workingHoursService');
 const prisma = require('../lib/prisma');
 const logger = require('../utils/logger');
+const { encrypt } = require('../utils/crypto');
 const { DateTime } = require('luxon');
 const bcrypt = require('bcrypt');
 const eventBus = require('../events/eventBus');
@@ -168,7 +169,7 @@ const subscribeToReopen = async (req, res) => {
     await prisma.restaurantSubscription.create({
       data: {
         userId,
-        fcmToken,
+        fcmToken: encrypt(fcmToken),
         targetTime: new Date(nextOpenAt),
       }
     });

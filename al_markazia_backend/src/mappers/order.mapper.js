@@ -5,6 +5,7 @@
  */
 
 const { toNumber, toMoney } = require('../utils/number');
+const { decrypt } = require('../utils/crypto');
 
 /**
  * Maps a raw Prisma Order (with Decimal fields) to a safe API response.
@@ -28,8 +29,8 @@ const mapOrderResponse = (order) => {
     orderNumber:  order.orderNumber,
 
     // --- Customer ---
-    customerName:  order.customerName,
-    customerPhone: order.customerPhone,
+    customerName:  decrypt(order.customerName),
+    customerPhone: decrypt(order.customerPhone),
     customerId:    order.customerId,
 
     // --- Status & Type ---
@@ -69,9 +70,9 @@ const mapOrderResponse = (order) => {
     customer: order.customer ? {
       id:       order.customer.id,
       uuid:     order.customer.uuid,
-      name:     order.customer.name,
-      phone:    order.customer.phone,
-      fcmToken: order.customer.fcmToken, // 🔔 Essential for NotificationService
+      name:     decrypt(order.customer.name),
+      phone:    decrypt(order.customer.phone),
+      fcmToken: decrypt(order.customer.fcmToken), // 🔔 Essential for NotificationService
     } : null,
   };
 };

@@ -2,6 +2,7 @@
 const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const prisma = require('../lib/prisma');
+const { hashBlind } = require('../utils/crypto');
 const logger = require('../utils/logger');
 const { addOtpToQueue } = require('../queues/emailQueue');
 
@@ -23,18 +24,20 @@ class OtpService {
    * 🚀 Request OTP via Email (rate-limited, anti-enumeration)
    * @param {Object} params
    * @param {string} params.email - Target email address
+   * @param {string} [params.phone] - Target phone number
    * @param {string} [params.purpose='login'] - 'login' | 'register' | 'password_reset'
    * @param {string} [params.ipAddress]
    * @param {string} [params.userAgent]
    */
-  async requestOtp({ email, purpose = 'login', ipAddress, userAgent }) {
-    const cleanEmail = email.toLowerCase().trim();
+  async requestOtp({ email, phone, purpose = 'login', ipAddress, userAgent }) {
+    const cleanEmail = email ? email.toLowerCase().trim() : null;
 
     // 1. Rate limit per email: Global hour limit
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-    const recentRequests = await prisma.otpCode.count({
-      where: { email: cleanEmail, createdAt: { gte: oneHourAgo } }
-    });
+    const where = email ? { emailHash: hashBlind(email) } : { phoneHash: hashBlind(phone) };
+    where.createdAt = { gte: oneHourAgo };
+
+    const recentRequests = await prisma.otpCode.count({ where });
 
     if (recentRequests >= MAX_REQUESTS_PER_HOUR) {
       throw new Error('TOO_MANY_OTP_REQUESTS');
@@ -42,7 +45,12 @@ class OtpService {
 
     // 2. Resend Cooldown Check
     const lastOtp = await prisma.otpCode.findFirst({
-      where: { email: cleanEmail, purpose, used: false },
+      where: { 
+        emailHash: email ? hashBlind(email) : undefined,
+        phoneHash: phone ? hashBlind(phone) : undefined,
+        purpose, 
+        used: false 
+      },
       orderBy: { createdAt: 'desc' }
     });
 
@@ -60,16 +68,24 @@ class OtpService {
 
     // 4. Invalidate previous unused OTPs for this email/purpose
     await prisma.otpCode.updateMany({
-      where: { email: cleanEmail, purpose, used: false },
+      where: { 
+        emailHash: email ? hashBlind(email) : undefined,
+        phoneHash: phone ? hashBlind(phone) : undefined,
+        purpose, 
+        used: false 
+      },
       data: { used: true }
     });
 
     // 5. Save OTP Hash to Database
     const otp = await prisma.otpCode.create({
       data: { 
-        email: cleanEmail, 
-        codeHash, 
-        expiresAt, 
+        email: cleanEmail,
+        emailHash: email ? hashBlind(email) : null,
+        phone,
+        phoneHash: phone ? hashBlind(phone) : null,
+        codeHash,
+        expiresAt,
         purpose, 
         ipAddress, 
         userAgent 

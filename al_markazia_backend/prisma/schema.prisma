@@ -10,7 +10,9 @@ datasource db {
 model User {
   id           Int      @id @default(autoincrement())
   email        String   @unique
+  emailHash    String?  @unique
   phone        String?  @unique
+  phoneHash    String?  @unique
   name         String?
   password     String
   role         String   @default("admin")
@@ -151,6 +153,7 @@ model Order {
   orderNumber      String             @unique
   customerName     String
   customerPhone    String
+  customerPhoneHash String?
   customerId       Int?
 
   // Branch Integration
@@ -251,7 +254,9 @@ model Customer {
   id                  Int                @id @default(autoincrement())
   name                String
   phone               String?            @unique
+  phoneHash           String?            @unique
   email               String?            @unique
+  emailHash           String?            @unique
   password            String?
   address             String?
   fcmToken            String?
@@ -441,7 +446,7 @@ model CustomerAuditLog {
   customerId       Int
   eventType        String
   eventAction      String
-  changedBy        String
+  changedBy       String
   changedByRole    String
   reason           String?
   previousData     String?
@@ -509,7 +514,9 @@ model HealthMetric {
 model OtpCode {
   id        String   @id @default(uuid())
   phone     String?
+  phoneHash String?
   email     String?
+  emailHash String?
   codeHash  String
   attempts  Int      @default(0)
   used      Boolean  @default(false)
