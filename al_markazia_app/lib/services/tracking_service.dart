@@ -43,7 +43,7 @@ class TrackingService {
     if (_socket != null) return;
 
     final token = await SessionService.instance.accessToken;
-    _socket = IO.io(ApiService.baseUrl, 
+    _socket = IO.io(ApiService.socketUrl, 
       IO.OptionBuilder()
         .setTransports(['websocket'])
         .setAuth({'token': token})

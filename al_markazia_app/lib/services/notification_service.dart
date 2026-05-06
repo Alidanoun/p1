@@ -164,8 +164,8 @@ class NotificationService extends ChangeNotifier {
       return;
     }
 
-    print('🔌 [Socket V5] Connecting to ${ApiService.baseUrl} with JWT...');
-    socket = IO.io(ApiService.baseUrl, <String, dynamic>{
+    print('🔌 [Socket V5] Connecting to ${ApiService.socketUrl} with JWT...');
+    socket = IO.io(ApiService.socketUrl, <String, dynamic>{
       'transports': ['websocket'],
       'autoConnect': true,
       'auth': {'token': token},
