@@ -7,13 +7,11 @@ const getBaseUrl = () => {
   if (import.meta.env.PROD) throw new Error('CRITICAL: VITE_API_URL is missing in production');
   
   /** 
-   * 🌐 Smart Local Proxy:
-   * By returning an empty string, requests become relative (e.g., /auth/login).
-   * This forces them to go through the Vite Proxy in vite.config.js.
-   * This makes the browser treat the requests as "Same-Origin", ensuring 
-   * HttpOnly Cookies are sent reliably without Cross-Origin/SameSite issues.
+   * 🌐 Versioned Proxy Path:
+   * By returning '/api/v1', requests become relative to the versioned root (e.g., /api/v1/auth/login).
+   * This is then handled by the Vite Proxy in vite.config.js and forwarded to the backend.
    */
-  return '';
+  return '/api/v1';
 };
 export const BASE_URL = getBaseUrl();
 

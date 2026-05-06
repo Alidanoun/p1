@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { io } from 'socket.io-client';
 import { toast } from 'sonner';
+import { getCookie } from '../lib/utils';
 import api, { unwrap } from '../api/client';
 import { tokenStore } from '../api/tokenStore';
 import { useAuth } from './AuthContext';
@@ -8,7 +9,7 @@ import { useDebounce } from '../hooks/useDebounce';
 
 const SocketContext = createContext();
 
-const SOCKET_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const SOCKET_URL = import.meta.env.VITE_API_URL || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5000');
 
 export const SocketProvider = ({ children }) => {
   const { user, selectedBranchId } = useAuth();
@@ -108,6 +109,9 @@ export const SocketProvider = ({ children }) => {
       timeout: 20000,
       auth: { token },                 // 🛡️ From memory store
       withCredentials: true,           // ✅ Important for cookie-based handshake
+      extraHeaders: {
+        'x-xsrf-token': getCookie('XSRF-TOKEN') || '' // 🛡️ Double Cookie Submit for Socket.io
+      },
       transports: ['websocket']        // Stability optimization
     });
     
