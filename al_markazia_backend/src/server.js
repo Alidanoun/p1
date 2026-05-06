@@ -20,7 +20,7 @@ const metricsRoutes = require('./routes/metrics');
 const analyticsRoutes = require('./routes/analytics');
 const systemRoutes = require('./routes/system');
 const happyHourRoutes = require('./routes/happyHour');
-const { governorGuard } = require('./middleware/securityGuard');
+const { governorGuard } = require('./middleware/governorMiddleware');
 const deliveryZoneRoutes = require('./routes/deliveryZones');
 const dashboardRoutes = require('./routes/dashboard');
 const healthRoutes = require('./routes/health');
@@ -72,7 +72,9 @@ async function startServer() {
     initHealthWorker().catch(err => logger.error('[Startup] Health Worker failed', { error: err.message }));
 
     // 4. Register Middleware
+    const performanceMonitor = require('./middleware/performanceMonitor');
     app.use(requestTracing);
+    app.use(performanceMonitor);
     app.use(shadowMirrorMiddleware);
     
     // 🛡️ [SEC-FIX] Robust CSP & Security Headers
@@ -134,16 +136,33 @@ async function startServer() {
     
     // CORS Setup
     const allowedOrigins = (process.env.CORS_ORIGIN || '').split(',').map(o => o.trim()).filter(Boolean);
+    
+    // 🛡️ SEC-FIX: Use Regex for strict origin matching to prevent CORS bypass
+    // Convert allowedOrigins array to an array of RegExp objects for exact matching
+    const allowedOriginRegexes = allowedOrigins.map(origin => {
+      // Escape dots and create a strict boundary regex
+      const escaped = origin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return new RegExp(`^${escaped}$`);
+    });
+
     app.use(cors({
       origin: (origin, callback) => {
+        // Allow requests with no origin (e.g., same-origin requests, file://, Postman)
         if (!origin) return callback(null, true);
         
-        // Auto-allow Localhost/127.0.0.1 for development comfort
-        const isLocal = origin.includes('localhost') || origin.includes('127.0.0.1') || origin.includes('192.168.');
-        if (isLocal || allowedOrigins.includes(origin)) {
+        // Auto-allow Localhost/127.0.0.1/192.168.x.x for development comfort
+        // Pattern: Matches http/https with localhost, 127.0.0.1, or 192.168.x.x (with optional port)
+        const isLocal = /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3})(:\d+)?$/.test(origin);
+
+        // Check if the origin exactly matches any of the allowed origins using regex
+        const isAllowed = allowedOriginRegexes.some(regex => regex.test(origin));
+
+        if (isLocal || isAllowed) {
           callback(null, true);
         } else {
-          callback(null, false);
+          // Log rejected origin for debugging and security monitoring
+          logger.warn(`🛡️ [CORS] Rejected unauthorized origin: ${origin}`);
+          callback(new Error('Not allowed by CORS'), false);
         }
       },
       credentials: true,
@@ -194,7 +213,10 @@ async function startServer() {
     app.use('/api/system', systemRoutes);
     app.use('/api/happyhour', happyHourRoutes);
     
-    app.get('/health', (req, res) => res.status(200).json({ status: 'ok', timestamp: new Date() }));
+    // Health Checks
+    const healthCheckRoutes = require('./routes/healthCheck');
+    app.use('/api/health', healthCheckRoutes);
+    app.use('/health', healthCheckRoutes); // Support both paths
     app.use('/delivery-zones', deliveryZoneRoutes);
     app.use('/dashboard', dashboardRoutes);
     const financialRoutes = require('./routes/financial');
@@ -304,28 +326,50 @@ async function shutdown(signal) {
   const timeoutGuard = setTimeout(() => {
     logger.error('❌ Shutdown forced after timeout.');
     process.exit(1);
-  }, 10000);
+  }, 15000);
 
   try {
-    // 1. Close HTTP Server (Stop accepting new requests)
+    // 1. Stop accepting new requests
     server.close(() => {
       logger.info('HTTP server closed.');
     });
 
-    // 2. Disconnect from DB & Cache
+    // 2. Close all active connections (Node 18+)
+    if (typeof server.closeAllConnections === 'function') {
+      server.closeAllConnections();
+    }
+
+    // 3. Close Socket.IO
+    try {
+      const socketModule = require('./socket');
+      if (socketModule.isReady()) {
+        const io = socketModule.getIO();
+        io.close();
+        logger.info('Socket.IO server closed.');
+      }
+    } catch (sErr) {
+      logger.error('Error closing Socket.IO', { error: sErr.message });
+    }
+
+    // 4. Disconnect from DB & Cache & Services
     const cacheService = require('./services/cacheService');
     const happyHourService = require('./services/happyHourService');
+    const auditService = require('./services/auditService');
+
     await Promise.all([
       prisma.$disconnect(),
       cacheService.destroy(),
-      happyHourService.destroy()
+      happyHourService.destroy(),
+      auditService.destroy(),
+      new Promise(resolve => setTimeout(resolve, 1500)) // Final grace period
     ]);
-    logger.info('DB, Cache and HappyHour disconnected.');
+    
+    logger.info('All services (DB, Cache, HappyHour, Audit) disconnected safely.');
 
     clearTimeout(timeoutGuard);
     process.exit(0);
   } catch (err) {
-    logger.error('Error during shutdown', { error: err.message });
+    logger.error('Error during shutdown', { error: err.message, stack: err.stack });
     process.exit(1);
   }
 }
@@ -333,4 +377,8 @@ async function shutdown(signal) {
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 
-startServer();
+startServer().catch(err => {
+  console.error('❌ FATAL STARTUP ERROR:', err);
+  logger.error('FATAL STARTUP ERROR', { error: err.message, stack: err.stack });
+  process.exit(1);
+});

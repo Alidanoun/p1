@@ -18,6 +18,8 @@ export const SocketProvider = ({ children }) => {
   const [liveMetrics, setLiveMetrics] = useState(null);
   const [metricsHistory, setMetricsHistory] = useState([]);
   const socketRef = useRef(null);
+  const abortControllerRef = useRef(null);
+  const switchTimeoutRef = useRef(null);
 
   const fetchNotifications = useCallback(async () => {
     try {
@@ -32,18 +34,20 @@ export const SocketProvider = ({ children }) => {
     }
   }, []);
 
-  const fetchLiveMetrics = useCallback(async () => {
+  const fetchLiveMetrics = useCallback(async (signal = null) => {
     try {
       const branchId = selectedBranchId;
       const url = branchId ? `/dashboard/metrics?branchId=${branchId}` : '/dashboard/metrics';
-      const response = await api.get(url);
+      const response = await api.get(url, { signal });
       const data = unwrap(response);
       
-      if (data) {
+      if (data && (!signal || !signal.aborted)) {
         setLiveMetrics(data);
       }
     } catch (err) {
-      console.error('Failed to fetch metrics:', err);
+      if (err.name !== 'CanceledError' && err.name !== 'AbortError') {
+        console.error('Failed to fetch metrics:', err);
+      }
     }
   }, [selectedBranchId]);
 
@@ -216,20 +220,70 @@ export const SocketProvider = ({ children }) => {
   const debouncedBranchId = useDebounce(selectedBranchId, 300);
 
   useEffect(() => {
-    if (socketRef.current && socketRef.current.connected && debouncedBranchId !== undefined) {
-      // 🔄 [UI-FIX] Clear old metrics to show loading state during branch switch
+    // 🛡️ Only trigger if we have a valid debounced ID (null is valid for 'All Branches')
+    const performSwitch = async () => {
+      // 🛑 1. Cancel any ongoing switch/fetch
+      if (abortControllerRef.current) abortControllerRef.current.abort();
+      if (switchTimeoutRef.current) clearTimeout(switchTimeoutRef.current);
+
+      // ✨ 2. Initialize new Controller
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+      const { signal } = controller;
+
+      console.log(`[SocketContext] Branch switch sequence started: ${debouncedBranchId}`);
+      
+      // 🧹 3. Reset state to avoid stale data flicker
       setLiveMetrics(null);
       setMetricsHistory([]);
-      
-      socketRef.current.emit('branch:switch', { branchId: debouncedBranchId }, (response) => {
-        if (response?.success) {
-          console.log(`[Socket] Dynamic branch switch successful: ${debouncedBranchId}`);
-          fetchLiveMetrics();
-          fetchNotifications();
+
+      try {
+        // 📡 4. Socket Switch with Timeout Guard
+        if (socketRef.current?.connected) {
+          await new Promise((resolve, reject) => {
+            switchTimeoutRef.current = setTimeout(() => {
+              controller.abort();
+              reject(new Error('Socket switch timeout'));
+            }, 8000);
+
+            socketRef.current.emit('branch:switch', { branchId: debouncedBranchId }, (res) => {
+              clearTimeout(switchTimeoutRef.current);
+              if (signal.aborted) return reject(new Error('Aborted'));
+              if (res?.success) resolve(res);
+              else reject(new Error(res?.error || 'Branch switch rejected by server'));
+            });
+          });
         }
-      });
-    }
-  }, [debouncedBranchId, fetchLiveMetrics, fetchNotifications]);
+
+        // 📊 5. Fetch fresh metrics via HTTP (Using the LATEST debounced ID)
+        if (!signal.aborted) {
+          // 🚀 [FIX] Use debouncedBranchId directly to avoid stale selectedBranchId from closures
+          const url = debouncedBranchId ? `/dashboard/metrics?branchId=${debouncedBranchId}` : '/dashboard/metrics';
+          const response = await api.get(url, { signal });
+          const data = unwrap(response);
+          
+          if (data && !signal.aborted) {
+            setLiveMetrics(data);
+          }
+          
+          await fetchNotifications();
+        }
+
+      } catch (err) {
+        if (err.name !== 'CanceledError' && err.name !== 'AbortError') {
+          console.error('[SocketContext] Switch Sequence Failed:', err.message);
+          toast.error('حدث خطأ أثناء مزامنة بيانات الفرع الجديد');
+        }
+      }
+    };
+
+    performSwitch();
+
+    return () => {
+      if (abortControllerRef.current) abortControllerRef.current.abort();
+      if (switchTimeoutRef.current) clearTimeout(switchTimeoutRef.current);
+    };
+  }, [debouncedBranchId]); // 🎯 [FIX] Only depend on debounced ID to prevent redundant/stale triggers
 
   useEffect(() => {
     // 🛡️ Initialization: Try to connect with whatever is in store

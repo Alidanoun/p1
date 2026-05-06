@@ -22,33 +22,36 @@ const authenticateToken = async (req, res, next) => {
   }
 
   try {
+    // 🛡️ Token verification (Self-contained in TokenService)
     const decoded = TokenService.verifyAccessToken(token);
     if (!decoded) {
-       logger.error('❌ [AuthBug] TokenService.verifyAccessToken returned null/undefined', { token: token.substring(0, 10) });
        throw new Error('VERIFY_RETURNED_NULL');
     }
     
-    logger.debug('🔑 [AuthBug] Decoded JWT payload', { decodedKeys: Object.keys(decoded), userId: decoded.id });
     const { id: userId, jti } = decoded;
 
-    // 🛡️ JTI Revocation Check (Foundation Step)
-    if (jti) {
-      const sessionExists = await redis.exists(`session:${userId}:${jti}`);
-      if (!sessionExists) {
-        logger.security('REVOKED_SESSION_ACCESS_ATTEMPT', { userId, jti, ip: req.ip });
-        return responseError(res, 'انتهت صلاحية الجلسة أو تم إلغاؤها', 'SESSION_REVOKED', 401);
-      }
+    // 🛡️ [SEC-FIX] Permission Drift Guard: Fetch LATEST role/branch from Redis
+    // This ensures that if a user is demoted, their access is revoked INSTANTLY 
+    // even if their JWT still contains the old role.
+    const sessionDataRaw = await redis.get(`session:${userId}:${jti}`);
+    if (!sessionDataRaw) {
+      logger.security('SESSION_STALE_OR_MISSING', { userId, jti, ip: req.ip });
+      return responseError(res, 'انتهت صلاحية الجلسة، يرجى تسجيل الدخول مجدداً', 'SESSION_EXPIRED', 401);
     }
-    
+
+    const sessionData = JSON.parse(sessionDataRaw);
+    const currentRole = sessionData.role || decoded.role;
+    const currentBranchId = sessionData.branchId || decoded.branchId;
+
     // 🏢 Extract requestedBranchId (already sanitized by global middleware)
     const reqBranchId = (req.query && req.query.branchId) || (req.body && req.body.branchId) || null;
 
-    // Populate request with User Context
+    // Populate request with User Context using the LATEST data from Redis
     req.user = {
       id: userId, // This is the UUID
       phone: decoded.phone,
-      role: (decoded.role || '').toLowerCase(), // 🧠 Identity Normalization
-      branchId: decoded.branchId || null,
+      role: (currentRole || '').toLowerCase(), // 🧠 Identity Normalization (Latest from Redis)
+      branchId: currentBranchId || null,
       requestedBranchId: typeof reqBranchId === 'string' ? reqBranchId : null,
       jti: jti
     };
@@ -161,13 +164,15 @@ const optionalAuth = async (req, res, next) => {
       const decoded = TokenService.verifyAccessToken(token);
       const { id: userId, jti } = decoded;
 
-      if (jti) {
-        const sessionExists = await redis.exists(`session:${userId}:${jti}`);
-        if (!sessionExists) {
-          req.user = null;
-          return runInContext(null, () => next());
-        }
+      const sessionDataRaw = await redis.get(`session:${userId}:${jti}`);
+      if (!sessionDataRaw) {
+        req.user = null;
+        return runInContext(null, () => next());
       }
+
+      const sessionData = JSON.parse(sessionDataRaw);
+      const currentRole = sessionData.role || decoded.role;
+      const currentBranchId = sessionData.branchId || decoded.branchId;
 
       let reqBranchId = (req.query && req.query.branchId) || (req.body && req.body.branchId) || null;
       if (Array.isArray(reqBranchId)) {
@@ -179,8 +184,8 @@ const optionalAuth = async (req, res, next) => {
       req.user = {
         id: userId,
         phone: decoded.phone,
-        role: (decoded.role || '').toLowerCase(),
-        branchId: decoded.branchId || null,
+        role: (currentRole || '').toLowerCase(),
+        branchId: currentBranchId || null,
         requestedBranchId: typeof reqBranchId === 'string' ? reqBranchId : null,
         jti: jti
       };
