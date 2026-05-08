@@ -116,7 +116,6 @@ const authenticateToken = async (req, res, next) => {
  * 👑 Role Hierarchy Definition
  */
 const ROLE_LEVELS = {
-  'super_admin': 5, // Legacy support during migration
   'admin': 5,       // Unified admin role (Top tier)
   'branch_manager': 2,
   'manager': 2,
@@ -161,8 +160,8 @@ const requireRoles = (allowedRolesOrMinRole) => (req, res, next) => {
   return responseError(res, 'غير مصرح لك بالوصول لهذه المنطقة', 'FORBIDDEN_ACCESS', 403);
 };
 
-const isAdmin = requireRoles(['admin', 'super_admin']);
-const isManager = requireRoles(['admin', 'super_admin', 'branch_manager', 'manager']);
+const isAdmin = requireRoles(['admin']);
+const isManager = requireRoles(['admin', 'branch_manager', 'manager']);
 const isStaff = requireRoles('staff');
 
 /**

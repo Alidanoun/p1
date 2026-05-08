@@ -19,7 +19,9 @@ if (process.env.SKIP_SECRETS_VALIDATION === 'true') {
 const REQUIRED_SECRETS = [
   'JWT_SECRET',
   'REFRESH_TOKEN_SECRET',
-  'DATABASE_URL'
+  'DATABASE_URL',
+  'JWT_PRIVATE_KEY',
+  'JWT_PUBLIC_KEY'
 ];
 
 function validateSecrets() {
@@ -82,6 +84,8 @@ const ms = require('ms');
 module.exports = {
   JWT_SECRET: process.env.JWT_SECRET,
   REFRESH_TOKEN_SECRET: process.env.REFRESH_TOKEN_SECRET,
+  JWT_PRIVATE_KEY: process.env.JWT_PRIVATE_KEY ? process.env.JWT_PRIVATE_KEY.replace(/\\n/g, '\n') : '',
+  JWT_PUBLIC_KEY: process.env.JWT_PUBLIC_KEY ? process.env.JWT_PUBLIC_KEY.replace(/\\n/g, '\n') : '',
   // Single source of truth for expiries to ensure DB & JWT sync
   ACCESS_TOKEN_EXPIRY: process.env.ACCESS_TOKEN_EXPIRY || '15m',
   REFRESH_TOKEN_EXPIRY: process.env.REFRESH_TOKEN_EXPIRY || '7d',

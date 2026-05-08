@@ -10,7 +10,7 @@ const Sidebar = () => {
   const { theme, toggleTheme } = useTheme();
 
   const role = user?.role?.toLowerCase();
-  const isAdmin = role === 'admin' || role === 'super_admin';
+  const isAdmin = role === 'admin';
   const isBranchManager = role === 'manager' || role === 'branch_manager';
 
   const navItems = [

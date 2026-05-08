@@ -25,9 +25,6 @@ class SecurityPolicyService {
 
     let normalizedRole = user.role.toLowerCase();
     
-    // 🛡️ [GRACEFUL TRANSITION] Treat legacy super_admin as admin
-    if (normalizedRole === 'super_admin') normalizedRole = 'admin';
-    
     const ALLOWED_ROLES = ['admin', 'branch_manager', 'manager', 'customer', 'staff', 'driver'];
 
     if (!ALLOWED_ROLES.includes(normalizedRole)) {
@@ -133,7 +130,7 @@ class SecurityPolicyService {
     let allowedBranchIds = [];
 
     // 🏢 Admin / Manager: Access to assigned branch + any sub-branches
-    if (['admin', 'branch_manager', 'manager', 'super_admin'].includes(normalizedRole)) {
+    if (['admin', 'branch_manager', 'manager'].includes(normalizedRole)) {
       if (user.branchId) allowedBranchIds.push(user.branchId);
 
       const cacheKey = `user:branches:${user.id}`;
@@ -258,11 +255,8 @@ class SecurityPolicyService {
     if (!user) return 'read';
     const role = user.role?.toLowerCase();
     
-    // Super Admin: Full write everywhere
+    // Admin: Full write everywhere
     if (role === 'admin') return 'write';
-    
-    // Admin (non-super): Read-only monitoring
-    if (role === 'admin') return 'read';
     
     // Branch Manager / Manager: Write within their branch scope
     if (['branch_manager', 'manager'].includes(role)) return 'write';
@@ -284,9 +278,6 @@ class SecurityPolicyService {
       rooms.add(SOCKET_ROOMS.CUSTOMER(context.id));
 
       let role = context.role.toLowerCase();
-      
-      // 🛡️ [GRACEFUL TRANSITION] Treat legacy super_admin as admin
-      if (role === 'super_admin') role = 'admin';
 
       // 👁️ MONITORING LAYER: Admins join the global monitoring room
       if (role === 'admin') {

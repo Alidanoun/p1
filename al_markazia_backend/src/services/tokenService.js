@@ -9,15 +9,14 @@ const {
   REFRESH_TOKEN_SECRET,
   ACCESS_TOKEN_EXPIRY,
   REFRESH_TOKEN_EXPIRY,
-  REFRESH_TOKEN_EXPIRY_MS
+  REFRESH_TOKEN_EXPIRY_MS,
+  JWT_PRIVATE_KEY,
+  JWT_PUBLIC_KEY
 } = require('../config/secrets');
 
-const fs = require('fs');
-const path = require('path');
-
-// 🔐 Load RSA Keys for RS256 Signing
-const PRIVATE_KEY = fs.readFileSync(path.join(__dirname, '../config/keys/private.pem'), 'utf8');
-const PUBLIC_KEY = fs.readFileSync(path.join(__dirname, '../config/keys/public.pem'), 'utf8');
+// Keys are now loaded from secrets.js directly in the destructuring block above.
+const PRIVATE_KEY = JWT_PRIVATE_KEY;
+const PUBLIC_KEY = JWT_PUBLIC_KEY;
 
 /**
  * Enterprise Token Service (Level 4 Security)

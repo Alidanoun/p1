@@ -104,7 +104,7 @@ const LiveDashboard = () => {
 
   // 🛡️ Access Guard: Operations Center is for Admins only
   const role = user?.role?.toLowerCase();
-  const isAdmin = role === 'admin' || role === 'super_admin';
+  const isAdmin = role === 'admin';
 
   if (user && !isAdmin) {
     return <Navigate to="/orders" replace />;
