@@ -133,7 +133,7 @@ module.exports = {
         let dbRole = dbIdentity?.role?.toLowerCase() || 'customer';
         
         // 🛡️ [GRACEFUL TRANSITION] Allow super_admin and admin to be interchangeable
-        const isUnifiedAdmin = (r) => r === 'admin' || r === 'super_admin';
+        const isUnifiedAdmin = (r) => r === 'admin';
         const effectiveTokenRole = isUnifiedAdmin(tokenRole) ? 'admin' : tokenRole;
         
         if (dbIdentity?.role && !isUnifiedAdmin(dbRole) && dbRole !== effectiveTokenRole) {
@@ -233,7 +233,7 @@ module.exports = {
           const { role, id: userId } = socket.user;
 
           // 🔐 1. Strict Role Gate
-          const isAllowed = ['admin', 'super_admin', 'branch_manager', 'manager'].includes(role);
+          const isAllowed = ['admin', 'branch_manager', 'manager'].includes(role);
           if (!isAllowed) {
             logger.security('UNAUTHORIZED_BRANCH_SWITCH_ATTEMPT', { userId, role, requestedBranch: branchId });
             if (ack) ack({ success: false, error: 'Unauthorized' });
@@ -241,7 +241,7 @@ module.exports = {
           }
 
           // 🛡️ [SEC-FIX] Validate branchId (Allow null for admins for 'All Branches' view)
-          const isAdmin = ['admin', 'super_admin'].includes(role);
+          const isAdmin = ['admin'].includes(role);
           if (!branchId && !isAdmin) {
             logger.warn(`[Socket] Branch switch rejected: Missing branchId for user ${userId}`);
             if (ack) ack({ success: false, error: 'Branch ID is required' });
