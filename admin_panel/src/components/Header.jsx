@@ -243,7 +243,7 @@ const Header = ({ title, subtitle, action }) => {
         </div>
         
         {/* Branch Switcher (Admin Only) */}
-        {(user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'super_admin') && (
+        {(user?.role?.toLowerCase() === 'admin') && (
           <BranchSwitcher 
             selectedBranchId={selectedBranchId} 
             onBranchChange={setSelectedBranchId} 
@@ -254,7 +254,7 @@ const Header = ({ title, subtitle, action }) => {
         <div className="flex items-center gap-3 bg-background border border-slate-700/50 pl-2 pr-4 py-1.5 rounded-full">
           <div className="text-right">
             <p className="text-sm font-bold text-white">
-              {(user?.role === 'admin' || user?.role === 'super_admin')
+              {(user?.role === 'admin')
                 ? 'المدير العام' 
                 : (user?.branchName ? `فرع ${user.branchName}` : 'مدير الفرع')}
             </p>

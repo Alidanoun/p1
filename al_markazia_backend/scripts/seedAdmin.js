@@ -22,11 +22,11 @@ async function seedAdmin() {
     data: {
       email,
       password,
-      role: 'super_admin'
+      role: 'admin'
     }
   });
 
-  console.log('Super Admin Created:');
+  console.log('Admin Created:');
   console.log('Email:', email);
   console.log('Password:', 'admin123');
 }

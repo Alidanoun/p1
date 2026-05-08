@@ -133,8 +133,15 @@ class CacheService {
 
     try {
       const config = this.configs[cacheKey];
-      if (config && targetId) {
-        await this.redis.del(`${config.prefix}${targetId}`);
+      if (config) {
+        if (targetId) {
+          await this.redis.del(`${config.prefix}${targetId}`);
+        } else {
+          const keys = await this.redis.keys(`${config.prefix}*`);
+          if (keys && keys.length > 0) {
+            await this.redis.del(...keys);
+          }
+        }
       }
 
       const message = JSON.stringify({
