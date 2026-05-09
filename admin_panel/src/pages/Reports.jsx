@@ -11,7 +11,7 @@ import 'jspdf-autotable';
 
 const Reports = () => {
   const [data, setData] = useState([]);
-  const [summary, setSummary] = useState({ totalSales: 0, orderCount: 0, avgValue: 0, completedCount: 0 });
+  const [summary, setSummary] = useState({ totalRevenue: 0, orderCount: 0, averageOrderValue: 0, deliveredCount: 0 });
   const [loading, setLoading] = useState(true);
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
@@ -146,7 +146,7 @@ const Reports = () => {
                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
                   <TrendingUp className="w-5 h-5" />
                </div>
-               <span className="text-3xl font-black font-mono text-white tracking-tighter">{formatCurrencyArabic(summary.totalSales)}</span>
+               <span className="text-3xl font-black font-mono text-white tracking-tighter">{formatCurrencyArabic(summary.totalRevenue)}</span>
             </div>
          </div>
          <div className="bg-card/40 backdrop-blur-md p-6 rounded-2xl border border-white/5 flex flex-col justify-center">
@@ -160,14 +160,14 @@ const Reports = () => {
             <p className="text-text-muted text-xs font-bold mb-1">متوسط قيمة الطلب</p>
             <div className="flex items-center gap-2">
                <TrendingUp className="text-emerald-500 w-5 h-5" />
-               <span className="text-2xl font-bold font-mono text-white tracking-tight">{formatCurrencyArabic(summary.avgValue)}</span>
+               <span className="text-2xl font-bold font-mono text-white tracking-tight">{formatCurrencyArabic(summary.averageOrderValue)}</span>
             </div>
          </div>
          <div className="bg-card/40 backdrop-blur-md p-6 rounded-2xl border border-white/5 flex flex-col justify-center">
             <p className="text-text-muted text-xs font-bold mb-1">طلبات مكتملة</p>
             <div className="flex items-center gap-2">
                <Download className="text-purple-500 w-5 h-5" />
-               <span className="text-2xl font-bold font-mono text-white tracking-tight">{summary.completedCount}</span>
+               <span className="text-2xl font-bold font-mono text-white tracking-tight">{summary.deliveredCount}</span>
             </div>
          </div>
       </div>

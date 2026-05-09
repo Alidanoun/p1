@@ -53,13 +53,21 @@ const Header = ({ title, subtitle, action }) => {
       <div className="flex items-center gap-4">
         {action && <div className="ml-2">{action}</div>}
         {/* Search */}
-        <div className="hidden lg:flex items-center gap-2 bg-background border border-slate-700/50 rounded-full px-4 py-2 focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary transition-all text-sm">
-          <Search className="w-4 h-4 text-text-muted" />
-          <input 
-            type="text" 
-            placeholder="بحث عن طلب..." 
-            className="bg-transparent border-none outline-none text-white w-48 placeholder:text-slate-500"
-          />
+        <div 
+          className="hidden lg:flex flex-col gap-1"
+          title="البحث بالاسم أو رقم الهاتف يتطلب كتابته كاملاً للمطابقة الدقيقة (لدواعي أمنية)"
+        >
+          <div className="flex items-center gap-2 bg-background border border-slate-700/50 rounded-full px-4 py-2 focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary transition-all text-sm">
+            <Search className="w-4 h-4 text-text-muted" />
+            <input 
+              type="text" 
+              placeholder="رقم الطلب، أو الهاتف/الاسم كاملاً..." 
+              className="bg-transparent border-none outline-none text-white w-56 placeholder:text-slate-500"
+            />
+          </div>
+          <span className="text-[9px] text-text-muted px-2 opacity-60">
+            * أدخل الاسم أو الهاتف كاملاً للبحث الدقيق
+          </span>
         </div>
 
         {/* Notifications Dropdown */}

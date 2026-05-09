@@ -563,6 +563,9 @@ const LiveOrders = () => {
       return;
     }
 
+    // 🛡️ Capture current state for safe rollback BEFORE optimistic update
+    const previousOrders = [...orders];
+
     // Optimistic update
     const updatedOrders = orders.map(o => o.id === draggableId ? { ...o, status: newStatus } : o);
     setOrders(updatedOrders);
@@ -581,10 +584,8 @@ const LiveOrders = () => {
         fetchOrders();
       } else {
         toast.error('فشل في تحديث حالة الطلب');
-        // التراجع الآمن: إعادة الحالة السابقة للطلب المحدد فقط دون المساس بالبقية
-        setOrders(prev => prev.map(o => 
-          o.id === draggableId ? { ...o, status: orderToUpdate.status } : o
-        ));
+        // 🔄 Safe Rollback: Return to the exact state before the drag started
+        setOrders(previousOrders);
       }
     }
   };

@@ -7,13 +7,22 @@ import tailwindcss from '@tailwindcss/vite'
  * All API requests are proxied to the local backend.
  * The /api/v1 prefix is the primary versioned route.
  */
-const API_TARGET = 'http://localhost:5000';
+const API_TARGET = 'http://127.0.0.1:5000';
 
 const apiProxy = (target) => ({
   target,
   changeOrigin: true,
+  onProxyRes: (proxyRes, req, res) => {
+    // Prevent proxy from hanging on certain errors
+  },
+  onError: (err, req, res) => {
+    // Silently handle proxy errors to avoid console flood
+    if (err.code === 'ECONNRESET' || err.code === 'ECONNABORTED') {
+      return;
+    }
+    console.error('Proxy Error:', err);
+  },
   bypass: (req) => {
-    // If the browser is requesting a page (Accept: text/html), don't proxy, serve index.html
     if (req.headers.accept?.includes('text/html')) {
       return '/index.html';
     }
@@ -27,9 +36,7 @@ export default defineConfig({
   ],
   server: {
     proxy: {
-      // Primary versioned API route
       '/api/v1':         apiProxy(API_TARGET),
-      // Legacy routes (backward compatibility during migration)
       '/auth':           apiProxy(API_TARGET),
       '/admin':          apiProxy(API_TARGET),
       '/items':          apiProxy(API_TARGET),
@@ -53,8 +60,15 @@ export default defineConfig({
       '/financial':      apiProxy(API_TARGET),
       '/happyhour':      apiProxy(API_TARGET),
       '/order-modifications': apiProxy(API_TARGET),
-      // Socket.IO
-      '/socket.io':      { target: API_TARGET, ws: true, changeOrigin: true },
+      '/socket.io': { 
+        target: API_TARGET, 
+        ws: true, 
+        changeOrigin: true,
+        onError: (err) => {
+          if (err.code === 'ECONNRESET' || err.code === 'ECONNABORTED') return;
+          console.error('Socket Proxy Error:', err);
+        }
+      },
     }
   }
 })
