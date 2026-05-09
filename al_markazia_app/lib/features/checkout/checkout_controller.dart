@@ -168,7 +168,8 @@ class CheckoutController extends ChangeNotifier {
       multiplier *= happyMultiplier;
     }
 
-    return (_subtotal * pointsPerJod * multiplier).floor();
+    final amountToAward = (_subtotal - pointsDiscount).clamp(0.0, double.infinity);
+    return (amountToAward * pointsPerJod * multiplier).floor();
   }
 
   bool get isMinOrderSatisfied {
@@ -186,6 +187,20 @@ class CheckoutController extends ChangeNotifier {
     return null;
   }
 
+  bool _isCartChanged(List<CartItem> liveItems) {
+    if (liveItems.length != _snapshotItems.length) return true;
+    
+    for (var i = 0; i < liveItems.length; i++) {
+      final live = liveItems[i];
+      final snap = _snapshotItems[i];
+      
+      if (live.id != snap.id || live.quantity != snap.quantity) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   // 🚀 SUBMIT FLOW
   Future<OrderModel?> confirmOrder(CartController liveCart, AppLocalizations l10n) async {
     errorMessage = null;
@@ -193,8 +208,8 @@ class CheckoutController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // 1️⃣ Final Validation against LIVE Cart
-      if (liveCart.itemCount != _snapshotItems.length) {
+      // 1️⃣ Final Validation against LIVE Cart (Deep Comparison)
+      if (_isCartChanged(liveCart.items)) {
          throw Exception(l10n.cartChangedError);
       }
       

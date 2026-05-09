@@ -184,6 +184,7 @@ model Order {
   updatedAt              DateTime           @updatedAt
   version          Int                @default(1)
   isDeleted        Boolean            @default(false)
+  pointsAwarded    Boolean            @default(false)
   deletedAt        DateTime?
   deliveryMinOrder Decimal?           @db.Decimal(10, 2)
   deliveryZoneId   String?

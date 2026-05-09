@@ -249,6 +249,17 @@ class LoyaltyService {
         return 0;
       }
 
+      // 🛡️ Idempotency check: Atomic update to prevent double-awarding
+      const claimResult = await db.order.updateMany({
+        where: { id: orderId, pointsAwarded: false },
+        data: { pointsAwarded: true }
+      });
+
+      if (claimResult.count === 0) {
+        this.logger.info(`[Loyalty] Points already awarded or claim failed for order ${orderId}`);
+        return 0;
+      }
+
       const config = await this.getConfig();
       const customer = order.customer;
 
@@ -261,7 +272,8 @@ class LoyaltyService {
         this.logger.info(`[Loyalty] Happy Hour active for order #${order.orderNumber}! Applying ${config.happyHourMultiplier}x multiplier`);
       }
 
-      const pointsEarned = Math.floor(Number(order.subtotal) * config.pointsPerJod * multiplier);
+      const netSubtotal = Number(order.subtotal) - Number(order.discount || 0);
+      const pointsEarned = Math.floor(Math.max(0, netSubtotal) * config.pointsPerJod * multiplier);
 
       if (pointsEarned <= 0) return 0;
 

@@ -215,26 +215,32 @@ class WalletService {
    * (Used if cache goes out of sync)
    */
   async reconcileBalance(customerId) {
-    const creditAggregates = await prisma.financialLedger.aggregate({
-      where: { customerId, type: 'CREDIT' },
-      _sum: { amount: true }
+    return await prisma.$transaction(async (tx) => {
+      // 1. Get transaction sums grouped by type
+      const aggregates = await tx.financialLedger.groupBy({
+        by: ['type'],
+        where: { customerId },
+        _sum: { amount: true }
+      });
+
+      let calculatedBalance = 0;
+      for (const group of aggregates) {
+        if (group.type === 'CREDIT') {
+          calculatedBalance += toNumber(group._sum.amount || 0);
+        } else if (group.type === 'DEBIT') {
+          calculatedBalance -= toNumber(group._sum.amount || 0);
+        }
+      }
+
+      // 2. Update the customer's walletBalance with the reconciled value
+      const updatedCustomer = await tx.customer.update({
+        where: { id: customerId },
+        data: { walletBalance: Math.max(0, calculatedBalance) }
+      });
+
+      logger.info(`[Wallet] Reconciled balance for customer ${customerId}: ${updatedCustomer.walletBalance}`);
+      return updatedCustomer.walletBalance;
     });
-    const totalCredits = creditAggregates._sum.amount || 0;
-
-    const debitAggregates = await prisma.financialLedger.aggregate({
-      where: { customerId, type: 'DEBIT' },
-      _sum: { amount: true }
-    });
-    const totalDebits = debitAggregates._sum.amount || 0;
-
-    const reconciledBalance = toNumber(totalCredits) - toNumber(totalDebits);
-
-    await prisma.customer.update({
-      where: { id: customerId },
-      data: { walletBalance: reconciledBalance }
-    });
-
-    return reconciledBalance;
   }
 }
 

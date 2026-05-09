@@ -989,6 +989,11 @@ class OrderService {
         // Calculate exact points to deduct
         pointsToDeduct = Math.floor(pointsDiscount * rate);
       }
+
+      // 🛡️ [SAFETY GUARD] Verify expected discount from client
+      if (data.expectedDiscount && Math.abs(pointsDiscount - data.expectedDiscount) > 0.01) {
+        logger.warn(`[OrderService] Discount mismatch for order ${orderNumber}: App expected ${data.expectedDiscount}, Server calculated ${pointsDiscount}`);
+      }
     }
 
     // 🛡️ Pricing Logic: Inclusive of Tax
@@ -1085,8 +1090,12 @@ class OrderService {
             balanceBefore: resolvedCustomer.walletBalance,
             balanceAfter: resolvedCustomer.walletBalance,
             method: 'POINTS',
-            description: `دفع جزئي باستخدام النقاط للطلب #${order.orderNumber}`,
-            metadata: { pointsDeducted: pointsToDeduct }
+            description: `خصم نقاط: تم تحويل ${pointsToDeduct} نقطة إلى ${pointsDiscount} د.أ كخصم للطلب #${order.orderNumber}`,
+            metadata: { 
+              pointsBefore: resolvedCustomer.points,
+              pointsAfter: resolvedCustomer.points - pointsToDeduct,
+              pointsDeducted: pointsToDeduct 
+            }
           }
         });
       }
@@ -1183,7 +1192,7 @@ class OrderService {
         // If it's a customer but UUID not found (stale token), we should NOT fallback to another customer's phone
         if (authUser.role !== 'admin') {
           logger.warn(`[OrderService] Authenticated customer UUID not found. Blocking fallback to prevent misattribution.`);
-          return { id: null, phone: phone }; // Treat as Guest instead of linking to wrong ID
+          return { id: null, phone: phone, points: 0, walletBalance: 0 }; // Treat as Guest instead of linking to wrong ID
         }
       }
     }
@@ -1212,7 +1221,9 @@ class OrderService {
 
     return {
       id: customer?.id || null,
-      phone: resolvedPhone
+      phone: resolvedPhone,
+      points: customer?.points || 0,
+      walletBalance: customer?.walletBalance || 0
     };
   }
 
@@ -1446,8 +1457,7 @@ class OrderService {
         user: order.customerName
       });
 
-      // 4. 💎 Loyalty Hook (Placeholder for future Sprint)
-      this._onOrderCompleted(order.id);
+      // 4. 💎 Loyalty Hook moved to delivered status
 
     } catch (err) {
       logger.error('Post-order effects error', { orderId: order.id, error: err.message });

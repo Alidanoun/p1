@@ -124,9 +124,7 @@ class OrderController extends ChangeNotifier {
         cancellationReason: localOrder.cancellationReason,
         cancellationStatus: localOrder.cancellationStatus,
         rejectionReason: localOrder.rejectionReason,
-        timestamp: incomingTimestamp != null 
-            ? DateTime.fromMillisecondsSinceEpoch(incomingTimestamp) 
-            : localOrder.timestamp,
+        timestamp: localOrder.timestamp, // Always preserve the original creation time
         estimatedReadyAt: localOrder.estimatedReadyAt,
         customerName: localOrder.customerName,
         customerPhone: localOrder.customerPhone,
