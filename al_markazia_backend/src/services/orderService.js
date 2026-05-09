@@ -9,6 +9,7 @@ const { mapOrderResponse } = require('../mappers/order.mapper');
 const { publishEvent } = require('../events/eventPublisher');
 const eventTypes = require('../events/eventTypes');
 const queryOptimizer = require('../utils/queryOptimizer');
+const { toNumber } = require('../utils/number');
 
 class OrderService {
   constructor(container) {
