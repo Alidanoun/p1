@@ -45,7 +45,8 @@ const AuditLog = () => {
     fetchStats();
     
     // 📡 Real-time Listener
-    const socket = io(window.location.origin, {
+    const socketUrl = window.location.hostname === 'localhost' ? 'http://localhost:5000' : window.location.origin;
+    const socket = io(socketUrl, {
       auth: { token: localStorage.getItem('token') }
     });
 
@@ -167,12 +168,15 @@ const AuditLog = () => {
                   {new Date(log.createdAt).toLocaleTimeString()}
                 </td>
                 <td className="p-4 font-bold text-slate-200 group-hover:text-blue-400">
-                  {log.action}
+                  <div className="flex flex-col">
+                    <span>{log.friendlyAction || log.action}</span>
+                    <span className="text-[10px] text-slate-500 font-normal uppercase">{log.friendlyCategory || 'System'}</span>
+                  </div>
                 </td>
                 <td className="p-4 text-sm">
                   <div className="flex items-center gap-2">
                     <Fingerprint className="w-4 h-4 text-slate-600" />
-                    {log.userId?.substring(0, 8) || 'System'}
+                    {log.userDisplay || log.userName || 'System'}
                   </div>
                 </td>
                 <td className="p-4 text-sm text-slate-400">
@@ -209,7 +213,7 @@ const AuditLog = () => {
             >
               <div className="flex justify-between items-start mb-8">
                 <div>
-                  <h2 className="text-2xl font-bold">{selectedLog.action}</h2>
+                  <h2 className="text-2xl font-bold">{selectedLog.friendlyAction || selectedLog.action}</h2>
                   <p className="text-slate-500 font-mono text-sm mt-1">{selectedLog.id}</p>
                 </div>
                 <button onClick={() => setSelectedLog(null)} className="text-slate-500 hover:text-white">✕</button>
