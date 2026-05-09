@@ -5,7 +5,7 @@
  */
 
 // Bypass validation for specific build/seed scripts if necessary
-if (process.env.SKIP_SECRETS_VALIDATION === 'true') {
+if (process.env.NODE_ENV !== 'production' && process.env.SKIP_SECRETS_VALIDATION === 'true') {
   module.exports = {
     JWT_SECRET: process.env.JWT_SECRET || 'bypass',
     REFRESH_TOKEN_SECRET: process.env.REFRESH_TOKEN_SECRET || 'bypass',
@@ -89,5 +89,6 @@ module.exports = {
   // Single source of truth for expiries to ensure DB & JWT sync
   ACCESS_TOKEN_EXPIRY: process.env.ACCESS_TOKEN_EXPIRY || '15m',
   REFRESH_TOKEN_EXPIRY: process.env.REFRESH_TOKEN_EXPIRY || '7d',
-  REFRESH_TOKEN_EXPIRY_MS: ms(process.env.REFRESH_TOKEN_EXPIRY || '7d')
+  REFRESH_TOKEN_EXPIRY_MS: ms(process.env.REFRESH_TOKEN_EXPIRY || '7d'),
+  BCRYPT_ROUNDS: parseInt(process.env.BCRYPT_ROUNDS || '12', 10)
 };

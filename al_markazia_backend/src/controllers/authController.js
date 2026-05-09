@@ -5,7 +5,7 @@ const { generateFingerprint, validatePasswordStrength } = require('../utils/secu
 const { encrypt, decrypt, hashBlind } = require('../utils/crypto');
 const TokenService = require('../services/tokenService');
 const auditService = require('../services/auditService');
-const { REFRESH_TOKEN_EXPIRY_MS, BCRYPT_ROUNDS = 10 } = require('../config/secrets');
+const { REFRESH_TOKEN_EXPIRY_MS, BCRYPT_ROUNDS } = require('../config/secrets');
 const { OTP_EXPIRY } = require('../config/constants');
 const response = require('../utils/response');
 
