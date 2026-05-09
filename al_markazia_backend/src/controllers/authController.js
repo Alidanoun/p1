@@ -74,21 +74,16 @@ const refreshToken = async (req, res) => {
   }
 
   try {
-    // 🛡️ Enhanced Token Retrieval: Support both Cookie (Web) and Body (Mobile)
-    const rawToken = req.cookies?.refreshToken || req.body?.refreshToken;
     logger.debug('Refresh attempt received', { 
       hasCookie: !!req.cookies?.refreshToken, 
       cookieKeys: Object.keys(req.cookies || {}),
       ip: req.ip 
     });
-    const oldRefreshToken = sanitizeToken(rawToken);
-
-    if (!oldRefreshToken) throw new Error('MISSING_REFRESH_TOKEN');
 
     const clientIp = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
     const currentFingerprint = generateFingerprint(req);
     
-    const { accessToken, newRefreshToken, user } = await TokenService.validateAndRotate(oldRefreshToken, clientIp, currentFingerprint);
+    const { accessToken, newRefreshToken, user } = await TokenService.validateAndRotate(token, clientIp, currentFingerprint);
 
     // 🛡️ Cookie Hardening
     res.cookie('refreshToken', newRefreshToken.token, refreshCookieOptions(req));
