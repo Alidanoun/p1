@@ -31,11 +31,7 @@ const socketModule = require('./socket');
 
 const app = express();
 
-// 🛡️ Sentry Request & Tracing Handlers (Must be first)
-if (Sentry) {
-  app.use(Sentry.Handlers.requestHandler());
-  app.use(Sentry.Handlers.tracingHandler());
-}
+// 🛡️ Sentry Tracing is automatic in v8+ when initialized
 const server = http.createServer(app);
 
 // 🛡️ [SEC-FIX] Trust Proxy Configuration
@@ -225,9 +221,9 @@ async function startServer() {
     // 🚨 Global Error Handler (Centralized Survival Layer)
     const { handleError } = require('./utils/errorHandler');
     
-    // 🛡️ Sentry Error Handler (Must be before any other error middleware)
+    // 🛡️ Sentry Error Handler (v8+ API)
     if (Sentry) {
-      app.use(Sentry.Handlers.errorHandler());
+      Sentry.setupExpressErrorHandler(app);
     }
 
     app.use((err, req, res, next) => {
