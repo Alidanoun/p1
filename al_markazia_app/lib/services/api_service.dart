@@ -361,11 +361,27 @@ class ApiService {
   void scheduleSilentRefresh(String accessToken) {
     _silentRefreshTimer?.cancel();
     
-    // We assume a 1-hour expiry (3600s), refresh at 55 minutes (3300s)
-    // In a real app, you'd decode the JWT 'exp' claim here.
-    const refreshInterval = Duration(minutes: 55);
+    Duration refreshInterval = const Duration(minutes: 12); // Fallback
+
+    try {
+      final parts = accessToken.split('.');
+      if (parts.length == 3) {
+        final payload = utf8.decode(base64Url.decode(base64Url.normalize(parts[1])));
+        final payloadMap = json.decode(payload);
+        if (payloadMap['exp'] != null) {
+          final expiryDate = DateTime.fromMillisecondsSinceEpoch(payloadMap['exp'] * 1000);
+          final timeUntilExpiry = expiryDate.difference(DateTime.now());
+          refreshInterval = timeUntilExpiry - const Duration(minutes: 2);
+          if (refreshInterval.isNegative) {
+            refreshInterval = Duration.zero;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error decoding JWT for refresh: $e');
+    }
     
-    debugPrint('🕒 [Auth] Silent refresh scheduled in 55 minutes.');
+    debugPrint('🕒 [Auth] Silent refresh scheduled in ${refreshInterval.inMinutes} minutes.');
     _silentRefreshTimer = Timer(refreshInterval, () {
       debugPrint('🕒 [Auth] Executing scheduled silent refresh...');
       refreshTokens();

@@ -535,6 +535,15 @@ const LiveOrders = () => {
     // 🛑 Polling Removed! replaced by Socket.io
   }, [selectedBranchId]);
 
+  const VALID_TRANSITIONS = {
+    'pending': ['preparing', 'cancelled'],
+    'preparing': ['ready', 'cancelled'],
+    'ready': ['in_route', 'delivered', 'cancelled'],
+    'in_route': ['delivered', 'cancelled'],
+    'delivered': [],
+    'cancelled': []
+  };
+
   const onDragEnd = async (result) => {
     const { destination, source, draggableId } = result;
 
@@ -547,6 +556,12 @@ const LiveOrders = () => {
 
     const orderToUpdate = orders.find(o => o.id === draggableId);
     if (!orderToUpdate) return;
+
+    const currentStatus = orderToUpdate.status;
+    if (!VALID_TRANSITIONS[currentStatus]?.includes(newStatus)) {
+      toast.error('انتقال غير مسموح لهذه الحالة');
+      return;
+    }
 
     // Optimistic update
     const updatedOrders = orders.map(o => o.id === draggableId ? { ...o, status: newStatus } : o);
@@ -566,7 +581,10 @@ const LiveOrders = () => {
         fetchOrders();
       } else {
         toast.error('فشل في تحديث حالة الطلب');
-        setOrders(orders); // Revert
+        // التراجع الآمن: إعادة الحالة السابقة للطلب المحدد فقط دون المساس بالبقية
+        setOrders(prev => prev.map(o => 
+          o.id === draggableId ? { ...o, status: orderToUpdate.status } : o
+        ));
       }
     }
   };
