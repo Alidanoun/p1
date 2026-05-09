@@ -1,15 +1,14 @@
 // tests/jest.setup.js
-// إعدادات عامة لبيئة الاختبار
-
-// كتم تحذيرات معينة في وضع الاختبار
 if (process.env.NODE_ENV === 'test') {
-  // يمكن إضافة إعدادات إضافية هنا
+  // كتم تحذيرات معينة في وضع الاختبار
+  process.env.JWT_SECRET = process.env.JWT_SECRET || 'test_secret_for_ci_only';
+  process.env.SENTRY_DSN = ''; // تعطيل Sentry في الاختبارات
 }
 
-// دالة مساعدة لتأخير التنفيذ (مفيدة في اختبارات التزامن)
+// دالة مساعدة للتأخير (مفيدة في اختبارات التزامن)
 global.delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// تنظيف الـ mocks بعد كل اختبار
+// تنظيف mocks بعد كل اختبار
 afterEach(() => {
   jest.clearAllMocks();
 });

@@ -380,5 +380,5 @@ startServer().catch(err => {
   logger.error('FATAL STARTUP ERROR', { error: err.message, stack: err.stack });
   process.exit(1);
 });
-m o d u l e . e x p o r t s   =   a p p ;  
- 
+
+module.exports = app;
