@@ -234,7 +234,8 @@ const registerCustomer = async (req, res) => {
     // 3. Create Verified Account
     const customer = await prisma.customer.create({
       data: { 
-        name, 
+        name: encrypt(name),
+        nameHash: hashBlind(name),
         phone: encrypt(cleanPhone),
         phoneHash: hashBlind(cleanPhone),
         phoneVerifiedAt: new Date(),
@@ -271,11 +272,12 @@ const getBlacklistedCustomers = async (req, res) => {
     const search = req.query.search || '';
 
     // Enterprise Search Layer: Insensitive + Partial Matching
+    const hashedSearch = hashBlind(search);
     const where = {
       isBlacklisted: true,
       OR: [
-        { name: { contains: search } },
-        { phone: { contains: search } }
+        { nameHash: hashedSearch },
+        { phoneHash: hashedSearch }
       ]
     };
 

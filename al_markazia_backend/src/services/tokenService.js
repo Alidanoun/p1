@@ -3,6 +3,7 @@ const { v4: uuidv4 } = require('uuid');
 const logger = require('../utils/logger');
 const prisma = require('../lib/prisma');
 const redis = require('../lib/redis');
+const auditService = require('./auditService');
 
 const {
   JWT_SECRET: ACCESS_TOKEN_SECRET,
@@ -165,6 +166,13 @@ class TokenService {
             data: { isRevoked: true }
           });
           await this.revokeAllSessions(userId);
+          await auditService.log({
+            userId,
+            action: 'SECURITY_BREACH',
+            status: 'FAIL',
+            severity: 'CRITICAL',
+            metadata: { reason: 'REPLAY_DETECTED', family: dbToken.tokenFamily }
+          }).catch(() => {});
           throw new Error('SECURITY_BREACH');
         }
 
@@ -173,8 +181,15 @@ class TokenService {
         if (storedFingerprint && currentFingerprint) {
           if (storedFingerprint !== currentFingerprint.hash) {
              logger.security('[FINGERPRINT_MISMATCH] Warning: Token used from unauthorized device (DB check).', { userId, oldJti });
-             await this.revokeAllSessions(userId);
-             throw new Error('SECURITY_BREACH');
+              await this.revokeAllSessions(userId);
+              await auditService.log({
+                userId,
+                action: 'SECURITY_BREACH',
+                status: 'FAIL',
+                severity: 'CRITICAL',
+                metadata: { reason: 'FINGERPRINT_MISMATCH_DB', jti: oldJti }
+              }).catch(() => {});
+              throw new Error('SECURITY_BREACH');
           }
         }
 
@@ -188,6 +203,13 @@ class TokenService {
         if (sessionData.fingerprint !== currentFingerprint.hash) {
           logger.security('[FINGERPRINT_MISMATCH] Warning: Token used from unauthorized device (Redis check).', { userId, oldJti });
           await this.revokeAllSessions(userId);
+          await auditService.log({
+            userId,
+            action: 'SECURITY_BREACH',
+            status: 'FAIL',
+            severity: 'CRITICAL',
+            metadata: { reason: 'FINGERPRINT_MISMATCH_REDIS', jti: oldJti }
+          }).catch(() => {});
           throw new Error('SECURITY_BREACH');
         }
       }
@@ -209,6 +231,13 @@ class TokenService {
           
           // 🚨 [PANIC-RESPONSE] Revoke all sessions immediately
           await this.revokeAllSessions(userId);
+          await auditService.log({
+            userId,
+            action: 'SECURITY_BREACH',
+            status: 'FAIL',
+            severity: 'CRITICAL',
+            metadata: { reason: 'REPLAY_ATTACK_ROTATED_TOKEN', oldJti, newIp: clientIp }
+          }).catch(() => {});
           throw new Error('SECURITY_BREACH');
         }
 

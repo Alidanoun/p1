@@ -6,12 +6,12 @@ const logger = require('./logger');
  * Used to protect PII (Personally Identifiable Information) in the database.
  */
 
-// Load key from environment
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY; 
-const IV_LENGTH = 16; // For AES, this is always 16
+// Load and harden key using scryptSync
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY ? crypto.scryptSync(process.env.ENCRYPTION_KEY, 'salt-pepper', 32) : null;
+const IV_LENGTH = 16; 
 
-if (!ENCRYPTION_KEY || ENCRYPTION_KEY.length < 32) {
-  logger.error('❌ [Crypto] ENCRYPTION_KEY must be at least 32 characters long. Sensitive data protection is compromised.');
+if (!ENCRYPTION_KEY) {
+  logger.error('❌ [Crypto] ENCRYPTION_KEY is missing. Sensitive data protection is compromised.');
 }
 
 /**
@@ -33,7 +33,7 @@ function encrypt(text) {
   
   try {
     const iv = crypto.randomBytes(IV_LENGTH);
-    const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY.substring(0, 32)), iv);
+    const cipher = crypto.createCipheriv('aes-256-cbc', ENCRYPTION_KEY, iv);
     
     let encrypted = cipher.update(text);
     encrypted = Buffer.concat([encrypted, cipher.final()]);
@@ -58,7 +58,7 @@ function decrypt(text) {
     const iv = Buffer.from(ivHex, 'hex');
     const encryptedText = Buffer.from(encryptedHex, 'hex');
     
-    const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY.substring(0, 32)), iv);
+    const decipher = crypto.createDecipheriv('aes-256-cbc', ENCRYPTION_KEY, iv);
     
     let decrypted = decipher.update(encryptedText);
     decrypted = Buffer.concat([decrypted, decipher.final()]);

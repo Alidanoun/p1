@@ -352,33 +352,22 @@ const register = async (req, res) => {
       }
     }
 
-    // 2. Generate 6-digit OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = new Date(Date.now() + OTP_EXPIRY.REGISTRATION);
-
-    // 3. Hash Password for temporary storage
+    const OtpService = require('../services/otpService');
     const hashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
-    // 4. Save to OtpCode with metadata (always use cleanEmail)
-    await prisma.otpCode.create({
-      data: {
-        email: cleanEmail,
-        emailHash: hashBlind(cleanEmail),
-        codeHash: await bcrypt.hash(otp, BCRYPT_ROUNDS),
-        purpose: 'registration',
-        expiresAt,
-        metadata: { 
-          name, 
-          email: cleanEmail, 
-          password: hashedPassword, 
-          phone,
-          fcmToken // Include fcmToken if provided
-        }
+    await OtpService.requestOtp({
+      email: cleanEmail,
+      purpose: 'registration',
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+      metadata: { 
+        name, 
+        email: cleanEmail, 
+        password: hashedPassword, 
+        phone,
+        fcmToken 
       }
     });
-
-    // 5. Dispatch Email
-    await EmailService.sendOtp(cleanEmail, otp);
 
     response.success(res, { 
       message: 'تم إرسال كود التحقق إلى بريدك الإلكتروني'
@@ -495,19 +484,14 @@ const forgotPassword = async (req, res) => {
       return response.success(res, { message: 'إذا كان البريد مسجلاً، ستصلك رسالة قريباً' });
     }
 
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = new Date(Date.now() + OTP_EXPIRY.PASSWORD_RESET);
-
-    await prisma.otpCode.create({
-      data: {
-        email: cleanEmail,
-        codeHash: await bcrypt.hash(otp, BCRYPT_ROUNDS),
-        purpose: 'password_reset',
-        expiresAt
-      }
+    const OtpService = require('../services/otpService');
+    await OtpService.requestOtp({
+      email: cleanEmail,
+      purpose: 'password_reset',
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent']
     });
 
-    await EmailService.sendPasswordResetOtp(cleanEmail, otp);
     response.success(res, { message: 'إذا كان البريد مسجلاً، ستصلك رسالة قريباً' });
   } catch (error) {
     logger.error('Forgot password error', { error: error.message });

@@ -88,7 +88,8 @@ class OtpService {
         expiresAt,
         purpose, 
         ipAddress, 
-        userAgent 
+        userAgent,
+        metadata: params.metadata || {}
       }
     });
 

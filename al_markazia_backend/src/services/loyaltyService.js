@@ -249,14 +249,13 @@ class LoyaltyService {
         return 0;
       }
 
-      // 🛡️ Idempotency check: Atomic update to prevent double-awarding
-      const claimResult = await db.order.updateMany({
-        where: { id: orderId, pointsAwarded: false },
-        data: { pointsAwarded: true }
+      // 🛡️ Idempotency Guard: Check if points have already been awarded for this order
+      const existingAward = await db.awardedLoyaltyPoints.findUnique({ 
+        where: { orderId } 
       });
-
-      if (claimResult.count === 0) {
-        this.logger.info(`[Loyalty] Points already awarded or claim failed for order ${orderId}`);
+      
+      if (existingAward) {
+        this.logger.warn(`[Loyalty] Points already awarded for order ${orderId}. Skipping duplicate award.`);
         return 0;
       }
 
@@ -277,15 +276,41 @@ class LoyaltyService {
 
       if (pointsEarned <= 0) return 0;
 
-      const updatedCustomer = await this.container.financialService.awardPoints(order.customerId, pointsEarned, 'ORDER', db);
-      
-      await db.customer.update({
-        where: { id: order.customerId },
-        data: { totalOrders: { increment: 1 } }
+      // 🔐 Atomic Transaction: Ensure points are awarded AND recorded as awarded
+      const result = await db.$transaction(async (transaction) => {
+        // Double-check inside transaction for absolute safety
+        const doubleCheck = await transaction.awardedLoyaltyPoints.findUnique({ where: { orderId } });
+        if (doubleCheck) return 0;
+
+        const updatedCustomer = await this.container.financialService.awardPoints(order.customerId, pointsEarned, 'ORDER', transaction);
+        
+        await transaction.customer.update({
+          where: { id: order.customerId },
+          data: { totalOrders: { increment: 1 } }
+        });
+        
+        await this.evaluateTierUpgrade(updatedCustomer.id, config, transaction);
+
+        // 📝 Record the award for audit and idempotency
+        await transaction.awardedLoyaltyPoints.create({
+          data: {
+            orderId: order.id,
+            customerId: order.customerId,
+            points: pointsEarned,
+            multiplier: multiplier
+          }
+        });
+
+        // Sync order flag as well for compatibility
+        await transaction.order.update({
+          where: { id: order.id },
+          data: { pointsAwarded: true }
+        });
+
+        return pointsEarned;
       });
-      
-      await this.evaluateTierUpgrade(updatedCustomer.id, config, db);
-      return pointsEarned;
+
+      return result;
     } catch (err) {
       this.logger.error('Failed to award loyalty points', { error: err.message, orderId });
       throw err;
