@@ -215,11 +215,26 @@ class WalletService {
    * (Used if cache goes out of sync)
    */
   async reconcileBalance(customerId) {
-    const aggregates = await prisma.financialLedger.aggregate({
-      where: { customerId },
-      _sum: { amount: true } // This is simplified; should handle CREDIT/DEBIT separately
+    const creditAggregates = await prisma.financialLedger.aggregate({
+      where: { customerId, type: 'CREDIT' },
+      _sum: { amount: true }
     });
-    // Implementation would be: SUM(CREDIT) - SUM(DEBIT)
+    const totalCredits = creditAggregates._sum.amount || 0;
+
+    const debitAggregates = await prisma.financialLedger.aggregate({
+      where: { customerId, type: 'DEBIT' },
+      _sum: { amount: true }
+    });
+    const totalDebits = debitAggregates._sum.amount || 0;
+
+    const reconciledBalance = toNumber(totalCredits) - toNumber(totalDebits);
+
+    await prisma.customer.update({
+      where: { id: customerId },
+      data: { walletBalance: reconciledBalance }
+    });
+
+    return reconciledBalance;
   }
 }
 
