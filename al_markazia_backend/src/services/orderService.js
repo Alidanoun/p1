@@ -131,10 +131,13 @@ class OrderService {
     }
 
     if (search) {
+      const { hashBlind } = require('../utils/crypto');
+      const hashedSearch = hashBlind(search);
+
       where.OR = [
         { orderNumber: { contains: search, mode: 'insensitive' } },
         { customerName: { contains: search, mode: 'insensitive' } },
-        { customerPhone: { contains: search } }
+        { customerPhoneHash: hashedSearch }
       ];
     }
 
@@ -1011,7 +1014,7 @@ class OrderService {
       const order = await tx.order.create({
         data: {
           orderNumber,
-          customerName: customerName || 'زبون',
+          customerName: encrypt(customerName || 'زبون'),
           customerPhone: encrypt(resolvedCustomer.phone),
           customerPhoneHash: hashBlind(resolvedCustomer.phone),
           customerId: resolvedCustomer.id,
