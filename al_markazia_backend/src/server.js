@@ -7,6 +7,10 @@ const timeout = require('connect-timeout');
 const morgan = require('morgan');
 require('dotenv').config();
 require('./config/secrets');
+const { initSentry, Sentry } = require('./config/sentry');
+
+// 🛡️ Initialize Security Shield (Sentry) before any other logic
+initSentry();
 
 // 🌐 Centralized API Router (Versioned)
 const apiV1Router = require('./routes/index');
@@ -26,6 +30,12 @@ const logger = require('./utils/logger');
 const socketModule = require('./socket');
 
 const app = express();
+
+// 🛡️ Sentry Request & Tracing Handlers (Must be first)
+if (Sentry) {
+  app.use(Sentry.Handlers.requestHandler());
+  app.use(Sentry.Handlers.tracingHandler());
+}
 const server = http.createServer(app);
 
 // 🛡️ [SEC-FIX] Trust Proxy Configuration
@@ -214,6 +224,12 @@ async function startServer() {
 
     // 🚨 Global Error Handler (Centralized Survival Layer)
     const { handleError } = require('./utils/errorHandler');
+    
+    // 🛡️ Sentry Error Handler (Must be before any other error middleware)
+    if (Sentry) {
+      app.use(Sentry.Handlers.errorHandler());
+    }
+
     app.use((err, req, res, next) => {
       handleError(err, req, res, next);
     });
@@ -364,3 +380,5 @@ startServer().catch(err => {
   logger.error('FATAL STARTUP ERROR', { error: err.message, stack: err.stack });
   process.exit(1);
 });
+m o d u l e . e x p o r t s   =   a p p ;  
+ 

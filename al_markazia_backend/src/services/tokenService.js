@@ -274,12 +274,39 @@ class TokenService {
 
       if (!user) throw new Error('USER_NOT_FOUND');
 
-      // 🛡️ [CRITICAL] Active Status Guard
+      // 🛡️ [CRITICAL] Active Status & Token Version Guard
       const isDisabled = (user.isActive === false) || (user.isBlacklisted === true);
-      if (isDisabled) {
-        logger.security('Rotation blocked: Account disabled/blacklisted', { userId });
+      const isVersionMismatch = decoded.tokenVersion && user.tokenVersion !== decoded.tokenVersion;
+
+      if (isDisabled || isVersionMismatch) {
+        const reason = isDisabled ? 'Account disabled/blacklisted' : 'Token version mismatch (Replay Attack?)';
+        logger.security(`Rotation blocked: ${reason}`, { userId });
+        
+        if (isVersionMismatch) {
+          const { captureSecurityEvent } = require('../config/sentry');
+          captureSecurityEvent(new Error(`REPLAY_ATTACK_DETECTED: ${reason}`), {
+            userId,
+            module: 'auth',
+            attackType: 'token_version_mismatch',
+            severity: 'critical',
+            ipAddress: clientIp
+          });
+          
+          await auditService.log({
+            userId,
+            action: 'AUTH_REPLAY_ATTACK',
+            status: 'FAIL',
+            severity: 'CRITICAL',
+            metadata: { 
+              reason, 
+              expectedVersion: user.tokenVersion, 
+              gotVersion: decoded.tokenVersion 
+            }
+          }).catch(() => {});
+        }
+
         await this.revokeAllSessions(userId);
-        throw new Error('ACCOUNT_DISABLED_OR_BLOCKED');
+        throw new Error(isDisabled ? 'ACCOUNT_DISABLED_OR_BLOCKED' : 'SESSION_EXPIRED');
       }
 
       // 4. ATOMIC ROTATION
