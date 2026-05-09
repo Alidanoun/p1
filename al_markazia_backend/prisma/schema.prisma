@@ -155,6 +155,7 @@ model Order {
   customerName     String
   customerPhone    String
   customerPhoneHash String?
+  customerNameHash  String?
   customerId       Int?
 
   // Branch Integration
@@ -197,6 +198,7 @@ model Order {
   orderItems       OrderItem[]
   payment          Payment?
   reviews          Review[]
+  awardedPoints    AwardedLoyaltyPoints?
 
   @@index([status, createdAt(sort: Desc)])
   @@index([createdAt, status])
@@ -258,6 +260,7 @@ model Customer {
   name                String
   phone               String?            @unique
   phoneHash           String?            @unique
+  nameHash            String?
   email               String?            @unique
   emailHash           String?            @unique
   /// @validate { minLength: 8, pattern: "Complexity Required: 1 Upper, 1 Lower, 1 Number, 1 Special" }
@@ -732,6 +735,19 @@ model CustomerReward {
 
   @@index([customerId, status])
   @@index([code])
+}
+
+model AwardedLoyaltyPoints {
+  id          String   @id @default(uuid())
+  orderId     Int      @unique
+  customerId  Int
+  points      Int
+  multiplier  Float
+  awardedAt   DateTime @default(now())
+
+  order       Order    @relation(fields: [orderId], references: [id])
+  @@index([orderId])
+  @@index([customerId])
 }
 
 model DailyFinancialSnapshot {
