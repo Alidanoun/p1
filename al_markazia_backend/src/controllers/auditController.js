@@ -1,5 +1,6 @@
 const prisma = require('../lib/prisma');
 const response = require('../utils/response');
+const { translateAction, getFriendlyCategory } = require('../utils/auditTranslator');
 
 /**
  * 🧾 Audit Controller
@@ -36,7 +37,7 @@ const getLogs = async (req, res) => {
       if (endDate) where.createdAt.lte = new Date(endDate);
     }
 
-    const [logs, total] = await Promise.all([
+    const [rawLogs, total] = await Promise.all([
       prisma.systemAuditLog.findMany({
         where,
         skip,
@@ -45,6 +46,27 @@ const getLogs = async (req, res) => {
       }),
       prisma.systemAuditLog.count({ where })
     ]);
+
+    // 🕵️ Enrichment: Map User IDs to real names/emails
+    const uniqueUserUuids = [...new Set(rawLogs.map(l => l.userId).filter(Boolean))];
+    const users = await prisma.user.findMany({
+      where: { uuid: { in: uniqueUserUuids } },
+      select: { uuid: true, name: true, email: true, role: true }
+    });
+
+    const userMap = users.reduce((acc, u) => ({ ...acc, [u.uuid]: u }), {});
+
+    // 🌍 Transformation: Add human-friendly fields
+    const logs = rawLogs.map(log => {
+      const user = userMap[log.userId];
+      return {
+        ...log,
+        friendlyAction: translateAction(log.action),
+        friendlyCategory: getFriendlyCategory(log),
+        userName: user ? user.name || user.email.split('@')[0] : (log.userEmail || 'System'),
+        userDisplay: user ? `${user.name || 'Admin'} (${user.role})` : 'النظام الآلي'
+      };
+    });
 
     response.success(res, {
       logs,
@@ -55,6 +77,7 @@ const getLogs = async (req, res) => {
       }
     });
   } catch (err) {
+    console.error('[AuditEnrichment] Error:', err);
     response.error(res, 'Failed to fetch audit logs', 'AUDIT_FETCH_ERROR');
   }
 };
@@ -77,11 +100,17 @@ const getStats = async (req, res) => {
       })
     ]);
 
+    // Translate Top Actions for the dashboard too
+    const translatedActions = recentActions.map(a => ({
+      ...a,
+      action: translateAction(a.action)
+    }));
+
     response.success(res, {
       totalToday,
       errorsToday,
       criticalToday,
-      topActions: recentActions
+      topActions: translatedActions
     });
   } catch (err) {
     response.error(res, 'Failed to fetch audit stats', 'AUDIT_STATS_ERROR');

@@ -1,5 +1,6 @@
 const Redis = require('ioredis');
 const { sanitizeForAudit } = require('../utils/auditSanitizer');
+const { translateAction, getFriendlyCategory } = require('../utils/auditTranslator');
 
 /**
  * 🕵️ Enterprise Audit Service
@@ -93,10 +94,18 @@ class AuditService {
         data: logEntry
       });
 
+      // 🌍 1.5. Enrich for Real-time (Friendly Fields)
+      const enrichedEntry = {
+        ...entry,
+        friendlyAction: translateAction(entry.action),
+        friendlyCategory: getFriendlyCategory(entry),
+        userDisplay: entry.userEmail || 'النظام الآلي'
+      };
+
       // 📡 2. Redis Broadcast (To all instances)
       try {
         await this.publisher.publish('audit:log_broadcast', JSON.stringify({
-          entry,
+          entry: enrichedEntry,
           originInstance: this.instanceId,
           timestamp: new Date().toISOString()
         }));
@@ -108,7 +117,7 @@ class AuditService {
       try {
         const socket = require('../socket');
         if (socket.isReady()) {
-          socket.getIO().to('system-logs').emit('audit:new_log', entry);
+          socket.getIO().to('system-logs').emit('audit:new_log', enrichedEntry);
         }
       } catch (sErr) {
         // Silent fail
