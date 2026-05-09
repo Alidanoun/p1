@@ -13,7 +13,7 @@ const BranchStats = () => {
 
   const fetchStats = async () => {
     try {
-      const url = '/api/analytics/branch/report/today';
+      const url = 'analytics/branch/report/today';
       const response = await api.get(url);
       setStats(unwrap(response));
     } catch (err) {
