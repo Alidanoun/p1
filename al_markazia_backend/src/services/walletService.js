@@ -78,8 +78,8 @@ class WalletService {
       }
     }
 
-    // 2. Fetch Latest Balance
-    const customer = await tx.customer.findUnique({ where: { id: customerId } });
+    // 2. Fetch Latest Balance with Pessimistic Locking
+    const [customer] = await tx.$queryRaw`SELECT * FROM "Customer" WHERE id = ${customerId} FOR UPDATE`;
     if (!customer) throw new Error('CUSTOMER_NOT_FOUND');
 
     const balanceBefore = toNumber(customer.walletBalance);
@@ -158,7 +158,7 @@ class WalletService {
       if (existing) return existing;
     }
 
-    const customer = await tx.customer.findUnique({ where: { id: customerId } });
+    const [customer] = await tx.$queryRaw`SELECT * FROM "Customer" WHERE id = ${customerId} FOR UPDATE`;
     if (!customer) throw new Error('CUSTOMER_NOT_FOUND');
 
     const balanceBefore = toNumber(customer.walletBalance);

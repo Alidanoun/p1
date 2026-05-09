@@ -136,7 +136,7 @@ class OrderService {
 
       where.OR = [
         { orderNumber: { contains: search, mode: 'insensitive' } },
-        { customerName: { contains: search, mode: 'insensitive' } },
+        { customerNameHash: hashedSearch },
         { customerPhoneHash: hashedSearch }
       ];
     }
@@ -1020,6 +1020,7 @@ class OrderService {
         data: {
           orderNumber,
           customerName: encrypt(customerName || 'زبون'),
+          customerNameHash: hashBlind(customerName || 'زبون'),
           customerPhone: encrypt(resolvedCustomer.phone),
           customerPhoneHash: hashBlind(resolvedCustomer.phone),
           customerId: resolvedCustomer.id,
@@ -1088,7 +1089,7 @@ class OrderService {
             category: 'ORDER_PAYMENT',
             amount: pointsDiscount,
             balanceBefore: resolvedCustomer.walletBalance,
-            balanceAfter: resolvedCustomer.walletBalance,
+            balanceAfter: Number(resolvedCustomer.walletBalance) - pointsDiscount,
             method: 'POINTS',
             description: `خصم نقاط: تم تحويل ${pointsToDeduct} نقطة إلى ${pointsDiscount} د.أ كخصم للطلب #${order.orderNumber}`,
             metadata: { 
@@ -1182,7 +1183,10 @@ class OrderService {
     let customer = null;
 
     if (authUser) {
-      customer = await this.prisma.customer.findUnique({ where: { uuid: authUser.id } });
+      customer = await this.prisma.customer.findUnique({ 
+        where: { uuid: authUser.id },
+        select: { id: true, phone: true, points: true, walletBalance: true, isBlacklisted: true, blacklistExpiresAt: true }
+      });
       if (customer) {
         resolvedPhone = decrypt(customer.phone);
         logger.debug(`[OrderService] Found customer by UUID ${authUser.id}: ID ${customer.id}`);
@@ -1199,7 +1203,8 @@ class OrderService {
 
     if (!customer && resolvedPhone) {
       customer = await this.prisma.customer.findUnique({ 
-        where: { phoneHash: hashBlind(resolvedPhone) } 
+        where: { phoneHash: hashBlind(resolvedPhone) },
+        select: { id: true, phone: true, points: true, walletBalance: true, isBlacklisted: true, blacklistExpiresAt: true }
       });
       if (customer) {
         logger.debug(`[OrderService] Found customer by Phone ${resolvedPhone}: ID ${customer.id}`);
