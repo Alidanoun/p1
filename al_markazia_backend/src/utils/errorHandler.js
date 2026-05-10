@@ -30,33 +30,37 @@ const handleError = (err, req, res, next) => {
     requestId: req.id
   });
 
-  // 2. Filter out sensitive DB/Prisma errors for the client in Production
+  // 2. Specialized Error Handling
+  if (err.code === 'EBADCSRFTOKEN') {
+    statusCode = 403;
+    message = 'انتهت صلاحية الجلسة الأمنية، يرجى تحديث الصفحة';
+    code = 'CSRF_ERROR';
+  } else if (err.name === 'ValidationError' || (err.errors && Array.isArray(err.errors))) {
+    statusCode = 400;
+    message = err.message || 'خطأ في التحقق من البيانات المرسلة';
+    code = 'VALIDATION_ERROR';
+  }
+
+  // 3. Filter out sensitive DB/Prisma errors for the client in Production
   if (isProduction) {
     if (err.name?.includes('Prisma') || err.name?.includes('Database')) {
       statusCode = 500;
       message = 'حدث خطأ في معالجة البيانات، يرجى المحاولة لاحقاً';
       code = 'DATABASE_ERROR';
-    } else if (!err.isOperational && statusCode === 500) {
+    } else if (statusCode === 500) {
       message = 'حدث خطأ داخلي في النظام، تم إبلاغ الفريق التقني';
       code = 'INTERNAL_SERVER_ERROR';
     }
   }
 
-  if (err.name === 'ValidationError') {
-    statusCode = 400;
-    code = 'VALIDATION_ERROR';
-  }
-
-  // 3. Standard Secure Response
+  // 4. Standard Secure Response
   res.status(statusCode).json({
     success: false,
-    error: {
-      message: message || 'حدث خطأ غير متوقع',
-      code: code,
-      // 🛠️ Include stack trace ONLY in development
-      ...(!isProduction && { stack: err.stack }),
-      requestId: req.id // Traceable ID for matching with logs
-    }
+    error: message || 'حدث خطأ غير متوقع',
+    code: code,
+    // 🛠️ Include stack trace ONLY in development
+    ...(!isProduction && { stack: err.stack }),
+    requestId: req.id || req.headers['x-request-id']
   });
 };
 
