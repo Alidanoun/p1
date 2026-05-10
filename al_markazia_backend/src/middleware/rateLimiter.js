@@ -37,7 +37,7 @@ const authLimiter = rateLimit({
 // تقييد إنشاء الطلبات (Order Creation Limiter)
 const orderLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 40,
+  max: 3,
   keyGenerator: (req) => req.user?.id || req.ip,
   validate: false,
   standardHeaders: true,

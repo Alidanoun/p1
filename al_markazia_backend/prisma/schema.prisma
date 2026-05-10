@@ -7,6 +7,13 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum ModerationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  FLAGGED
+}
+
 model User {
   id           Int      @id @default(autoincrement())
   email        String   @unique
@@ -29,8 +36,23 @@ model User {
   branchId     String?
   branch       Branch?  @relation(fields: [branchId], references: [id])
   managedBranches UserBranch[]
+  notificationPreferences UserNotificationPreference[]
+  
+  timezone        String   @default("UTC")
+  quietHoursStart Int      @default(23)
+  quietHoursEnd   Int      @default(7)
 
   @@index([branchId])
+}
+
+model UserNotificationPreference {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  category  String   // operational, financial, marketing, system
+  isEnabled Boolean  @default(true)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, category])
 }
 
 model UserBranch {
@@ -62,6 +84,7 @@ model Branch {
   financialLedger FinancialLedger[]
   happyHours HappyHour[]
   snapshots      DailyFinancialSnapshot[] @relation("BranchSnapshots")
+  reviews        Review[]
 }
 
 model BranchItem {
@@ -107,13 +130,18 @@ model Item {
   isFeatured        Boolean           @default(false)
   preparationTime   Int?
   createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  version           Int               @default(1)
   cachedAvgRating   Float?            @default(0)
   cachedReviewCount Int?              @default(0)
   excludeFromStats  Boolean           @default(false)
   isDeleted         Boolean           @default(false)
   deletedAt         DateTime?
+  availabilitySchedule Json?     // {"mon": ["08:00","14:00"], ...}
+  
   category          Category          @relation(fields: [categoryId], references: [id])
-  optionGroups      ItemOptionGroup[]
+  variants          ItemVariant[]
+  modifierGroups    ModifierGroup[]
   orderItems        OrderItem[]
   reviews           Review[]
   branchItems       BranchItem[]
@@ -122,31 +150,42 @@ model Item {
   @@index([isAvailable, createdAt])
 }
 
-model ItemOptionGroup {
-  id          Int          @id @default(autoincrement())
+model ItemVariant {
+  id          Int      @id @default(autoincrement())
+  itemId      Int
+  name        String   // "Small", "Large"
+  nameEn      String?
+  priceDiff   Decimal  @db.Decimal(10, 2) // +2.00, -1.00
+  isDefault   Boolean  @default(false)
+  isAvailable Boolean  @default(true)
+  item        Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+}
+
+model ModifierGroup {
+  id          Int            @id @default(autoincrement())
   itemId      Int
   groupName   String
   groupNameEn String?
-  type        String       @default("SINGLE")
-  isRequired  Boolean      @default(false)
-  isActive    Boolean      @default(true)
-  minSelect   Int          @default(0)
-  maxSelect   Int          @default(1)
-  sortOrder   Int          @default(0)
-  options     ItemOption[]
-  item        Item         @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  type        String         @default("SINGLE") // SINGLE, MULTI
+  isRequired  Boolean        @default(false)
+  isActive    Boolean        @default(true)
+  minSelection Int           @default(0)
+  maxSelection Int           @default(1)
+  sortOrder   Int            @default(0)
+  modifiers   ItemModifier[]
+  item        Item           @relation(fields: [itemId], references: [id], onDelete: Cascade)
 }
 
-model ItemOption {
-  id          Int             @id @default(autoincrement())
+model ItemModifier {
+  id          Int           @id @default(autoincrement())
   groupId     Int
   name        String
   nameEn      String?
-  price       Decimal         @default(0) @db.Decimal(10, 2)
-  isDefault   Boolean         @default(false)
-  isAvailable Boolean         @default(true)
-  sortOrder   Int             @default(0)
-  group       ItemOptionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  price       Decimal       @default(0) @db.Decimal(10, 2)
+  isDefault   Boolean       @default(false)
+  isAvailable Boolean       @default(true)
+  sortOrder   Int           @default(0)
+  group       ModifierGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
 }
 
 model Order {
@@ -340,26 +379,50 @@ model Notification {
 }
 
 model Review {
-  id                 Int      @id @default(autoincrement())
+  id                 Int              @id @default(autoincrement())
   itemId             Int
   rating             Int
-  comment            String?  @db.VarChar(500)
-  isApproved         Boolean  @default(true)
-  createdAt          DateTime @default(now())
+  comment            String?          @db.VarChar(500)
+  status             ModerationStatus @default(PENDING)
+  fingerprint        String?          @db.VarChar(64) // SHA-256 of IP+DeviceID+UA
+  rejectedReason     String?
+  images             String[]         @default([])
+  
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  
   customerId         Int
-  ipAddress          String?
-  isFlagged          Boolean  @default(false)
-  isVerifiedPurchase Boolean  @default(false)
   orderId            Int?
-  updatedAt          DateTime @updatedAt
+  branchId           String?
+  driverId           Int?
+  
+  ipAddress          String?
   userAgent          String?
-  customer           Customer @relation(fields: [customerId], references: [id])
-  item               Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  order              Order?   @relation(fields: [orderId], references: [id])
+  isFlagged          Boolean          @default(false)
+  isVerifiedPurchase Boolean          @default(false)
 
-  @@unique([customerId, itemId])
-  @@index([itemId, isApproved, createdAt(sort: Desc)])
+  customer           Customer         @relation(fields: [customerId], references: [id])
+  item               Item             @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  order              Order?           @relation(fields: [orderId], references: [id])
+  branch             Branch?          @relation(fields: [branchId], references: [id])
+  replies            Reply[]
+
+  @@unique([customerId, orderId, itemId]) // One review per item per order
+  @@index([itemId, status, createdAt(sort: Desc)])
   @@index([customerId, createdAt])
+  @@index([branchId, status])
+  @@index([fingerprint])
+}
+
+model Reply {
+  id        Int      @id @default(autoincrement())
+  reviewId  Int
+  authorId  String   // User or Customer UUID
+  authorRole String  // ADMIN, DRIVER
+  content   String   @db.VarChar(500)
+  createdAt DateTime @default(now())
+  
+  review    Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
 }
 
 model OrderCancellation {
@@ -812,4 +875,17 @@ model UserBranchPreference {
   createdAt        DateTime @default(now())
 
   @@unique([userId, branchId])
+}
+
+model BusinessPolicy {
+  id          String   @id @default(uuid())
+  key         String   @unique // e.g., 'SLA_PREP_TIME', 'DELIVERY_BASE_FEE'
+  value       Json     // { val: 20, unit: 'minutes' }
+  category    String   // SLA, PRICING, CANCELLATION, SYSTEM
+  description String?
+  isActive    Boolean  @default(true)
+  updatedAt   DateTime @updatedAt
+  updatedBy   String?
+
+  @@index([category])
 }

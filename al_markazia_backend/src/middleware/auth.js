@@ -112,6 +112,8 @@ const authenticateToken = async (req, res, next) => {
   }
 };
 
+const { ROLE_PERMISSIONS } = require('../config/permissions');
+
 /**
  * 👑 Role Hierarchy Definition
  */
@@ -121,6 +123,49 @@ const ROLE_LEVELS = {
   'manager': 2,
   'staff': 1,
   'customer': 0
+};
+
+/**
+ * 🛡️ Granular Permission Guard (RBAC Phase 3)
+ * Checks if the user's role contains the required permission.
+ */
+const hasPermission = (permission) => async (req, res, next) => {
+  if (!req.user) {
+    return responseError(res, 'يجب تسجيل الدخول أولاً', 'UNAUTHORIZED', 401);
+  }
+
+  const userRole = req.user.role;
+  const permissions = ROLE_PERMISSIONS[userRole] || [];
+  
+  if (permissions.includes(permission)) {
+    return next();
+  }
+
+  // 🕵️ [SEC-AUDIT] Log unauthorized capability usage attempt
+  const auditService = require('../lib/container').auditService;
+  if (auditService) {
+    auditService.log({
+      userId: req.user.id,
+      userRole: userRole,
+      action: 'PERMISSION_DENIED',
+      status: 'FAIL',
+      severity: 'WARN',
+      metadata: {
+        requiredPermission: permission,
+        path: req.originalUrl,
+        method: req.method
+      }
+    });
+  }
+
+  logger.security('PERMISSION_DENIED', { 
+    userId: req.user.id, 
+    userRole, 
+    required: permission,
+    ip: req.ip 
+  });
+
+  return responseError(res, 'غير مصرح لك بالقيام بهذا الإجراء', 'PERMISSION_DENIED', 403);
 };
 
 /**
@@ -237,6 +282,7 @@ module.exports = {
   isAdmin, 
   isManager,
   isStaff,
+  hasPermission,
   requireRoles,
   optionalAuth
 };

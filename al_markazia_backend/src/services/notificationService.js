@@ -1,4 +1,6 @@
 const { v4: uuidv4 } = require('uuid');
+const notificationPolicyService = require('./notificationPolicyService');
+const { notificationPayloadSchema } = require('./validators/notificationPayload.schema');
 
 /**
  * 🛰️ Production-Grade Guaranteed Notification Engine (GNE)
@@ -72,29 +74,74 @@ class NotificationService {
   }
 
   async dispatch(notif, orderContext) {
-    const type = notif.type;
-    const EXEC_EVENTS = ['order_created', 'order_cancelled', 'status_change', 'order_updated', 'order_assigned'];
-    const MONITOR_EVENTS = ['order_created', 'order_cancelled', 'status_change', 'order_updated'];
-    const CUSTOMER_EVENTS = ['order_created', 'status_change', 'order_cancelled', 'payment_status', 'delivery_updated'];
-    
-    const target = {
-      isToAdmin: EXEC_EVENTS.includes(type) || MONITOR_EVENTS.includes(type),
-      isToCustomer: CUSTOMER_EVENTS.includes(type),
-      isBroadcast: type === 'broadcast'
+    try {
+      const type = notif.type;
+      
+      // 1. Zod Validation (Phase 1)
+      const validationResult = notificationPayloadSchema.safeParse({
+        type: this._mapToSchemaType(type),
+        title: notif.title,
+        body: notif.message,
+        userId: orderContext?.customerId || orderContext?.customer?.id,
+        data: { orderId: orderContext?.id }
+      });
+
+      if (!validationResult.success) {
+        this.logger.error('[NotificationService] Payload validation failed', { errors: validationResult.error.errors });
+        return;
+      }
+
+      // 2. Policy Evaluation (Phase 1: Preferences, Quiet Hours)
+      const userId = orderContext?.customerId || orderContext?.customer?.id;
+      if (userId && type !== 'broadcast') {
+        const policy = await notificationPolicyService.evaluate(userId, this._mapToSchemaType(type));
+        if (!policy.allowed) {
+          this.logger.info(`[NotificationService] Skip dispatch: ${policy.reason}`, { userId, type });
+          return;
+        }
+      }
+
+      const EXEC_EVENTS = ['order_created', 'order_cancelled', 'status_change', 'order_updated', 'order_assigned'];
+      const MONITOR_EVENTS = ['order_created', 'order_cancelled', 'status_change', 'order_updated'];
+      const CUSTOMER_EVENTS = ['order_created', 'status_change', 'order_cancelled', 'payment_status', 'delivery_updated'];
+      
+      const target = {
+        isToAdmin: EXEC_EVENTS.includes(type) || MONITOR_EVENTS.includes(type),
+        isToCustomer: CUSTOMER_EVENTS.includes(type),
+        isBroadcast: type === 'broadcast'
+      };
+
+      await Promise.allSettled([
+        this._attemptSocketEmit(notif, orderContext, target),
+        this._attemptFCMPush(notif, orderContext, target)
+      ]);
+
+      await this.prisma.notification.update({
+        where: { id: notif.id },
+        data: { status: 'SENT', retryCount: { increment: 1 } }
+      });
+    } catch (err) {
+      this.logger.error('[NotificationService] Dispatch error', { error: err.message });
+    }
+  }
+
+  _mapToSchemaType(type) {
+    const map = {
+      'order_created': 'ORDER_NEW',
+      'status_change': 'ORDER_STATUS_UPDATE',
+      'payment_status': 'PAYMENT_SUCCESS',
+      'broadcast': 'PROMOTION',
+      'system_alert': 'SYSTEM_ALERT'
     };
-
-    await Promise.allSettled([
-      this._attemptSocketEmit(notif, orderContext, target),
-      this._attemptFCMPush(notif, orderContext, target)
-    ]);
-
-    await this.prisma.notification.update({
-      where: { id: notif.id },
-      data: { status: 'SENT', retryCount: { increment: 1 } }
-    });
+    return map[type] || 'SYSTEM_ALERT';
   }
 
   async reconcile() {
+    this.logger.info('[NotificationService] 🔄 Starting Reconciliation Job...');
+    const startTime = Date.now();
+    let successCount = 0;
+    let failCount = 0;
+
     const pendingTasks = await this.prisma.notification.findMany({
       where: {
         status: { in: ['PENDING', 'FAILED'] },
@@ -109,11 +156,23 @@ class NotificationService {
         const orderId = parseInt(notif.orderId);
         if (isNaN(orderId)) continue;
         const order = await this.prisma.order.findUnique({ where: { id: orderId }, include: { customer: true } });
-        if (order) await this.dispatch(notif, order);
+        if (order) {
+          await this.dispatch(notif, order);
+          successCount++;
+        }
       } catch (err) {
+        failCount++;
         await this.prisma.notification.update({ where: { id: notif.id }, data: { retryCount: { increment: 1 }, lastError: err.message } });
       }
     }
+    
+    this.logger.info('[NotificationService] ✅ Reconciliation Complete', { 
+      duration: `${Date.now() - startTime}ms`,
+      processed: pendingTasks.length,
+      success: successCount,
+      failed: failCount
+    });
+    
     await this.notifySubscribersOfReopening();
   }
 
@@ -179,6 +238,37 @@ class NotificationService {
       await firebaseService.sendToTopic('staff_orders', notif.title, notif.message, { type: 'order_created' });
     } else if (target.isToCustomer && order.customer?.fcmToken) {
       await firebaseService.sendToToken(order.customer.fcmToken, notif.title, notif.message, { type: notif.type });
+    }
+  }
+
+  /**
+   * 📬 Direct Multi-Channel Notification (Manual)
+   */
+  async sendDirectNotification(phone, title, message, metadata = {}) {
+    try {
+      const notification = await this.prisma.notification.create({
+        data: {
+          customerPhone: phone,
+          title,
+          message,
+          type: metadata.type || 'SYSTEM_ALERT',
+          status: 'PENDING',
+          metadata
+        }
+      });
+
+      // Attempt immediate delivery
+      const firebaseService = require('./firebaseService');
+      const customer = await this.prisma.customer.findFirst({ where: { phone } });
+      
+      if (customer?.fcmToken) {
+        await firebaseService.sendToToken(customer.fcmToken, title, message, metadata);
+        await this.prisma.notification.update({ where: { id: notification.id }, data: { status: 'SENT', fcmSent: true } });
+      }
+
+      return notification;
+    } catch (err) {
+      this.logger.error('[NotificationService] Direct notification failed', { phone, error: err.message });
     }
   }
 

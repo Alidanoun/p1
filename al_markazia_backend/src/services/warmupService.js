@@ -38,7 +38,7 @@ class WarmupService {
     const topItems = await prisma.item.findMany({
       where: { isAvailable: true },
       take: 50,
-      include: { optionGroups: { include: { options: true } } }
+      include: { modifierGroups: { include: { modifiers: true } } }
     });
 
     for (const item of topItems) {

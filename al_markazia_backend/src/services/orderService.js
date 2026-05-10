@@ -11,6 +11,9 @@ const eventTypes = require('../events/eventTypes');
 const queryOptimizer = require('../utils/queryOptimizer');
 const { toNumber } = require('../utils/number');
 const { validateTransition } = require('../validators/orderStateMachine');
+const configService = require('./configService');
+const liveCacheService = require('./liveCacheService');
+const { orderQueue } = require('../queues/orderQueue');
 
 class OrderService {
   constructor(container) {
@@ -538,8 +541,8 @@ class OrderService {
     const isFirstTimeRating = !order.rating;
 
     const updatedOrder = await this.prisma.order.update({
-      where: { id: orderId },
-      data: { rating, ratingComment: comment, isRatingApproved: false },
+      where: { id: orderId, version: order.version },
+      data: { rating, ratingComment: comment, isRatingApproved: false, version: { increment: 1 } },
       include: ORDER_INCLUDE_FULL
     });
 
@@ -686,13 +689,16 @@ class OrderService {
 
     // 2. 🏢 Branch Isolation (Handled by ContractGateway)
 
-    // 3. 🧠 Risk Assessment (3-Level Logic)
+    // 3. 🧠 Risk Assessment (Dynamic Policy Driven)
+    const config = await configService.getFullConfig();
     const timeDiff = (Date.now() - new Date(order.createdAt).getTime()) / 60000;
+    const freeCancelWindow = config.business.freeCancelWindowMinutes;
+    
     let level = 'LOW';
     
-    if (order.status === 'pending' && timeDiff < 2) {
+    if (order.status === 'pending' && timeDiff < freeCancelWindow) {
       level = 'LOW';
-    } else if (order.status === 'preparing' || (order.status === 'pending' && timeDiff >= 2)) {
+    } else if (order.status === 'preparing' || (order.status === 'pending' && timeDiff >= freeCancelWindow)) {
       level = 'MEDIUM';
     } else {
       level = 'HIGH';
@@ -923,7 +929,10 @@ class OrderService {
 
     logger.info(`[OrderService] Creating Order. AuthUser: ${authUser?.id}, InputPhone: ${phoneInput}, ResolvedCustomer: ${resolvedCustomer.id}`);
 
-    // 1.5 🏢 Resolve Branch (Multi-Branch Ready)
+    // 0. Fetch Dynamic Business Policies
+    const config = await configService.getFullConfig();
+
+    // 1. 🛡️ Branch Access Control (Cross-Branch Guard)
     const targetBranchId = await this._resolveBranchId(data.branchId || data.branch);
 
     // 1.6 🛡️ [DEFENSE-IN-DEPTH] Service-Level Branch Authorization
@@ -1049,10 +1058,10 @@ class OrderService {
           deliveryZoneId: deliveryDetails.zoneId,
           deliveryZoneName: deliveryDetails.zoneName,
           deliveryMinOrder: deliveryDetails.minOrder,
-          preparationTimeMinutes: 20, // Default
-          deliveryTimeMinutes: 15,    // Default
-          estimatedReadyAt: new Date(Date.now() + 20 * 60000),
-          estimatedArrivalAt: new Date(Date.now() + (20 + 15) * 60000),
+          preparationTimeMinutes: config.business.slaPrepTimeMinutes,
+          deliveryTimeMinutes: config.business.slaDeliveryTimeMinutes,
+          estimatedReadyAt: new Date(Date.now() + config.business.slaPrepTimeMinutes * 60000),
+          estimatedArrivalAt: new Date(Date.now() + (config.business.slaPrepTimeMinutes + config.business.slaDeliveryTimeMinutes) * 60000),
           orderItems: {
             create: validatedItems
           }
@@ -1135,6 +1144,16 @@ class OrderService {
       },
       version: 1,
       tenantId: mappedOrder.tenantId
+    });
+
+    // ⚡ [PHASE 2] Live Cache Sync
+    await liveCacheService.cacheOrder(newOrder);
+
+    // ⏲️ [PHASE 2] Automated Lifecycle Timeout (15 Mins)
+    await orderQueue.add('auto-timeout', { orderId: newOrder.id, type: 'PENDING_TIMEOUT' }, {
+      delay: (config.business.autoCancelTimeoutMinutes || 15) * 60 * 1000,
+      jobId: `timeout_${newOrder.id}`,
+      removeOnComplete: true
     });
 
     return mappedOrder;
@@ -1406,9 +1425,12 @@ class OrderService {
   async _validateDeliveryDetails(type, zoneId, subtotal) {
     if (type !== 'delivery') return { fee: 0, zoneId: null, zoneName: null, minOrder: 0 };
 
+    const config = await configService.getFullConfig();
+
     if (!zoneId) {
-      const settings = await this.prisma.systemSettings.findFirst();
-      return { fee: toNumber(settings?.defaultDeliveryFee, 1), zoneId: null, zoneName: 'Default', minOrder: 0 };
+      const baseFee = config.business.defaultDeliveryFee;
+      const peakMultiplier = config.business.peakMultiplier;
+      return { fee: toNumber(baseFee * peakMultiplier, 1), zoneId: null, zoneName: 'Default', minOrder: 0 };
     }
 
     const zone = await this.prisma.deliveryZone.findUnique({ where: { id: zoneId } });
@@ -1520,7 +1542,7 @@ class OrderService {
 
         const { updatedOrder, _outboxId } = await this.prisma.$transaction(async (tx) => {
           const updated = await tx.order.update({
-            where: { id: order.id },
+            where: { id: order.id, version: order.version },
             data: { status: newStatus, version: { increment: 1 } },
             include: ORDER_INCLUDE_FULL
           });

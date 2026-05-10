@@ -271,6 +271,50 @@ class MaintenanceService {
       return 0;
     }
   }
+
+  /**
+   * 🕒 Cancellation Lifecycle: Handles orders stuck in 'waiting_cancellation' for too long.
+   * Auto-resolves based on timeout (e.g., 15 minutes).
+   */
+  static async cleanupWaitingCancellations(timeoutMinutes = 15) {
+    try {
+      const cutoff = new Date(Date.now() - timeoutMinutes * 60 * 1000);
+      
+      const stuckRequests = await prisma.order.findMany({
+        where: {
+          status: 'waiting_cancellation',
+          updatedAt: { lt: cutoff }
+        },
+        include: { cancellation: true }
+      });
+
+      if (stuckRequests.length === 0) return 0;
+
+      const contractGateway = require('../services/contractGateway');
+      let count = 0;
+
+      for (const order of stuckRequests) {
+        try {
+          // If no admin responded, we default to REJECTING the cancellation (Resuming order)
+          // to prevent food waste and ensure the restaurant doesn't lose the order.
+          await contractGateway.execute(order.id, 'REJECT_CANCEL', {
+            rejectionReason: 'SYSTEM_TIMEOUT: No administrative response within 15 minutes.',
+            idempotencyKey: `auto_reject_cancel_${order.id}_${Date.now()}`
+          }, { id: 'SYSTEM', role: 'system' });
+          
+          count++;
+        } catch (err) {
+          logger.error('Failed to auto-resolve stuck cancellation', { orderId: order.id, error: err.message });
+        }
+      }
+
+      if (count > 0) logger.info(`Maintenance: Auto-resolved ${count} stuck cancellation requests.`);
+      return count;
+    } catch (error) {
+      logger.error('Maintenance: Waiting Cancellation Cleanup Failed', { error: error.message });
+      return 0;
+    }
+  }
 }
 
 module.exports = MaintenanceService;

@@ -4,14 +4,29 @@ const logger = require('../utils/logger');
 const itemFilters = require('../utils/itemFilters');
 const { toNumber } = require('../utils/number');
 const { safeJsonParse } = require('../utils/security');
+const menuCacheService = require('../services/menuCacheService');
+const imageService = require('../services/imageService');
 
 exports.getAllItems = async (req, res) => {
   try {
     const { admin, categoryId, featured } = req.query;
 
+    // ⚡ [PHASE 2] ETag Check for Performance (304 Not Modified)
+    if (admin !== 'true' && !categoryId && !featured) {
+      const currentETag = await menuCacheService.getETag();
+      if (currentETag && req.headers['if-none-match'] === currentETag) {
+        return res.status(304).end();
+      }
+
+      // Check Redis Snapshot
+      const cachedMenu = await menuCacheService.getMenu();
+      if (cachedMenu) {
+        res.setHeader('ETag', currentETag);
+        return res.json({ success: true, data: JSON.parse(cachedMenu), cached: true });
+      }
+    }
+
     let filter = {};
-    
-    // 🛡️ Applying Tiered Visibility Model (Architectural Standard V19)
     if (admin === 'true') {
       filter = itemFilters.getAdminPanelFilter();
     } else if (featured === 'true') {
@@ -22,42 +37,20 @@ exports.getAllItems = async (req, res) => {
 
     if (categoryId) filter.categoryId = parseInt(categoryId);
 
-    // 🛡️ [ISOLATION] Identify the target branch for strict filtering
     const { getContext } = require('../utils/securityContext');
     const userContext = getContext();
-    
-    // Explicit branchId from query always takes precedence for overrides
     let targetBranchId = req.query.branchId || userContext?.branchId || null;
-    
-    // 🛡️ [SEC-FIX] Sanitize stringified nulls from frontend
     if (targetBranchId === 'null' || targetBranchId === 'undefined') targetBranchId = null;
-
-    // Note: We removed the 'some' filter here because it was restricting the list 
-    // to ONLY items with overrides, which is incorrect for a full menu view.
 
     const items = await prisma.item.findMany({
       where: filter,
-      select: {
-        id: true,
-        title: true,
-        titleEn: true,
-        description: true,
-        descriptionEn: true,
-        basePrice: true,
-        image: true,
-        categoryId: true,
-        isAvailable: true,
-        isFeatured: true,
-        preparationTime: true,
-        cachedAvgRating: true,
-        cachedReviewCount: true,
-        category: {
-          select: { id: true, name: true, nameEn: true }
-        },
-        optionGroups: {
+      include: {
+        category: { select: { id: true, name: true, nameEn: true } },
+        variants: { where: { isAvailable: true } },
+        modifierGroups: {
           where: { isActive: true },
           include: {
-            options: { where: { isAvailable: true }, orderBy: { sortOrder: 'asc' } }
+            modifiers: { where: { isAvailable: true }, orderBy: { sortOrder: 'asc' } }
           },
           orderBy: { sortOrder: 'asc' }
         },
@@ -72,11 +65,8 @@ exports.getAllItems = async (req, res) => {
       ]
     });
 
-    // 🧠 Dynamic Availability Merging
     const mappedItems = items.map(item => {
       let finalAvailability = item.isAvailable;
-      
-      // If branch record exists, it overrides the global state
       if (item.branchItems && item.branchItems.length > 0) {
         finalAvailability = item.branchItems[0].isAvailable;
       }
@@ -86,9 +76,16 @@ exports.getAllItems = async (req, res) => {
         isAvailable: finalAvailability,
         image: formatImageUrl(item.image),
         basePrice: toNumber(item.basePrice),
-        branchItems: undefined // Clean up response
+        branchItems: undefined
       };
     });
+
+    // ⚡ [PHASE 2] Warmup Cache for next requests if this is the full public menu
+    if (admin !== 'true' && !categoryId && !featured) {
+      await menuCacheService.setMenu(mappedItems);
+      const etag = await menuCacheService.getETag();
+      if (etag) res.setHeader('ETag', etag);
+    }
 
     res.json({ success: true, data: mappedItems });
   } catch (error) {
@@ -163,10 +160,11 @@ exports.getItemById = async (req, res) => {
       where: { id: parseInt(id) },
       include: {
         category: true,
-        optionGroups: {
+        variants: { where: { isAvailable: true } },
+        modifierGroups: {
           where: { isActive: true },
           include: {
-            options: { where: { isAvailable: true }, orderBy: { sortOrder: 'asc' } }
+            modifiers: { where: { isAvailable: true }, orderBy: { sortOrder: 'asc' } }
           },
           orderBy: { sortOrder: 'asc' }
         }
@@ -196,7 +194,8 @@ exports.createItem = async (req, res) => {
       isFeatured,
       excludeFromStats,
       preparationTime,
-      optionGroups
+      variants,
+      modifierGroups
     } = req.body;
 
     if (!title || typeof title !== 'string' || title.trim() === '') {
@@ -210,12 +209,18 @@ exports.createItem = async (req, res) => {
 
     let imageUrl = null;
     if (req.file) {
-      imageUrl = `/uploads/${req.file.filename}`;
+      const processed = await imageService.processMenuImage(req.file.filename);
+      imageUrl = processed ? processed.medium : `/uploads/${req.file.filename}`;
     }
 
     let parsedGroups = [];
-    if (optionGroups) {
-      parsedGroups = typeof optionGroups === 'string' ? safeJsonParse(optionGroups) : optionGroups;
+    if (modifierGroups) {
+      parsedGroups = typeof modifierGroups === 'string' ? safeJsonParse(modifierGroups) : modifierGroups;
+    }
+
+    let parsedVariants = [];
+    if (variants) {
+      parsedVariants = typeof variants === 'string' ? safeJsonParse(variants) : variants;
     }
 
     // 🛡️ [SEC-FIX] Pre-validate option prices before transaction
@@ -243,37 +248,42 @@ exports.createItem = async (req, res) => {
         excludeFromStats: excludeFromStats === 'true' || excludeFromStats === true,
         preparationTime: preparationTime ? parseInt(preparationTime) : null,
         image: imageUrl,
-        optionGroups: {
+        variants: {
+          create: parsedVariants.map(v => ({
+            name: v.name,
+            nameEn: v.nameEn,
+            priceDiff: parseFloat(v.priceDiff) || 0,
+            isDefault: v.isDefault || false
+          }))
+        },
+        modifierGroups: {
           create: parsedGroups.map(group => ({
             groupName: group.groupName,
             groupNameEn: group.groupNameEn,
             type: group.type || 'SINGLE',
             isRequired: group.isRequired || false,
-            minSelect: parseInt(group.minSelect) || 0,
-            maxSelect: parseInt(group.maxSelect) || 1,
-            options: {
-              create: group.options.map(opt => {
-                const optPrice = parseFloat(opt.price);
-                if (isNaN(optPrice) || optPrice < 0) {
-                  throw new Error(`INVALID_OPTION_PRICE:${opt.name}`);
-                }
-                return {
-                  name: opt.name,
-                  nameEn: opt.nameEn,
-                  price: optPrice,
-                  isDefault: opt.isDefault || false,
-                  isAvailable: opt.isAvailable !== false
-                };
-              })
+            minSelection: parseInt(group.minSelection) || 0,
+            maxSelection: parseInt(group.maxSelection) || 1,
+            modifiers: {
+              create: group.modifiers.map(mod => ({
+                name: mod.name,
+                nameEn: mod.nameEn,
+                price: parseFloat(mod.price) || 0,
+                isDefault: mod.isDefault || false,
+                isAvailable: mod.isAvailable !== false
+              }))
             }
           }))
         }
       },
       include: {
         category: { select: { id: true, name: true, nameEn: true } },
-        optionGroups: { include: { options: true } }
+        variants: true,
+        modifierGroups: { include: { modifiers: true } }
       }
     });
+
+    await menuCacheService.invalidate();
 
     res.status(201).json({
       success: true,
@@ -309,7 +319,8 @@ exports.updateItem = async (req, res) => {
 
     if (req.file) {
       if (currentItem.image) await deleteFile(currentItem.image);
-      imageUrl = `/uploads/${req.file.filename}`;
+      const processed = await imageService.processMenuImage(req.file.filename);
+      imageUrl = processed ? processed.medium : `/uploads/${req.file.filename}`;
     } else if (removeImage === 'true') {
       if (currentItem.image) await deleteFile(currentItem.image);
       imageUrl = null;
@@ -346,22 +357,31 @@ exports.updateItem = async (req, res) => {
         excludeFromStats: excludeFromStats === 'true' || excludeFromStats === true,
         preparationTime: preparationTime ? parseInt(preparationTime) : null,
         image: imageUrl,
-        optionGroups: req.body.optionGroups ? {
+        variants: req.body.variants ? {
+          deleteMany: {},
+          create: parsedVariants.map(v => ({
+            name: v.name,
+            nameEn: v.nameEn,
+            priceDiff: parseFloat(v.priceDiff) || 0,
+            isDefault: v.isDefault || false
+          }))
+        } : undefined,
+        modifierGroups: req.body.modifierGroups ? {
           deleteMany: {},
           create: parsedGroups.map(group => ({
             groupName: group.groupName,
             groupNameEn: group.groupNameEn,
             type: group.type || 'SINGLE',
             isRequired: group.isRequired || false,
-            minSelect: parseInt(group.minSelect) || 0,
-            maxSelect: parseInt(group.maxSelect) || 1,
-            options: {
-              create: group.options.map(opt => ({
-                name: opt.name,
-                nameEn: opt.nameEn,
-                price: parseFloat(opt.price),
-                isDefault: opt.isDefault || false,
-                isAvailable: opt.isAvailable !== false
+            minSelection: parseInt(group.minSelection) || 0,
+            maxSelection: parseInt(group.maxSelection) || 1,
+            modifiers: {
+              create: group.modifiers.map(mod => ({
+                name: mod.name,
+                nameEn: mod.nameEn,
+                price: parseFloat(mod.price) || 0,
+                isDefault: mod.isDefault || false,
+                isAvailable: mod.isAvailable !== false
               }))
             }
           }))
@@ -369,9 +389,12 @@ exports.updateItem = async (req, res) => {
       },
       include: {
         category: { select: { id: true, name: true, nameEn: true } },
-        optionGroups: { include: { options: true } }
+        variants: true,
+        modifierGroups: { include: { modifiers: true } }
       }
     });
+
+    await menuCacheService.invalidate();
 
     res.json({
       success: true,
@@ -392,6 +415,7 @@ exports.deleteItem = async (req, res) => {
     if (item.image) await deleteFile(item.image);
 
     await prisma.item.delete({ where: { id: parseInt(id) } });
+    await menuCacheService.invalidate();
     res.json({ success: true, message: 'Item deleted successfully' });
   } catch (error) {
     res.status(500).json({ success: false, error: 'Failed to delete item' });
@@ -408,6 +432,7 @@ exports.toggleItemAvailable = async (req, res) => {
       data: { isAvailable: isAvailable === true }
     });
 
+    await menuCacheService.invalidate();
     res.json({ success: true, data: updatedItem });
   } catch (error) {
     res.status(500).json({ success: false, error: 'فشل في تحديث حالة الصنف.' });
@@ -438,6 +463,7 @@ exports.toggleGroupActive = async (req, res) => {
       }
     });
 
+    await menuCacheService.invalidate();
     res.json({ success: true, data: updatedGroup.item });
   } catch (error) {
     res.status(500).json({ success: false, error: 'فشل في تحديث حالة المجموعة.' });
@@ -472,6 +498,7 @@ exports.toggleOptionAvailable = async (req, res) => {
       }
     });
 
+    await menuCacheService.invalidate();
     res.json({ success: true, data: updatedOption.group.item });
   } catch (error) {
     logger.error('[ToggleOptionError]', { error: error.message, body: req.body });
