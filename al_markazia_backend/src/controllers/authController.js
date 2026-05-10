@@ -121,6 +121,30 @@ const refreshToken = async (req, res) => {
 };
 
 /**
+ * @swagger
+ * /auth/login:
+ *   post:
+ *     summary: Authenticate user and get tokens
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email, password]
+ *             properties:
+ *               email: { type: string, format: email, example: admin@almarkazia.com }
+ *               password: { type: string, format: password, example: '123456' }
+ *     responses:
+ *       200:
+ *         description: Login successful
+ *       401:
+ *         description: Invalid credentials
+ *       403:
+ *         description: Account locked or disabled
+ */
+/**
  * 🔑 Enterprise Login Orchestrator
  */
 const login = async (req, res) => {

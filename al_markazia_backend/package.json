@@ -21,6 +21,9 @@
     "testMatch": [
       "**/tests/**/*.test.js"
     ],
+    "transformIgnorePatterns": [
+      "/node_modules/(?!(uuid)/)"
+    ],
     "coveragePathIgnorePatterns": [
       "/node_modules/",
       "/prisma/generated/"

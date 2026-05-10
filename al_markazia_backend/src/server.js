@@ -210,6 +210,13 @@ async function startServer() {
     // Primary: All new clients should use /api/v1/
     app.use('/api/v1', apiV1Router);
 
+    // 📖 API Documentation (Swagger)
+    const { swaggerUi, specs } = require('./config/swagger');
+    app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs, {
+      swaggerOptions: { persistAuthorization: true },
+      customSiteTitle: "Al Markazia API Docs"
+    }));
+
     // Legacy: Backward compatibility for existing Flutter app & admin panels
     // TODO: Remove after all clients migrate to /api/v1/
     app.use('/', apiV1Router);

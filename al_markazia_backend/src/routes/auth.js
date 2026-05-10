@@ -3,10 +3,13 @@ const { login, register, verifyRegistration, forgotPassword, resetPassword, refr
 const { loginLimiter, otpLimiter, refreshTokenLimiter } = require('../middleware/advancedRateLimiter');
 const { authenticateToken } = require('../middleware/auth');
 
+const { loginValidation, registerValidation } = require('../validators/authValidator');
+const validate = require('../middleware/validate');
+
 const router = express.Router();
 
-router.post('/login', loginLimiter, login);
-router.post('/register', otpLimiter, register);
+router.post('/login', loginLimiter, loginValidation, validate, login);
+router.post('/register', otpLimiter, registerValidation, validate, register);
 router.post('/verify-registration', otpLimiter, verifyRegistration);
 router.post('/forgot-password', otpLimiter, forgotPassword);
 router.post('/reset-password', otpLimiter, resetPassword);
