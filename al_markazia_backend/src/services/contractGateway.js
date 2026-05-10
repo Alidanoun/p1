@@ -58,9 +58,11 @@ class ContractGateway {
       const result = await (async () => {
         switch (action) {
           case 'PREVIEW': return await orchestrator.preview(orderId, context.modifications, actor);
-          case 'CANCEL': return await this.container.orderService.cancelOrder(orderId, actor, context.reason);
-          case 'UPDATE_STATUS': return await this.container.orderService.updateOrderStatus(orderId, context.status, context.version, actor);
+          case 'CANCEL': return await this.container.orderLifecycleOrchestrator.cancel(orderId, actor, { ...context, source: 'ADMIN_CANCEL' });
+          case 'SYSTEM_CANCEL': return await this.container.cancellationOrchestrator.execute(orderId, actor, { ...context, source: 'SYSTEM_CANCEL', skipPasswordCheck: true });
+          case 'UPDATE_STATUS': return await this.container.orderLifecycleOrchestrator.transitionStatus(orderId, context.status, actor, context);
           case 'CREATE_ORDER': return await this.container.orderService.createOrder(context.orderData, actor);
+          case 'APPROVE_PARTIAL_CANCEL': return await this.container.orderService.applyPartialCancellation(orderId, context.itemsToCancel, actor, context.notificationId, context.managerPassword);
           // ... add other cases as needed or use a generic router
           default:
             // Fallback for non-refactored paths
@@ -90,7 +92,7 @@ class ContractGateway {
 
     if (action === 'REQUEST') return await orchestrator.request(orderId, actor.id, context.modifications, context.idempotencyKey, actor);
     if (action === 'APPLY') return await orchestrator.apply(context.eventId, actor.id, context.idempotencyKey);
-    if (action === 'APPROVE_CANCEL') return await orderService.approveCancellation(orderId, actor);
+    if (action === 'APPROVE_CANCEL') return await this.container.orderLifecycleOrchestrator.cancel(orderId, actor, { ...context, source: 'ADMIN_APPROVAL' });
     if (action === 'REJECT_CANCEL') return await orderService.rejectCancellation(orderId, actor, context.rejectionReason);
     if (action === 'UPDATE_TIMER') return await orderService.updateOrderTimer(orderId, context.estimatedReadyAt, actor);
     if (action === 'UPDATE_PREP_TIME') return await orderService.updatePreparationTime(orderId, context.minutes, actor);

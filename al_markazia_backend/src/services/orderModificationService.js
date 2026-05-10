@@ -53,6 +53,7 @@ class OrderModificationService {
           data: {
             operationType: 'PRICE_OVERRIDE',
             entityId: eventRecord.id,
+            branchId: order.branchId, // 🛡️ [PHASE 4] Capture branch context
             requestedBy: user.id,
             requestedByRole: user.role,
             payload: { delta, orderId },

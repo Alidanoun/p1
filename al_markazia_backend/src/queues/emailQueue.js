@@ -65,7 +65,8 @@ emailWorker.on('failed', (job, err) => {
  * 🚀 Public Helper: Add OTP to queue
  */
 const addOtpToQueue = async (email, code, purpose = 'login') => {
-  await emailQueue.add(`otp-${email}-${Date.now()}`, {
+  const { v4: uuidv4 } = require('uuid');
+  await emailQueue.add(`otp-${email}-${uuidv4()}`, {
     type: 'otp',
     email,
     code,
@@ -77,7 +78,8 @@ const addOtpToQueue = async (email, code, purpose = 'login') => {
  * 🚀 Public Helper: Add Password Reset to queue
  */
 const addPasswordResetToQueue = async (email, code) => {
-  await emailQueue.add(`reset-${email}-${Date.now()}`, {
+  const { v4: uuidv4 } = require('uuid');
+  await emailQueue.add(`reset-${email}-${uuidv4()}`, {
     type: 'password_reset',
     email,
     code

@@ -184,6 +184,26 @@ logger.deprecate = (message, meta = {}) => {
   logger.warn(`DEPRECATED: ${message}`, { ...meta, isDeprecationEvent: true });
 };
 
+// 💰 Specialized Financial Action Logging
+logger.financial = (message, meta = {}) => {
+  logger.info(`[FINANCIAL] ${message}`, { ...meta, category: 'FINANCIAL', timestamp: new Date().toISOString() });
+};
+
+// 🛑 Specialized Cancellation Tracking
+logger.cancellation = (message, meta = {}) => {
+  logger.warn(`[CANCELLATION] ${message}`, { ...meta, category: 'CANCELLATION', timestamp: new Date().toISOString() });
+};
+
+// ✅ Specialized Approval Auditing
+logger.approval = (message, meta = {}) => {
+  logger.info(`[APPROVAL] ${message}`, { ...meta, category: 'APPROVAL', timestamp: new Date().toISOString() });
+};
+
+// ⚡ Specialized Socket Event Monitoring
+logger.socket = (message, meta = {}) => {
+  logger.debug(`[SOCKET] ${message}`, { ...meta, category: 'SOCKET', timestamp: new Date().toISOString() });
+};
+
 /**
  * 🛡️ Enhanced Error Logger
  * يضمن تسجيل الخطأ مع كامل السياق التقني

@@ -85,6 +85,9 @@ model Branch {
   happyHours HappyHour[]
   snapshots      DailyFinancialSnapshot[] @relation("BranchSnapshots")
   reviews        Review[]
+  metrics        BranchMetric?
+  auditLogs      SystemAuditLog[]
+  financialApprovals FinancialApproval[]
 }
 
 model BranchItem {
@@ -223,6 +226,7 @@ model Order {
   createdAt              DateTime           @default(now())
   updatedAt              DateTime           @updatedAt
   version          Int                @default(1)
+  eventSequence    Int                @default(0)
   isDeleted        Boolean            @default(false)
   pointsAwarded    Boolean            @default(false)
   deletedAt        DateTime?
@@ -434,6 +438,8 @@ model OrderCancellation {
   status          String   @default("pending")
   rejectionReason String?
   adminName       String?
+  refundedAmount  Decimal? @default(0) @db.Decimal(10, 2)
+  cancelledAt     DateTime?
   createdAt       DateTime @default(now())
   order           Order    @relation(fields: [orderId], references: [id])
 }
@@ -614,11 +620,14 @@ model SystemAuditLog {
   severity     String   @default("INFO")    // INFO, WARN, CRITICAL
   ip           String?
   userAgent    String?
+  branchId     String?
+  branch       Branch?  @relation(fields: [branchId], references: [id])
   metadata     Json?    // Stores diffs: { before: {}, after: {} }
   createdAt    DateTime @default(now())
 
   @@index([userId])
   @@index([action])
+  @@index([branchId])
   @@index([entityType, entityId])
   @@index([createdAt])
 }
@@ -713,10 +722,15 @@ model FinancialApproval {
   // Traceability Link
   ledgerEntryId   Int?
   ledgerEntry     FinancialLedger? @relation(fields: [ledgerEntryId], references: [id])
+  
+  branchId        String?
+  branch          Branch?  @relation(fields: [branchId], references: [id])
 
   expiresAt       DateTime
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+  version         Int      @default(1)
+  eventSequence   Int      @default(0)
 
   @@index([status])
   @@index([operationType])
@@ -798,6 +812,19 @@ model CustomerReward {
 
   @@index([customerId, status])
   @@index([code])
+}
+
+model BranchMetric {
+  id            String   @id @default(uuid())
+  branchId      String   @unique
+  totalOrders   Int
+  activeOrders  Int
+  cancellations Int
+  revenue       Decimal  @db.Decimal(10, 2)
+  updatedAt     DateTime @updatedAt
+  version       Int      @default(1)
+  eventSequence Int      @default(0)
+  branch        Branch   @relation(fields: [branchId], references: [id])
 }
 
 model AwardedLoyaltyPoints {
@@ -888,4 +915,17 @@ model BusinessPolicy {
   updatedBy   String?
 
   @@index([category])
+}
+
+model IdempotencyKey {
+  id              String   @id @default(uuid())
+  key             String   @unique
+  operation       String
+  responsePayload Json?
+  status          String   @default("PENDING") // PENDING, COMPLETED, FAILED
+  userId          String?  // Changed to String to match UUID
+  createdAt       DateTime @default(now())
+  expiresAt       DateTime
+  
+  @@index([key])
 }

@@ -9,10 +9,12 @@ const router = express.Router();
  * Restricted to Admins only.
  */
 
-router.get('/approvals/pending', authMiddleware, isAdmin, financialApprovalController.getPendingApprovals);
-router.get('/approvals/stats', authMiddleware, isAdmin, financialApprovalController.getApprovalStats);
+const BranchAccessMiddleware = require('../middleware/branchAccessMiddleware');
+
+router.get('/approvals/pending', authMiddleware, BranchAccessMiddleware, financialApprovalController.getPendingApprovals);
+router.get('/approvals/stats', authMiddleware, BranchAccessMiddleware, financialApprovalController.getApprovalStats);
 router.post('/close-day', authMiddleware, isAdmin, financialApprovalController.closeDay);
-router.post('/approvals/:id/approve', authMiddleware, isAdmin, financialApprovalController.approve);
-router.post('/approvals/:id/reject', authMiddleware, isAdmin, financialApprovalController.reject);
+router.post('/approvals/:id/approve', authMiddleware, BranchAccessMiddleware, financialApprovalController.approve);
+router.post('/approvals/:id/reject', authMiddleware, BranchAccessMiddleware, financialApprovalController.reject);
 
 module.exports = router;

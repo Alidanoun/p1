@@ -20,6 +20,9 @@ class FeatureFlagsService {
         'CSRF_STRICT_MODE': { enabled: false, rolloutPercentage: 100 },
         'DEVICE_FINGERPRINT_TOLERANCE': { enabled: true, rolloutPercentage: 100 },
         'USE_QUERY_OPTIMIZER': { enabled: true, rolloutPercentage: 100 },
+        'FEATURE_SECURE_CANCELLATION': { enabled: true, rolloutPercentage: 100 },
+        'FEATURE_STRICT_APPROVALS': { enabled: true, rolloutPercentage: 100 },
+        'FEATURE_SOCKET_CANONICAL_SYNC': { enabled: false, rolloutPercentage: 100 },
       };
 
       if (!data) {

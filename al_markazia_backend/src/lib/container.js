@@ -70,6 +70,14 @@ const factories = {
   orderModificationOrchestrator: () => {
     const { OrderModificationOrchestrator } = require('../services/orderModificationOrchestrator');
     return new OrderModificationOrchestrator(container);
+  },
+  cancellationOrchestrator: () => {
+    const CancellationOrchestrator = require('../services/cancellationOrchestrator');
+    return new CancellationOrchestrator(container);
+  },
+  orderLifecycleOrchestrator: () => {
+    const OrderLifecycleOrchestrator = require('../services/orderLifecycleOrchestrator');
+    return new OrderLifecycleOrchestrator(container);
   }
 };
 

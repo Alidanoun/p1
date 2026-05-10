@@ -1,61 +1,63 @@
 const { toNumber, toMoney } = require('../utils/number');
 
 /**
- * 💰 Pricing Engine (Pure Functional Core)
- * Single Source of Truth for financial calculations.
+ * 💰 Pricing Engine (Canonical Single Source of Truth)
+ * Purpose: Centralizes all financial calculations for the entire platform.
+ * Ensures consistent handling of taxes, discounts, and rounding.
+ * 
  * RULES:
- * 1. No Database calls.
- * 2. No side effects.
- * 3. Immutable inputs/outputs.
+ * 1. Inclusive Tax: All prices ALREADY include 16% sales tax.
+ * 2. Formula: Total = Subtotal + Delivery - Discount.
+ * 3. Accuracy: Always round to 2 decimal places using toMoney.
  */
 class PricingService {
   
   /**
    * 🏗️ Core Calculation Logic
-   * Input: items (with unitPrice & qty), deliveryFee, discount.
-   * Output: Detailed breakdown object.
+   * Input: items (with unitPrice & quantity), deliveryFee, discount.
+   * Output: Complete financial breakdown.
    */
-  calculateOrder(items, deliveryFee = 0, discount = 0, taxRate = 0) {
-    let subtotal = 0;
-    
-    const calculatedItems = items.map(item => {
+  calculateOrderTotals(items, deliveryFee = 0, discount = 0) {
+    // 1. Calculate raw subtotal (Sum of line totals)
+    const rawSubtotal = items.reduce((sum, item) => {
       const unitPrice = toNumber(item.unitPrice);
-      const qty = parseInt(item.quantity || 1);
-      const lineTotal = toMoney(unitPrice * qty);
-      subtotal += lineTotal;
+      const quantity = parseInt(item.quantity || 1);
+      return sum + (unitPrice * quantity);
+    }, 0);
 
-      return {
-        ...item,
-        unitPrice,
-        quantity: qty,
-        lineTotal
-      };
-    });
+    const subtotal = toMoney(rawSubtotal);
+    const finalDeliveryFee = toNumber(deliveryFee);
+    const finalDiscount = toNumber(discount);
 
-    const tax = toMoney(subtotal * toNumber(taxRate));
-    const total = toMoney(subtotal + toNumber(deliveryFee) + tax - toNumber(discount));
+    // 2. Final Total (Inclusive of Tax)
+    const total = toMoney(subtotal + finalDeliveryFee - finalDiscount);
+
+    // 3. Tax Extraction (16% Inclusive) for reporting/audit
+    const baseAmount = toMoney(subtotal / 1.16);
+    const taxAmount = toMoney(subtotal - baseAmount);
 
     return {
-      subtotal: toMoney(subtotal),
-      deliveryFee: toNumber(deliveryFee),
-      discount: toNumber(discount),
-      tax: toMoney(tax),
-      total: toMoney(total),
-      items: calculatedItems,
-      timestamp: Date.now()
+      subtotal,        // Total of items (inclusive of tax)
+      tax: taxAmount,  // Extracted tax portion
+      base: baseAmount, // Price before tax
+      deliveryFee: finalDeliveryFee,
+      discount: finalDiscount,
+      total,           // Final amount to pay/refund
+      timestamp: new Date().toISOString()
     };
   }
 
   /**
    * 🔍 Calculate Modification Impact
-   * Compares two snapshots to find the financial delta.
+   * Useful for partial cancellations and refunds.
    */
-  calculateDelta(oldSummary, newSummary) {
+  calculateImpact(oldTotal, newTotal) {
+    const diff = toNumber(oldTotal) - toNumber(newTotal);
     return {
-      priceDifference: toMoney(newSummary.total - oldSummary.total),
-      isRefund: newSummary.total < oldSummary.total,
-      isExtraCharge: newSummary.total > oldSummary.total,
-      absoluteDifference: Math.abs(toMoney(newSummary.total - oldSummary.total))
+      difference: toMoney(diff),
+      isRefund: diff > 0,
+      isCharge: diff < 0,
+      absoluteAmount: Math.abs(toMoney(diff))
     };
   }
 }

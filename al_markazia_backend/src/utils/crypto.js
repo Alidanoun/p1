@@ -31,6 +31,11 @@ function encrypt(text) {
     }
   }
   
+  if (!ENCRYPTION_KEY) {
+    logger.error('🚨 [CRITICAL] Encryption failed: ENCRYPTION_KEY is missing');
+    throw new Error('ENCRYPTION_KEY_MISSING');
+  }
+
   try {
     const iv = crypto.randomBytes(IV_LENGTH);
     const cipher = crypto.createCipheriv('aes-256-cbc', ENCRYPTION_KEY, iv);
@@ -40,8 +45,8 @@ function encrypt(text) {
     
     return iv.toString('hex') + ':' + encrypted.toString('hex');
   } catch (err) {
-    logger.error('[Crypto] Encryption failed', { error: err.message });
-    return text;
+    logger.error('🚨 [CRITICAL] Encryption failure detected. Process halted to prevent data exposure.', { error: err.message });
+    throw new Error(`ENCRYPTION_FAILED: ${err.message}`);
   }
 }
 
@@ -77,9 +82,20 @@ function decrypt(text) {
  */
 function hashBlind(text) {
   if (!text) return text;
-  return crypto.createHmac('sha256', ENCRYPTION_KEY)
-    .update(String(text))
-    .digest('hex');
+  
+  if (!ENCRYPTION_KEY) {
+    logger.error('🚨 [CRITICAL] Hashing failed: ENCRYPTION_KEY is missing');
+    throw new Error('HASHING_KEY_MISSING');
+  }
+
+  try {
+    return crypto.createHmac('sha256', ENCRYPTION_KEY)
+      .update(String(text))
+      .digest('hex');
+  } catch (err) {
+    logger.error('🚨 [CRITICAL] Hashing failure detected.', { error: err.message });
+    throw new Error(`HASHING_FAILED: ${err.message}`);
+  }
 }
 
 module.exports = { encrypt, decrypt, hashBlind };
