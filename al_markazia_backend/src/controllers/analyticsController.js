@@ -8,18 +8,7 @@ exports.getBranchDailyReport = async (req, res) => {
   try {
     const user = req.user;
     
-    // Resolve branchId (Self for manager, query param for admin)
-    const normalizedRole = user.role?.toLowerCase();
-    const isBranchManager = normalizedRole === 'branch_manager' || normalizedRole === 'manager';
-    const branchId = isBranchManager ? user.branchId : req.query.branchId;
-
-
-    // For Branch Managers, if branchId is missing, it's an error
-    if (isBranchManager && !branchId) {
-      return res.status(400).json({ success: false, error: 'branchId is required for branch managers' });
-    }
-
-    const report = await analyticsService.getBranchOperationalReport(branchId);
+    const report = await analyticsService.getBranchOperationalReport(req.user, req.query.branchId);
     
     res.json({
       success: true,

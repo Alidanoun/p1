@@ -38,14 +38,18 @@ const getLogs = async (req, res) => {
       if (endDate) where.createdAt.lte = new Date(endDate);
     }
 
+    // 🛡️ [PHASE 4] Zero-Trust Isolation for Audit Logs
+    const SecurityPolicyService = require('../services/securityPolicyService');
+    const isolationFilter = await SecurityPolicyService.getHardenedFilter(req.user, 'SystemAuditLog');
+
     const [rawLogs, total] = await Promise.all([
       prisma.systemAuditLog.findMany({
-        where,
+        where: { ...where, ...isolationFilter },
         skip,
         take: parseInt(limit),
         orderBy: { createdAt: 'desc' }
       }),
-      prisma.systemAuditLog.count({ where })
+      prisma.systemAuditLog.count({ where: { ...where, ...isolationFilter } })
     ]);
 
     // 1. Extract unique users and resolve identities
@@ -101,13 +105,23 @@ const getStats = async (req, res) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
+    // 🛡️ [PHASE 4] Zero-Trust Isolation for Audit Stats
+    const SecurityPolicyService = require('../services/securityPolicyService');
+    const isolationFilter = await SecurityPolicyService.getHardenedFilter(req.user, 'SystemAuditLog');
+
     const [totalToday, errorsToday, criticalToday, recentActions] = await Promise.all([
-      prisma.systemAuditLog.count({ where: { createdAt: { gte: today } } }),
-      prisma.systemAuditLog.count({ where: { status: 'FAIL', createdAt: { gte: today } } }),
-      prisma.systemAuditLog.count({ where: { severity: 'CRITICAL', createdAt: { gte: today } } }),
+      prisma.systemAuditLog.count({ 
+        where: { ...isolationFilter, createdAt: { gte: today } } 
+      }),
+      prisma.systemAuditLog.count({ 
+        where: { ...isolationFilter, status: 'FAIL', createdAt: { gte: today } } 
+      }),
+      prisma.systemAuditLog.count({ 
+        where: { ...isolationFilter, severity: 'CRITICAL', createdAt: { gte: today } } 
+      }),
       prisma.systemAuditLog.groupBy({
         by: ['action'],
-        where: { createdAt: { gte: today } },
+        where: { ...isolationFilter, createdAt: { gte: today } },
         _count: true,
         orderBy: { _count: { action: 'desc' } },
         take: 5

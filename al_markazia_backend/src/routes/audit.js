@@ -8,7 +8,9 @@ const router = express.Router();
  * 🕵️ Audit & Observability Routes
  */
 
-router.get('/logs', authenticateToken, isAdmin, getLogs);
-router.get('/stats', authenticateToken, isAdmin, getStats);
+const BranchAccessMiddleware = require('../middleware/branchAccessMiddleware');
+
+router.get('/logs', authenticateToken, BranchAccessMiddleware, getLogs);
+router.get('/stats', authenticateToken, BranchAccessMiddleware, getStats);
 
 module.exports = router;

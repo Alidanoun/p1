@@ -22,6 +22,7 @@ const { initCronJobs } = require('./jobs/cronJobs');
 const { initOrderWorker, setupQueueDashboard } = require('./queues/orderQueue');
 const { initHealthWorker } = require('./queues/healthWorker');
 const { requestTracing } = require('./middleware/requestTracing');
+const stabilizationRequestLogger = require('./middleware/stabilizationRequestLogger');
 const { shadowMirrorMiddleware } = require('./middleware/shadowMirrorMiddleware');
 const externalProbeController = require('./controllers/externalProbeController');
 const warmupService = require('./services/warmupService');
@@ -65,6 +66,7 @@ async function startServer() {
     // 4. Register Middleware
     const performanceMonitor = require('./middleware/performanceMonitor');
     app.use(requestTracing);
+    app.use(stabilizationRequestLogger);
     app.use(performanceMonitor);
     app.use(shadowMirrorMiddleware);
     

@@ -322,6 +322,7 @@ exports.cancelOrder = async (req, res) => {
     const contractGateway = require('../services/contractGateway');
     const result = await contractGateway.execute(orderId, 'CANCEL', {
       reason,
+      managerPassword, // 🛡️ [SEC-FIX] Pass to gateway for verification
       idempotencyKey
     }, req.user);
 
@@ -340,8 +341,9 @@ exports.approveCancellation = async (req, res) => {
     const orderId = parseInt(req.params.id);
     const idempotencyKey = req.headers['idempotency-key'] || `approve_cancel_${orderId}_${Date.now()}`;
     
+    const { managerPassword } = req.body;
     const contractGateway = require('../services/contractGateway');
-    const result = await contractGateway.execute(orderId, 'APPROVE_CANCEL', { idempotencyKey }, req.user);
+    const result = await contractGateway.execute(orderId, 'APPROVE_CANCEL', { managerPassword, idempotencyKey }, req.user);
     
     res.json(result);
   } catch (error) {
@@ -443,7 +445,7 @@ exports.requestPartialCancel = async (req, res) => {
 exports.handlePartialCancelRequest = async (req, res) => {
   try {
     const orderId = parseInt(req.params.orderId);
-    const { action, notificationId, reason, itemsToCancel } = req.body;
+    const { action, notificationId, reason, itemsToCancel, managerPassword } = req.body;
     const idempotencyKey = req.headers['idempotency-key'] || `handle_partial_${notificationId}_${Date.now()}`;
 
     if (isNaN(orderId)) return res.status(400).json({ error: 'معرف الطلب غير صحيح' });
@@ -456,6 +458,7 @@ exports.handlePartialCancelRequest = async (req, res) => {
       notificationId,
       reason,
       itemsToCancel,
+      managerPassword,
       idempotencyKey
     }, req.user);
 

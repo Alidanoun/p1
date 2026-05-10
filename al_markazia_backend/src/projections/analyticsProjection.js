@@ -37,8 +37,9 @@ function getInitialMetrics() {
       takeaway: 0,
       dine_in: 0
     },
-    lastUpdated: new Date(),
-    sequence: 0
+    updatedAt: new Date(),
+    version: 1,
+    eventSequence: 0
   };
 }
 
@@ -83,7 +84,9 @@ function getGlobalMetrics() {
     global.financials.avgTicket = toMoney(global.financials.grossRevenue / global.counts.delivered);
   }
 
-  global.lastUpdated = new Date();
+  global.updatedAt = new Date();
+  global.version = Math.max(...Array.from(branchMap.values()).map(m => m.version || 1));
+  global.eventSequence = Math.max(...Array.from(branchMap.values()).map(m => m.eventSequence || 0));
   return global;
 }
 
@@ -150,8 +153,9 @@ async function syncFinancials(branchId) {
     metrics.financials.avgTicket = toMoney(metrics.financials.grossRevenue / metrics.counts.delivered);
   }
 
-  metrics.lastUpdated = new Date();
-  metrics.sequence += 1;
+  metrics.updatedAt = new Date();
+  metrics.version = (metrics.version || 0) + 1;
+  metrics.eventSequence += 1;
 }
 
 function handleCreated(payload) {
@@ -162,8 +166,9 @@ function handleCreated(payload) {
   metrics.counts.active += 1;
   metrics.statusDistribution.pending += 1;
   metrics.typeDistribution[payload.orderType || 'takeaway'] += 1;
-  metrics.lastUpdated = new Date();
-  metrics.sequence += 1;
+  metrics.updatedAt = new Date();
+  metrics.version = (metrics.version || 0) + 1;
+  metrics.eventSequence += 1;
 }
 
 function handleModified(payload) {
@@ -197,8 +202,9 @@ function handleStatusChange(payload) {
     syncFinancials(order.branchId);
   }
 
-  metrics.lastUpdated = new Date();
-  metrics.sequence += 1;
+  metrics.updatedAt = new Date();
+  metrics.version = (metrics.version || 0) + 1;
+  metrics.eventSequence += 1;
 }
 
 const prisma = require('../lib/prisma');

@@ -31,9 +31,10 @@ const initOrderWorker = (container) => {
       if (order && (order.status === 'pending' || order.status === 'waiting_cancellation')) {
         const contractGateway = require('../services/contractGateway');
         
+        const { v4: uuidv4 } = require('uuid');
         await contractGateway.execute(orderId, 'SYSTEM_CANCEL', {
           reason: 'AUTO_TIMEOUT: No response within the allowed operational window.',
-          idempotencyKey: `timeout_${orderId}_${Date.now()}`
+          idempotencyKey: `timeout_${orderId}_${uuidv4()}`
         }, { id: 'SYSTEM', role: 'system' });
         
         logger.warn(`[OrderWorker] Order #${order.orderNumber} auto-cancelled due to timeout.`);

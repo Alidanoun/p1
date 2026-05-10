@@ -10,7 +10,20 @@ class AnalyticsService {
     this.logger = container.logger;
   }
   
-  async getBranchOperationalReport(branchId) {
+  async getBranchOperationalReport(user, requestedBranchId) {
+    if (!user) throw new Error('UNAUTHORIZED');
+
+    const role = user.role?.toLowerCase();
+    const isGlobalAdmin = role === 'admin';
+
+    // 🛡️ [PHASE 4] Forced Isolation: Managers cannot see outside their branch
+    const branchId = isGlobalAdmin ? requestedBranchId : user.branchId;
+
+    if (!isGlobalAdmin && requestedBranchId && requestedBranchId !== user.branchId) {
+      this.logger.security('UNAUTHORIZED_ANALYTICS_ATTEMPT', { userId: user.id, requestedBranchId, actualBranchId: user.branchId });
+      throw new Error('ACCESS_DENIED: Unauthorized branch analytics');
+    }
+
     const now = DateTime.now().setZone('Asia/Amman');
     const start = now.startOf('day').toJSDate();
     const end = now.endOf('day').toJSDate();
@@ -31,11 +44,35 @@ class AnalyticsService {
       }
     });
 
-    return {
+    const metrics = {
       totalOrders: orders.length,
       activeOrders: orders.filter(o => ['pending', 'preparing', 'ready', 'confirmed', 'waiting_cancellation', 'waiting_cancellation_admin'].includes(o.status)).length,
       cancellations: orders.filter(o => o.status === 'cancelled').length,
-      topItems: this._calculateTopItems(orders)
+      topItems: this._calculateTopItems(orders),
+      revenue: orders.reduce((sum, o) => sum + toNumber(o.total), 0)
+    };
+
+    // 🛡️ [P10] Upsert to Server Driven State
+    const branchMetric = await this.prisma.branchMetric.upsert({
+      where: { branchId: branchId || 'SYSTEM_GLOBAL' },
+      update: {
+        ...metrics,
+        revenue: metrics.revenue,
+        version: { increment: 1 },
+        eventSequence: { increment: 1 }
+      },
+      create: {
+        branchId: branchId || 'SYSTEM_GLOBAL',
+        ...metrics,
+        revenue: metrics.revenue
+      }
+    });
+
+    return {
+      ...metrics,
+      version: branchMetric.version,
+      eventSequence: branchMetric.eventSequence,
+      updatedAt: branchMetric.updatedAt
     };
   }
 

@@ -7,7 +7,7 @@ const logger = require('../utils/logger');
 
 exports.getPendingApprovals = async (req, res) => {
   try {
-    const approvals = await financialApprovalService.getPendingApprovals(req.query.branchId);
+    const approvals = await financialApprovalService.getPendingApprovals(req.user, req.query.branchId);
     res.json({ success: true, data: approvals });
   } catch (error) {
     logger.error('Fetch pending approvals error', { error: error.message });
@@ -27,9 +27,9 @@ exports.getApprovalStats = async (req, res) => {
 exports.approve = async (req, res) => {
   try {
     const { id } = req.params;
-    const { reason } = req.body;
+    const { reason, version } = req.body;
     
-    const result = await financialApprovalService.approve(id, req.user, reason);
+    const result = await financialApprovalService.approve(id, req.user, reason, version);
     res.json(result);
   } catch (error) {
     logger.error('Approval error', { error: error.message, id: req.params.id });
@@ -40,9 +40,9 @@ exports.approve = async (req, res) => {
 exports.reject = async (req, res) => {
   try {
     const { id } = req.params;
-    const { reason } = req.body;
+    const { reason, version } = req.body;
     
-    const result = await financialApprovalService.reject(id, req.user, reason);
+    const result = await financialApprovalService.reject(id, req.user, reason, version);
     res.json(result);
   } catch (error) {
     logger.error('Rejection error', { error: error.message, id: req.params.id });

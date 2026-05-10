@@ -98,7 +98,7 @@ class OrderService {
   async _calculateReportSummary(where) {
     const [aggregates, realizedAggregates, deliveredCount] = await Promise.all([
       this.prisma.order.aggregate({
-        where,
+        where: { ...where, status: { not: 'cancelled' } }, // 📊 [FINANCIAL-FIX] Exclude cancelled from gross revenue
         _sum: { total: true },
         _count: { id: true },
         _avg: { total: true }
@@ -312,7 +312,10 @@ class OrderService {
    * ⚡ Apply Partial Cancellation (Administrative Action)
    * Atomic removal of items and price adjustment
    */
-  async applyPartialCancellation(orderId, itemIdsToCancel, actor, notificationId) {
+  async applyPartialCancellation(orderId, itemIdsToCancel, actor, notificationId, managerPassword = null) {
+    // 🛡️ [SEC-FIX] Enforce Re-auth for Administrative Action
+    await this._verifyManagerPassword(actor.id, managerPassword);
+
     const { toNumber } = require('../utils/number');
     
     return await this.prisma.$transaction(async (tx) => {
@@ -332,22 +335,23 @@ class OrderService {
         throw new Error('CANNOT_CANCEL_ALL_ITEMS: Use full cancellation instead');
       }
 
-      // 3. Recalculate Total
-      let newSubtotal = 0;
-      itemsToKeep.forEach(item => {
-        newSubtotal += toNumber(item.unitPrice) * item.quantity;
-      });
+      // 3. Recalculate Totals via Canonical Pricing Engine
+      const pricingService = require('./pricingService');
+      const financials = pricingService.calculateOrderTotals(
+        itemsToKeep, 
+        toNumber(order.deliveryFee), 
+        toNumber(order.discount)
+      );
 
-      const deliveryFee = toNumber(order.deliveryFee);
-      const newTotal = newSubtotal + deliveryFee;
-      const refundAmount = toNumber(order.totalAmount) - newTotal;
+      const refundAmount = pricingService.calculateImpact(order.total, financials.total).difference;
 
       // 4. Update Database
       const updatedOrder = await tx.order.update({
         where: { id: orderId, version: order.version },
         data: {
-          totalAmount: newTotal,
-          subtotal: newSubtotal,
+          total: financials.total,
+          subtotal: financials.subtotal,
+          tax: financials.tax,
           version: { increment: 1 },
           orderItems: {
             deleteMany: {
@@ -377,8 +381,8 @@ class OrderService {
           metadata: JSON.stringify({
             cancelledItemIds: itemIdsToCancel,
             refundAmount,
-            oldTotal: order.totalAmount,
-            newTotal
+            oldTotal: order.total,
+            newTotal: financials.total
           })
         }
       });
@@ -562,7 +566,12 @@ class OrderService {
   /**
    * 🛠️ Manage Cancellation Requests (Approve/Reject)
    */
-  async handleCancellationRequest(orderId, user, action, rejectionReason, externalTx = null, approvalId = null) {
+  async handleCancellationRequest(orderId, user, action, rejectionReason, externalTx = null, approvalId = null, managerPassword = null) {
+    // 🛡️ [SEC-FIX] Enforce Re-auth for Administrative Approval
+    if (action === 'approve') {
+      await this._verifyManagerPassword(user.id, managerPassword);
+    }
+
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: { cancellation: true, customer: true }
@@ -574,51 +583,12 @@ class OrderService {
     }
 
     if (action === 'approve') {
-      const executeApproval = async (tx) => {
-        // 💰 [FINANCIAL-FIX] Refund on approval
-        if (order.paymentMethod === 'wallet' && order.customerId) {
-          const walletService = require('./walletService');
-          await walletService.credit(
-            order.customerId,
-            toNumber(order.total),
-            'REFUND',
-            order.orderNumber,
-            `استرداد المبلغ بعد موافقة الإدارة على الإلغاء #${order.orderNumber}`,
-            `approve_cancel_${order.id}`,
-            tx,
-            approvalId
-          );
-        }
-
-        // 📊 [REVENUE-FIX] Set total to 0 on cancellation to prevent reporting errors
-        const updated = await tx.order.update({
-          where: { id: orderId, version: order.version },
-          data: { 
-            status: 'cancelled', 
-            total: 0, 
-            subtotal: 0,
-            version: { increment: 1 } 
-          },
-          include: ORDER_INCLUDE_FULL
-        });
-
-        if (order.cancellation) {
-          await tx.orderCancellation.update({
-            where: { orderId },
-            data: { status: 'approved', adminName: user?.email }
-          });
-        }
-        
-        const resultData = { order: updated, previousStatus: order.status, newStatus: 'cancelled' };
-        
-        // 📮 [RESILIENCE-FIX] Transactional Outbox Enqueue
-        const outboxService = require('./outboxService');
-        const outbox = await this.container.outboxService.enqueue(eventTypes.ORDER_STATUS_CHANGED, resultData, tx);
-
-        return { updatedOrder: updated, _outboxId: outbox.id };
-      };
-
-      const result = externalTx ? await executeApproval(externalTx) : await this.prisma.$transaction(executeApproval, { timeout: 15000 });
+      const result = await this.container.cancellationOrchestrator.execute(orderId, user, { 
+        source: 'ADMIN_APPROVAL', 
+        managerPassword,
+        skipPasswordCheck: true // Already checked in handleCancellationRequest
+      });
+      return result;
 
       const mapped = mapOrderResponse(result.updatedOrder);
       return { ...mapped, _outboxId: result._outboxId };
@@ -670,144 +640,49 @@ class OrderService {
   }
 
   /**
-   * 🛑 Cancel Order with Multi-tier Validation (Cancellation Engine v2)
+   * 🛡️ [SEC-FIX] Verify Manager Password
+   * Re-authenticates the administrative user before sensitive operations.
    */
-  async cancelOrder(orderId, user, reason) {
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
-      include: { customer: true, cancellation: true }
+  async _verifyManagerPassword(userUuid, managerPassword) {
+    // 1. Requirement Check
+    if (!managerPassword) {
+      throw new Error('MANAGER_PASSWORD_REQUIRED');
+    }
+
+    // 2. Identity Fetch
+    const admin = await this.prisma.user.findUnique({
+      where: { uuid: userUuid },
+      select: { password: true }
     });
 
-    if (!order) throw new Error('ORDER_NOT_FOUND');
-    if (order.status === 'cancelled') throw new Error('ORDER_ALREADY_CANCELLED');
-    if (order.cancellation && order.cancellation.status === 'pending') throw new Error('CANCELLATION_ALREADY_REQUESTED');
-
-    // 1. Role Identification
-    const isAdmin = user?.role === 'admin';
-    const isManager = user?.role?.toUpperCase() === 'BRANCH_MANAGER';
-    const isCustomer = user?.role === 'customer';
-
-    // 2. 🏢 Branch Isolation (Handled by ContractGateway)
-
-    // 3. 🧠 Risk Assessment (Dynamic Policy Driven)
-    const config = await configService.getFullConfig();
-    const timeDiff = (Date.now() - new Date(order.createdAt).getTime()) / 60000;
-    const freeCancelWindow = config.business.freeCancelWindowMinutes;
-    
-    let level = 'LOW';
-    
-    if (order.status === 'pending' && timeDiff < freeCancelWindow) {
-      level = 'LOW';
-    } else if (order.status === 'preparing' || (order.status === 'pending' && timeDiff >= freeCancelWindow)) {
-      level = 'MEDIUM';
-    } else {
-      level = 'HIGH';
+    if (!admin) {
+      throw new Error('ADMIN_IDENTITY_NOT_FOUND');
     }
 
-    // Financial Risk Spike
-    if (toNumber(order.total) > 50) level = 'HIGH';
+    // 3. Cryptographic Verification
+    const bcrypt = require('bcrypt');
+    const isValid = await bcrypt.compare(managerPassword, admin.password);
 
-    // 4. 🎯 Decision Engine Execution
-    let canCancelDirectly = false;
-    if (isAdmin) canCancelDirectly = true;
-    else if (isManager && (level === 'LOW' || level === 'MEDIUM')) canCancelDirectly = true;
-    else if (isCustomer && level === 'LOW') canCancelDirectly = true;
-
-    if (canCancelDirectly) {
-      return await this._executeFinalCancellation(order, user, reason);
-    } else {
-      return await this._executeCancellationRequest(order, user, reason, level);
+    if (!isValid) {
+      this.logger.security('INVALID_MANAGER_PASSWORD_ATTEMPT', { userId: userUuid });
+      throw new Error('INVALID_MANAGER_PASSWORD');
     }
+
+    return true;
   }
 
   /**
-   * 🛠️ Internal: Immediate Cancellation Workflow
+   * 🛑 Cancel Order (Wrapper for Orchestrator)
    */
-  async _executeFinalCancellation(order, user, reason) {
-    const previousStatus = order.status;
-    const updatedOrder = await this.prisma.$transaction(async (tx) => {
-      const updated = await tx.order.update({
-        where: { id: order.id, version: order.version },
-        data: {
-          status: 'cancelled',
-          version: { increment: 1 }
-        },
-        include: ORDER_INCLUDE_FULL
-      });
-
-      if (order.paymentMethod === 'wallet' && order.customerId) {
-        const walletService = require('./walletService');
-        await walletService.credit(order.customerId, toNumber(order.total), 'REFUND', order.orderNumber, `Refund for cancellation #${order.orderNumber}`, `cancel_${order.id}`, tx);
-      }
-
-      await tx.orderCancellation.upsert({
-        where: { orderId: order.id },
-        update: { status: 'approved', reason: reason || 'Approved', cancelledBy: user?.role || 'system', adminName: user?.email || 'Admin' },
-        create: { orderId: order.id, reason: reason || 'Approved', cancelledBy: user?.role || 'system', previousStatus, status: 'approved', adminName: user?.email || 'Admin' }
-      });
-      return updated;
-    }, { timeout: 15000 });
-
-    const EventBus = require('../events/eventBus');
-    EventBus.publish({ type: 'order.cancelled', payload: { order: updatedOrder, user } });
-    return mapOrderResponse(updatedOrder);
+  async cancelOrder(orderId, user, reason, managerPassword = null) {
+    return await this.container.cancellationOrchestrator.execute(orderId, user, {
+      reason,
+      managerPassword,
+      source: user?.role === 'customer' ? 'CUSTOMER_CANCEL' : 'ADMIN_CANCEL'
+    });
   }
 
-  /**
-   * 🛠️ Internal: Cancellation Request Workflow
-   */
-  async _executeCancellationRequest(order, user, reason, level) {
-    const previousStatus = order.status;
-    const targetStatus = level === 'HIGH' ? 'waiting_cancellation_admin' : 'waiting_cancellation';
-
-    const updatedOrder = await this.prisma.$transaction(async (tx) => {
-      const updated = await tx.order.update({
-        where: { id: order.id, version: order.version },
-        data: { status: targetStatus, version: { increment: 1 } },
-        include: ORDER_INCLUDE_FULL
-      });
-
-      await tx.orderCancellation.upsert({
-        where: { orderId: order.id },
-        update: { status: 'pending', reason: reason || 'Customer requested', cancelledBy: user?.role || 'customer' },
-        create: { orderId: order.id, reason: reason || 'Customer requested', cancelledBy: user?.role || 'customer', previousStatus, status: 'pending' }
-      });
-
-      // 🛰️ [CONTROL-TOWER] Integrate with FinancialApproval if HIGH risk
-      if (level === 'HIGH') {
-        await tx.financialApproval.create({
-          data: {
-            operationType: 'CANCELLATION',
-            entityId: order.id.toString(),
-            requestedBy: (user?.role === 'customer' ? 0 : user?.id) || 0,
-            requestedByRole: user?.role || 'customer',
-            payload: { reason, level, orderNumber: order.orderNumber, total: order.total },
-            expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
-          }
-        });
-
-        // 🚨 [HARDENING] Alert for high-value cancellation
-        if (toNumber(order.total) > 100) {
-           await tx.notification.create({
-             data: {
-               title: '🚨 تنبيه: إلغاء طلب ضخم!',
-               message: `طلب إلغاء للطلب #${order.orderNumber} بقيمة ${toNumber(order.total)} د.أ.`,
-               severity: 'CRITICAL',
-               alertType: 'FINANCIAL_HIGH_RISK',
-               orderId: order.id,
-               targetRoute: '/operations'
-             }
-           });
-        }
-      }
-
-      return updated;
-    }, { timeout: 15000 });
-
-    const EventBus = require('../events/eventBus');
-    EventBus.publish({ type: 'order.cancellation_requested', payload: { order: updatedOrder, user, level } });
-    return mapOrderResponse(updatedOrder);
-  }
+  // Removed internal cancellation methods - logic moved to CancellationOrchestrator
 
   /**
    * ✅ Approve a pending cancellation request
@@ -1016,9 +891,13 @@ class OrderService {
       }
     }
 
-    // 🛡️ Pricing Logic: Inclusive of Tax
-    const tax = 0;
-    const total = Math.max(0, toMoney(subtotal + deliveryDetails.fee - pointsDiscount));
+    // 🛡️ Pricing Logic: Unify via Canonical Pricing Engine
+    const pricingService = require('./pricingService');
+    const financials = pricingService.calculateOrderTotals(
+      validatedItems, 
+      deliveryDetails.fee, 
+      pointsDiscount
+    );
 
 
     // 🚀 Auto Accept Orders Logic
@@ -1046,10 +925,10 @@ class OrderService {
           customerId: resolvedCustomer.id,
           orderType: orderType || 'takeaway',
           paymentMethod: paymentMethod || 'cash',
-          subtotal,
-          tax,
-          deliveryFee: deliveryDetails.fee,
-          total,
+          subtotal: financials.subtotal,
+          tax: financials.tax,
+          deliveryFee: financials.deliveryFee,
+          total: financials.total,
           status: initialStatus,
           source: (authUser && authUser.role === 'admin') ? 'manual' : 'app',
           address: address ? xss(address) : address,
@@ -1543,7 +1422,7 @@ class OrderService {
         const { updatedOrder, _outboxId } = await this.prisma.$transaction(async (tx) => {
           const updated = await tx.order.update({
             where: { id: order.id, version: order.version },
-            data: { status: newStatus, version: { increment: 1 } },
+            data: { status: newStatus, version: { increment: 1 }, eventSequence: { increment: 1 } },
             include: ORDER_INCLUDE_FULL
           });
 

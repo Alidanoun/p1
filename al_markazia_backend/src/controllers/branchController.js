@@ -24,14 +24,23 @@ exports.toggleItemAvailability = async (req, res) => {
       return response.error(res, 'غير مصرح لك بالقيام بهذا الإجراء', 'UNAUTHORIZED', 403);
     }
 
-    // 2. 🏢 Target Branch Resolution (Strict Isolation)
-    let targetBranchId = (role === 'ADMIN') ? (req.body.branchId || user.branchId) : (user.branchId || req.body.branchId);
+    // 2. 🏢 Target Branch Resolution
+    let targetBranchId = req.body.branchId || user.branchId;
     
     // 🛡️ [SEC-FIX] Sanitize stringified nulls
     if (targetBranchId === 'null' || targetBranchId === 'undefined') targetBranchId = null;
 
     if (!targetBranchId) {
       return response.error(res, 'يجب تحديد الفرع للقيام بهذا الإجراء', 'BRANCH_REQUIRED', 400);
+    }
+
+    // 🔐 [PHASE 4] Explicit Authorization Check
+    const SecurityPolicyService = require('../services/securityPolicyService');
+    const canAccess = await SecurityPolicyService.canAccessBranch(user, targetBranchId, 'write');
+    
+    if (!canAccess) {
+      logger.security('UNAUTHORIZED_ITEM_TOGGLE_ATTEMPT', { userId: user.id, targetBranchId });
+      return response.error(res, 'غير مصرح لك بالتحكم في أصناف هذا الفرع', 'FORBIDDEN', 403);
     }
 
     // 2. 📝 Validation

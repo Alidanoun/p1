@@ -193,7 +193,7 @@ class SecurityPolicyService {
     }
 
     // Apply branch filters based on model type
-    const branchIsolationModels = ['Order', 'BranchItem', 'FinancialLedger', 'DailyFinancialSnapshot'];
+    const branchIsolationModels = ['Order', 'BranchItem', 'FinancialLedger', 'DailyFinancialSnapshot', 'SystemAuditLog', 'FinancialApproval', 'BranchMetric'];
     if (branchIsolationModels.includes(modelName)) {
       filter.branchId = { in: targetBranchIds };
     } else if (modelName === 'Branch') {
