@@ -9,11 +9,18 @@ const ACTION_MAP = {
   'LOGIN_FAIL': 'محاولة دخول فاشلة',
   'LOGOUT': 'تسجيل خروج',
   'REFRESH_TOKEN': 'تحديث جلسة العمل',
+  'TOKEN_REFRESH': 'تجديد تصريح الدخول',
+  'SOCKET_DISCONNECT': 'انقطاع الاتصال الفوري',
+  'SOCKET_CONNECT': 'اتصال فوري جديد',
+
   
   // Dashboard & Audit
   'GET_API_V1_ADMIN_AUDIT_LOGS': 'استعراض سجل التدقيق والمراقبة',
+  'GET__API_V1_ADMIN_AUDIT_LOGS': 'استعراض سجل التدقيق والمراقبة',
   'GET_API_V1_ADMIN_AUDIT_STATS': 'تحديث إحصائيات المراقبة',
+  'GET__API_V1_ADMIN_AUDIT_STATS': 'تحديث إحصائيات المراقبة',
   'GET_API_V1_DASHBOARD_METRICS': 'تحديث أرقام لوحة التحكم',
+  'GET__API_V1_DASHBOARD_METRICS': 'تحديث أرقام لوحة التحكم',
   'BRANCH_SWITCH': 'تبديل الفرع الحالي',
   
   // Orders

@@ -12,9 +12,11 @@ router.get('/item/:itemId', reviewController.getItemReviews);
 router.post('/', authenticateToken, reviewLimiter, validateOrderRating, reviewController.submitReview);
 
 // 🚩 Customer: Report/Flag a review for moderation
+router.patch('/:id', authenticateToken, reviewLimiter, reviewController.updateReview);
 router.post('/:id/flag', authenticateToken, flagLimiter, reviewController.flagReview);
 
 // 👮 Admin: Consolidated review management
+router.get('/stats', authenticateToken, isAdmin, reviewController.getReviewStats);
 router.get('/', authenticateToken, isAdmin, reviewController.getAllReviews);
 router.put('/:id/approve', authenticateToken, isAdmin, reviewController.toggleApproval);
 router.delete('/:id', authenticateToken, isAdmin, reviewController.deleteReview);

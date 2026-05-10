@@ -10,6 +10,7 @@ const { publishEvent } = require('../events/eventPublisher');
 const eventTypes = require('../events/eventTypes');
 const queryOptimizer = require('../utils/queryOptimizer');
 const { toNumber } = require('../utils/number');
+const { validateTransition } = require('../validators/orderStateMachine');
 
 class OrderService {
   constructor(container) {
@@ -487,6 +488,15 @@ class OrderService {
    * ⭐ Submit Order Rating
    */
   async submitOrderRating(orderId, user, rating, comment) {
+    // 🗑️ Handle rating removal
+    if (rating === null) {
+      await this.prisma.order.update({
+        where: { id: orderId },
+        data: { rating: null, ratingComment: null, isRatingApproved: false }
+      });
+      return { success: true, message: 'Rating removed' };
+    }
+
     if (!rating || !Number.isInteger(rating) || rating < 1 || rating > 5) {
       throw new Error('INVALID_RATING');
     }
@@ -1505,20 +1515,8 @@ class OrderService {
 
         const previousStatus = order.status;
 
-        // Validate state machine sequence (Enterprise Guard)
-        const validTransitions = {
-          'pending': ['preparing', 'cancelled'],
-          'preparing': ['ready', 'cancelled'],
-          'ready': ['in_route', 'delivered', 'cancelled'],
-          'in_route': ['delivered', 'cancelled'],
-          'waiting_cancellation': ['cancelled', 'pending', 'preparing', 'ready', 'in_route', 'delivered'],
-          'delivered': [],
-          'cancelled': []
-        };
-
-        if (!validTransitions[previousStatus]?.includes(newStatus)) {
-          throw new Error(`Invalid status transition from ${previousStatus} to ${newStatus}`);
-        }
+        // 🛡️ [SEC-FIX] State Machine Validation (Enterprise Guard)
+        validateTransition(previousStatus, newStatus, orderId, this.container.auditService, user);
 
         const { updatedOrder, _outboxId } = await this.prisma.$transaction(async (tx) => {
           const updated = await tx.order.update({

@@ -175,7 +175,7 @@ const ReviewsManager = () => {
                     {review.type === 'order_rating' ? (
                       <div className="flex items-center gap-1 text-[10px] bg-primary/10 text-primary px-2 py-1 rounded-md border border-primary/20 font-bold uppercase">
                         <Tag className="w-3 h-3" />
-                        تقييم طلب {review.orderNumber && `#${review.orderNumber.split('-').last || review.orderNumber}`}
+                        تقييم طلب {review.orderNumber && `#${review.orderNumber.split('-').pop() || review.orderNumber}`}
                       </div>
                     ) : (
                       !review.isApproved && (

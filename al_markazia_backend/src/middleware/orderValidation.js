@@ -38,6 +38,8 @@ exports.validateOrderCreate = (req, res, next) => {
 exports.validateOrderRating = (req, res, next) => {
   const { rating, comment } = req.body;
   
+  if (rating === null) return next();
+  
   if (rating === undefined || rating < 1 || rating > 5) {
     return res.status(400).json({ success: false, error: 'التقييم يجب أن يكون بين 1 و 5' });
   }

@@ -2,8 +2,10 @@ import 'dart:async';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../services/api_service.dart';
 import '../services/session_service.dart';
+import '../config/features.dart';
 
 class TrackingUpdate {
+// ... (rest of model)
   final double lat;
   final double lng;
   final double heading;
@@ -40,6 +42,7 @@ class TrackingService {
   Stream<TrackingUpdate> get trackingStream => _trackingController.stream;
 
   Future<void> init() async {
+    if (!AppFeatures.enableDriverTracking) return; // 🛑 Circuit Breaker
     if (_socket != null) return;
 
     final token = await SessionService.instance.accessToken;
@@ -59,6 +62,7 @@ class TrackingService {
   }
 
   void startTrackingOrder(String orderId) {
+    if (!AppFeatures.enableDriverTracking) return; // 🛑 Circuit Breaker
     _socket?.emit('tracking:join', {'orderId': orderId});
   }
 

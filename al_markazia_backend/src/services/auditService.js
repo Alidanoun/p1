@@ -1,6 +1,7 @@
 const Redis = require('ioredis');
 const { sanitizeForAudit } = require('../utils/auditSanitizer');
 const { translateAction, getFriendlyCategory } = require('../utils/auditTranslator');
+const { decrypt } = require('../utils/crypto');
 
 /**
  * 🕵️ Enterprise Audit Service
@@ -95,11 +96,14 @@ class AuditService {
       });
 
       // 🌍 1.5. Enrich for Real-time (Friendly Fields)
+      let displayUser = entry.userEmail || 'النظام الآلي';
+      if (displayUser.includes(':')) displayUser = decrypt(displayUser);
+
       const enrichedEntry = {
         ...entry,
         friendlyAction: translateAction(entry.action),
         friendlyCategory: getFriendlyCategory(entry),
-        userDisplay: entry.userEmail || 'النظام الآلي'
+        userDisplay: displayUser
       };
 
       // 📡 2. Redis Broadcast (To all instances)

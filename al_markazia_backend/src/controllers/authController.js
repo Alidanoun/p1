@@ -323,7 +323,7 @@ const EmailService = require('../services/emailService');
  * 📝 Phase 1: Registration Request (Send OTP)
  */
 const register = async (req, res) => {
-  const { name, email, password, phone } = req.body;
+  const { name, email, password, phone, fcmToken } = req.body;
   try {
     // 🛡️ Normalize email early to prevent case-mismatch bugs
     const cleanEmail = email.toLowerCase().trim();

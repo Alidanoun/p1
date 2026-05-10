@@ -95,7 +95,7 @@ class NotificationService extends ChangeNotifier {
       final token = await SessionService.instance.accessToken;
 
       // 1. 🏗️ True Persistent Dedup Load (Time-Aware)
-      _loadPersistentCache();
+      await _loadPersistentCache();
       
       // 2. [V5 Priority 2] Early Channel Registry
       await createNotificationChannel();
@@ -117,7 +117,7 @@ class NotificationService extends ChangeNotifier {
       
       // Batch writer for storage safety (Reduced frequency to prevent UI stutter)
       _persistenceTimer?.cancel();
-      _persistenceTimer = Timer.periodic(const Duration(minutes: 2), (_) => _persistCacheToStorage());
+      _persistenceTimer = Timer.periodic(const Duration(minutes: 2), (_) async => await _persistCacheToStorage());
 
       await fetchNotifications();
       await _setupFCM();
@@ -182,6 +182,12 @@ class NotificationService extends ChangeNotifier {
 
   /// 🧠 Central Event Router (Authority-Based + Backpressure)
   void _processIncomingEvent(dynamic data, {bool fromSocket = false, bool fromFCM = false}) {
+    // 🛡️ [V5 Security] Content Validation
+    if (!_isValidNotificationContent(data)) {
+      print('🚫 [Security] Malformed notification rejected');
+      return;
+    }
+
     final id = _normalizeId(data);
     if (id == null) return;
 
@@ -199,6 +205,12 @@ class NotificationService extends ChangeNotifier {
     
     _dedupCache[id] = now;
     _isCacheDirty = true; 
+
+    // 🛡️ [V5 Resilience] Rate Limiting (Anti-Spam)
+    if (_isRateLimited(id)) {
+      print('⏳ [RateLimit] Notification throttled for: $id');
+      return;
+    }
 
     // 2. 🛡️ UI Backpressure Control
     final lastUiUpdate = _uiBackpressureMap[id] ?? 0;
@@ -378,14 +390,14 @@ class NotificationService extends ChangeNotifier {
     notifications.clear();
     unreadCount = 0;
     
-    await StorageService.instance.remove('notif_dedup_cache_v4');
+    await StorageService.instance.removeSecure('notif_dedup_cache_v4');
     notifyListeners();
   }
 
-  // --- 🏛️ Enterprise Persistence Layer ---
-  void _loadPersistentCache() {
+  // 🏛️ [V5 Security] Secure Persistence Layer
+  Future<void> _loadPersistentCache() async {
     try {
-      final jsonStr = StorageService.instance.getString('notif_dedup_cache_v4');
+      final jsonStr = await StorageService.instance.getSecureString('notif_dedup_cache_v4');
       if (jsonStr != null) {
         final Map<String, dynamic> rawMap = json.decode(jsonStr);
         final now = DateTime.now().millisecondsSinceEpoch;
@@ -395,17 +407,16 @@ class NotificationService extends ChangeNotifier {
             _dedupCache[key] = timestamp;
           }
         });
-        print('🏛️ [Persistence] Loaded ${_dedupCache.length} active IDs from storage.');
+        print('🏛️ [Persistence] Loaded ${_dedupCache.length} active IDs from secure storage.');
       }
     } catch (e) {
-      print('❌ [Persistence] Load Error: $e');
+      print('❌ [Persistence] Secure Load Error: $e');
     }
   }
 
-  void _persistCacheToStorage() {
+  Future<void> _persistCacheToStorage() async {
     if (!_isCacheDirty) return;
     try {
-      // Snapshot only non-expired IDs
       final now = DateTime.now().millisecondsSinceEpoch;
       final Map<String, int> snapshot = {};
       _dedupCache.forEach((key, timestamp) {
@@ -414,12 +425,35 @@ class NotificationService extends ChangeNotifier {
         }
       });
       
-      StorageService.instance.setString('notif_dedup_cache_v4', json.encode(snapshot));
+      await StorageService.instance.setSecureString('notif_dedup_cache_v4', json.encode(snapshot));
       _isCacheDirty = false;
-      print('🏛️ [Persistence] Atomic Cache Sync Complete.');
+      print('🏛️ [Persistence] Secure Atomic Cache Sync Complete.');
     } catch (e) {
-      print('❌ [Persistence] Write Error: $e');
+      print('❌ [Persistence] Secure Write Error: $e');
     }
+  }
+
+  // --- 🛡️ Guard Helpers ---
+  bool _isValidNotificationContent(dynamic data) {
+    if (data is! Map) return false;
+    // Must have at least an ID or a notification object
+    return data.containsKey('notification') || 
+           data.containsKey('notificationId') || 
+           data.containsKey('orderId');
+  }
+
+  final Map<String, List<int>> _rateLimitHistory = {};
+  bool _isRateLimited(String type) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    _rateLimitHistory.putIfAbsent(type, () => []);
+    
+    // Cleanup old entries (> 1 minute)
+    _rateLimitHistory[type]!.removeWhere((t) => now - t > 60000);
+    
+    if (_rateLimitHistory[type]!.length >= 5) return true; // Max 5 per minute
+    
+    _rateLimitHistory[type]!.add(now);
+    return false;
   }
 
   // --- Helpers ---

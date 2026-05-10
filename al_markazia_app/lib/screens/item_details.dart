@@ -409,13 +409,14 @@ class _ItemDetailsSheetState extends State<ItemDetailsSheet> {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(AppLocalizations.of(context)!.customerReviews, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
-                          TextButton.icon(
-                            onPressed: _openReviewDialog,
-                icon: Icon(Icons.rate_review, size: 18, color: Theme.of(context).primaryColor),
-                label: Text(l10n.addReview, style: TextStyle(color: Theme.of(context).primaryColor)),
-              )
-            ],
-          ),
+                          if (context.watch<AuthController>().isAuthenticated)
+                            TextButton.icon(
+                              onPressed: _openReviewDialog,
+                              icon: Icon(Icons.rate_review, size: 18, color: Theme.of(context).primaryColor),
+                              label: Text(l10n.addReview, style: TextStyle(color: Theme.of(context).primaryColor)),
+                            )
+                        ],
+                      ),
           const SizedBox(height: 16),
           if (_isLoadingReviews)
             const Center(child: CircularProgressIndicator())
@@ -445,8 +446,25 @@ class _ItemDetailsSheetState extends State<ItemDetailsSheet> {
                                     child: Icon(Icons.person, size: 16, color: Theme.of(context).primaryColor),
                                   ),
                                   const SizedBox(width: 8),
-                                  Text(review.customerName, style: const TextStyle(fontWeight: FontWeight.bold)),
-                                  const Spacer(),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(review.customerName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                        if (review.isVerifiedPurchase)
+                                          Row(
+                                            children: [
+                                              Icon(Icons.verified_user, size: 10, color: Colors.green.shade400),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                l10n.verifiedPurchase,
+                                                style: TextStyle(fontSize: 9, color: Colors.green.shade400, fontWeight: FontWeight.bold),
+                                              ),
+                                            ],
+                                          ),
+                                      ],
+                                    ),
+                                  ),
                                   Row(
                                     children: List.generate(5, (index) => Icon(
                                       index < review.rating ? Icons.star : Icons.star_border,
