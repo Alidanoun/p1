@@ -6,8 +6,7 @@
  */
 
 const BANNED_WORDS_AR = [
-  // List of banned words (placeholder for demonstration)
-  "زبالة", "مقرف"
+  "زبالة", "مقرف", "سيء", "قذر", "وسخ", "سارق", "نصاب", "كاذب", "حقير", "فاشل"
 ];
 
 const BANNED_PATTERNS = [

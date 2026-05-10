@@ -8,25 +8,58 @@ const { decrypt } = require('../utils/crypto');
 const MAX_RETRIES = 3;
 const INITIAL_BACKOFF = 1000; // 1 second
 
-// Initialize Firebase Admin with the service account file
+// 📊 Delivery Metrics (Real-time tracking)
+const metrics = {
+  sent: 0,
+  failed: 0,
+  retried: 0,
+  invalidTokensRemoved: 0,
+  lastReset: new Date()
+};
+
+const getMetrics = () => ({
+  ...metrics,
+  successRate: metrics.sent > 0 ? ((metrics.sent / (metrics.sent + metrics.failed)) * 100).toFixed(2) + '%' : '0%'
+});
+
+// Initialize Firebase Admin with Fallback Logic
 const serviceAccountPath = path.resolve(__dirname, '../../firebase-service-account.json');
 let fcmEnabled = false;
 
-try {
-  if (fs.existsSync(serviceAccountPath)) {
-    const serviceAccount = require(serviceAccountPath);
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount)
-    });
-    fcmEnabled = true;
-    logger.info('🚀 [FCM Engine] Firebase Admin SDK initialized successfully.');
-  } else {
-    logger.warn('⚠️ [FCM Engine] Firebase service account file NOT FOUND. FCM notifications are DISABLED.');
-    logger.warn(`Expected path: ${serviceAccountPath}`);
+const initFirebase = () => {
+  try {
+    // Priority 1: Service Account JSON File
+    if (fs.existsSync(serviceAccountPath)) {
+      const serviceAccount = require(serviceAccountPath);
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount)
+      });
+      fcmEnabled = true;
+      logger.info('🚀 [FCM Engine] Firebase Admin SDK initialized via JSON file.');
+      return;
+    }
+
+    // Priority 2: Environment Variables (Fail-safe for CI/CD or Docker)
+    if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL) {
+      admin.initializeApp({
+        credential: admin.credential.cert({
+          projectId: process.env.FIREBASE_PROJECT_ID,
+          privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+          clientEmail: process.env.FIREBASE_CLIENT_EMAIL
+        })
+      });
+      fcmEnabled = true;
+      logger.info('🚀 [FCM Engine] Firebase Admin SDK initialized via Environment Variables.');
+      return;
+    }
+
+    logger.warn('⚠️ [FCM Engine] No Firebase credentials found. FCM notifications are DISABLED.');
+  } catch (error) {
+    logger.error('❌ [FCM Engine] Failed to initialize Firebase Admin SDK:', { error: error.message });
   }
-} catch (error) {
-  logger.error('❌ [FCM Engine] Failed to initialize Firebase Admin SDK:', { error: error.message });
-}
+};
+
+initFirebase();
 
 /**
  * 🛡️ Private: Guaranteed Delivery Logic with Exponential Backoff
@@ -36,6 +69,7 @@ const _sendWithRetry = async (message, notificationId, attempt = 1) => {
 
   try {
     const responseId = await admin.messaging().send(message);
+    metrics.sent++;
     logger.info('[FCM Delivery] ✅ Success', { 
       messageId: responseId, 
       notificationId, 
@@ -43,6 +77,7 @@ const _sendWithRetry = async (message, notificationId, attempt = 1) => {
     });
     return responseId;
   } catch (error) {
+    metrics.failed++;
     const errorCode = error.code;
     const isNetworkError = [
       'messaging/internal-error',
@@ -71,6 +106,7 @@ const _sendWithRetry = async (message, notificationId, attempt = 1) => {
 
     // 2. Exponential Backoff for Network/Temporary Errors
     if (isNetworkError && attempt < MAX_RETRIES) {
+      metrics.retried++;
       const delay = INITIAL_BACKOFF * Math.pow(2, attempt - 1);
       logger.warn(`[FCM Retry] ⏳ Retrying in ${delay}ms...`, { notificationId, nextAttempt: attempt + 1 });
       await new Promise(resolve => setTimeout(resolve, delay));
@@ -92,6 +128,7 @@ const _cleanupInvalidToken = async (token) => {
       where: { fcmToken: token },
       data: { fcmToken: null }
     });
+    metrics.invalidTokensRemoved++;
   } catch (e) {
     logger.error('[FCM Hygiene] ❌ Database cleanup failed', { error: e.message });
   }
@@ -195,5 +232,6 @@ module.exports = {
   sendToToken, 
   sendBroadcast, 
   sendToTopic, 
-  isFcmEnabled: () => fcmEnabled 
+  isFcmEnabled: () => fcmEnabled,
+  getMetrics
 };

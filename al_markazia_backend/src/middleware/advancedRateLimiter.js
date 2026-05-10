@@ -76,7 +76,7 @@ const otpLimiter = rateLimit({
     sendCommand: (...args) => redis.call(...args),
     prefix: 'rl:otp:',
   }),
-  windowMs: 60 * 60 * 1000, // ساعة واحدة
+  windowMs: 10 * 60 * 1000, // 10 دقائق
   max: 5, // 5 محاولات فقط
   validate: false,
   keyGenerator: (req) => {
@@ -91,7 +91,7 @@ const otpLimiter = rateLimit({
     
     res.status(429).json({
       success: false,
-      error: 'كثرة طلبات رمز التحقق، يرجى الانتظار ساعة',
+      error: 'كثرة طلبات رمز التحقق، يرجى الانتظار 10 دقائق',
       code: 'RATE_LIMIT_EXCEEDED'
     });
   }

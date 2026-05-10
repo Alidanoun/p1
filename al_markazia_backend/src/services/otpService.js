@@ -10,7 +10,7 @@ const OTP_LENGTH = 6;
 const OTP_TTL_MINUTES = 5;
 const MAX_ATTEMPTS = 5;
 const RESEND_COOLDOWN_SECONDS = 60;
-const MAX_REQUESTS_PER_HOUR = 5;
+const MAX_REQUESTS_PER_PERIOD = 5;
 
 class OtpService {
   /**
@@ -29,17 +29,17 @@ class OtpService {
    * @param {string} [params.ipAddress]
    * @param {string} [params.userAgent]
    */
-  async requestOtp({ email, phone, purpose = 'login', ipAddress, userAgent }) {
+  async requestOtp({ email, phone, purpose = 'login', ipAddress, userAgent, metadata = {} }) {
     const cleanEmail = email ? email.toLowerCase().trim() : null;
 
     // 1. Rate limit per email: Global hour limit
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
     const where = email ? { emailHash: hashBlind(email) } : { phoneHash: hashBlind(phone) };
-    where.createdAt = { gte: oneHourAgo };
+    where.createdAt = { gte: tenMinutesAgo };
 
     const recentRequests = await prisma.otpCode.count({ where });
 
-    if (recentRequests >= MAX_REQUESTS_PER_HOUR) {
+    if (recentRequests >= MAX_REQUESTS_PER_PERIOD) {
       throw new Error('TOO_MANY_OTP_REQUESTS');
     }
 
@@ -89,7 +89,7 @@ class OtpService {
         purpose, 
         ipAddress, 
         userAgent,
-        metadata: params.metadata || {}
+        metadata: metadata || {}
       }
     });
 

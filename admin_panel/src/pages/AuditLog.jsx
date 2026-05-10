@@ -13,6 +13,34 @@ import {
 import { io } from 'socket.io-client';
 import { motion, AnimatePresence } from 'framer-motion';
 
+const ACTION_MAP = {
+  'LOGIN_SUCCESS': 'تسجيل دخول ناجح',
+  'LOGIN_FAIL': 'محاولة دخول فاشلة',
+  'LOGOUT': 'تسجيل خروج',
+  'REFRESH_TOKEN': 'تحديث جلسة العمل',
+  'TOKEN_REFRESH': 'تجديد تصريح الدخول',
+  'SOCKET_DISCONNECT': 'انقطاع الاتصال الفوري',
+  'SOCKET_CONNECT': 'اتصال فوري جديد',
+  'GET_API_V1_ADMIN_AUDIT_LOGS': 'استعراض سجل التدقيق',
+  'GET__API_V1_ADMIN_AUDIT_LOGS': 'استعراض سجل التدقيق',
+  'GET_API_V1_ADMIN_AUDIT_STATS': 'تحديث إحصائيات النظام',
+  'GET__API_V1_ADMIN_AUDIT_STATS': 'تحديث إحصائيات النظام',
+  'GET_API_V1_DASHBOARD_METRICS': 'تحديث بيانات لوحة التحكم',
+  'GET__API_V1_DASHBOARD_METRICS': 'تحديث بيانات لوحة التحكم',
+  'BRANCH_SWITCH': 'تبديل الفرع',
+  'ORDER_CREATE': 'إنشاء طلب',
+  'ORDER_STATUS_UPDATE': 'تحديث حالة الطلب',
+  'FINANCIAL_APPROVAL_ACTION': 'معالجة اعتماد مالي'
+};
+
+const translateAction = (action) => ACTION_MAP[action] || action;
+const getFriendlyCategory = (log) => {
+  if (log.action.includes('FINANCIAL')) return 'عمليات مالية';
+  if (log.action.includes('ORDER')) return 'إدارة الطلبات';
+  if (log.action.includes('LOGIN') || log.action.includes('TOKEN')) return 'الأمن والجلسات';
+  return 'النظام الآلي';
+};
+
 const AuditLog = () => {
   const [logs, setLogs] = useState([]);
   const [stats, setStats] = useState({ totalToday: 0, errorsToday: 0, criticalToday: 0, topActions: [] });
@@ -73,7 +101,7 @@ const AuditLog = () => {
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-3xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">
-            Observability Dashboard
+            نظام المراقبة الذكي (مُطور)
           </h1>
           <p className="text-slate-500 text-sm mt-1 flex items-center gap-2">
             <span className={`w-2 h-2 rounded-full ${isSocketConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span>
@@ -169,14 +197,22 @@ const AuditLog = () => {
                 </td>
                 <td className="p-4 font-bold text-slate-200 group-hover:text-blue-400">
                   <div className="flex flex-col">
-                    <span>{log.friendlyAction || log.action}</span>
-                    <span className="text-[10px] text-slate-500 font-normal uppercase">{log.friendlyCategory || 'System'}</span>
+                    <span>{translateAction(log.action)}</span>
+                    <span className="text-[10px] text-slate-500 font-normal uppercase">{getFriendlyCategory(log)}</span>
+                    <span className="text-[9px] text-slate-700 font-mono mt-1 opacity-0 group-hover:opacity-100 transition-opacity">{log.action}</span>
                   </div>
                 </td>
                 <td className="p-4 text-sm">
                   <div className="flex items-center gap-2">
                     <Fingerprint className="w-4 h-4 text-slate-600" />
-                    {log.userDisplay || log.userName || 'System'}
+                    <div className="flex flex-col">
+                      <span className="font-bold text-blue-400">
+                        {log.userDisplay?.split('(')[0].trim() || log.userName || 'النظام الآلي'}
+                      </span>
+                      <span className="text-[10px] text-slate-500 uppercase tracking-tighter">
+                        {log.userRole || log.userDisplay?.match(/\((.*)\)/)?.[1] || 'System'}
+                      </span>
+                    </div>
                   </div>
                 </td>
                 <td className="p-4 text-sm text-slate-400">
@@ -213,8 +249,13 @@ const AuditLog = () => {
             >
               <div className="flex justify-between items-start mb-8">
                 <div>
-                  <h2 className="text-2xl font-bold">{selectedLog.friendlyAction || selectedLog.action}</h2>
-                  <p className="text-slate-500 font-mono text-sm mt-1">{selectedLog.id}</p>
+                  <div className="flex items-center gap-2 mb-1">
+                    <h2 className="text-2xl font-bold">{translateAction(selectedLog.action)}</h2>
+                    <span className="px-2 py-0.5 bg-blue-500/10 text-blue-500 text-[10px] font-bold rounded-full uppercase border border-blue-500/20">
+                      {getFriendlyCategory(selectedLog)}
+                    </span>
+                  </div>
+                  <p className="text-slate-500 font-mono text-sm">{selectedLog.id}</p>
                 </div>
                 <button onClick={() => setSelectedLog(null)} className="text-slate-500 hover:text-white">✕</button>
               </div>
@@ -222,49 +263,98 @@ const AuditLog = () => {
               <div className="space-y-6">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="p-4 bg-slate-950 rounded-xl border border-slate-800">
-                    <p className="text-xs text-slate-500 uppercase font-bold mb-1">IP Address</p>
-                    <p className="font-mono text-blue-400">{selectedLog.ip || 'Local'}</p>
+                    <p className="text-xs text-slate-500 uppercase font-bold mb-1">عنوان جهاز المستخدم (IP)</p>
+                    <p className="font-mono text-blue-400">{selectedLog.ip || '127.0.0.1'}</p>
                   </div>
                   <div className="p-4 bg-slate-950 rounded-xl border border-slate-800">
-                    <p className="text-xs text-slate-500 uppercase font-bold mb-1">Severity</p>
-                    <p className="font-bold">{selectedLog.severity}</p>
+                    <p className="text-xs text-slate-500 uppercase font-bold mb-1">درجة الأهمية</p>
+                    <span className={`text-[10px] px-2 py-1 rounded border ${getSeverityColor(selectedLog.severity)} font-bold`}>
+                      {selectedLog.severity === 'INFO' ? 'معلومات عامة' : selectedLog.severity === 'WARN' ? 'تحذير' : 'حالة حرجة'}
+                    </span>
                   </div>
                 </div>
 
                 <div className="p-4 bg-slate-950 rounded-xl border border-slate-800">
-                  <p className="text-xs text-slate-500 uppercase font-bold mb-2">User Agent</p>
-                  <p className="text-xs text-slate-400 leading-relaxed italic">{selectedLog.userAgent || 'Unknown Agent'}</p>
+                  <p className="text-xs text-slate-500 uppercase font-bold mb-2">وصف الجهاز والمتصفح</p>
+                  <p className="text-xs text-slate-400 leading-relaxed italic">{selectedLog.userAgent || 'متصفح غير معروف'}</p>
                 </div>
 
+                <div className="space-y-4">
+                  <h3 className="font-bold flex items-center gap-2 text-slate-300">
+                    <div className="w-1 h-5 bg-blue-500 rounded-full"></div>
+                    ملخص العملية الفنية
+                  </h3>
+                  
+                  <div className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden">
+                    <table className="w-full text-sm text-right">
+                      <thead className="bg-slate-900/50 text-slate-500">
+                        <tr>
+                          <th className="p-3 font-medium border-b border-slate-800">المعلومة</th>
+                          <th className="p-3 font-medium border-b border-slate-800">التفسير</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800">
+                        <tr>
+                          <td className="p-3 text-slate-400">حالة الطلب</td>
+                          <td className="p-3">
+                            {selectedLog.metadata?.statusCode === 200 ? (
+                              <span className="text-green-500">تم بنجاح ✓</span>
+                            ) : (
+                              <span className="text-red-500">فشل في المعالجة (كود {selectedLog.metadata?.statusCode})</span>
+                            )}
+                          </td>
+                        </tr>
+                        <tr>
+                          <td className="p-3 text-slate-500">نوع الطلب</td>
+                          <td className="p-3 font-mono text-xs text-slate-300">{selectedLog.metadata?.method || 'N/A'}</td>
+                        </tr>
+                        {selectedLog.metadata?.path && (
+                          <tr>
+                            <td className="p-3 text-slate-500">العنوان المطلوب</td>
+                            <td className="p-3 font-mono text-[10px] text-slate-400 truncate max-w-[250px]" dir="ltr">
+                              {selectedLog.metadata.path}
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {selectedLog.metadata?.query && Object.keys(selectedLog.metadata.query).length > 0 && (
+                  <div className="p-4 bg-blue-500/5 border border-blue-500/10 rounded-xl">
+                    <p className="text-xs font-bold text-blue-400 mb-2">الفلاتر والمعايير المستخدمة:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(selectedLog.metadata.query).map(([key, val]) => (
+                        <span key={key} className="px-2 py-1 bg-slate-900 rounded text-[10px] text-slate-400 border border-slate-800">
+                          {key}: {String(val)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {selectedLog.metadata?.diff && (
-                  <div className="space-y-4">
-                    <h3 className="font-bold flex items-center gap-2">
-                      <Settings2 className="w-5 h-5 text-blue-500" />
-                      Data Diff (Before/After)
+                  <div className="mt-8 space-y-4">
+                    <h3 className="font-bold flex items-center gap-2 text-slate-300">
+                      <Settings2 className="w-5 h-5 text-amber-500" />
+                      تغيير البيانات (قبل / بعد)
                     </h3>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="p-4 bg-red-500/5 border border-red-500/10 rounded-lg">
-                        <p className="text-[10px] uppercase text-red-500 font-bold mb-2">Before</p>
-                        <pre className="text-[10px] text-slate-400 overflow-x-auto">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="p-4 bg-red-500/5 border border-red-500/10 rounded-xl">
+                        <p className="text-[10px] uppercase text-red-500 font-bold mb-2">البيانات السابقة</p>
+                        <pre className="text-[10px] text-slate-500 overflow-x-auto font-mono">
                           {JSON.stringify(selectedLog.metadata.before, null, 2)}
                         </pre>
                       </div>
-                      <div className="p-4 bg-green-500/5 border border-green-500/10 rounded-lg">
-                        <p className="text-[10px] uppercase text-green-500 font-bold mb-2">After</p>
-                        <pre className="text-[10px] text-slate-400 overflow-x-auto">
+                      <div className="p-4 bg-green-500/5 border border-green-500/10 rounded-xl">
+                        <p className="text-[10px] uppercase text-green-500 font-bold mb-2">البيانات الجديدة</p>
+                        <pre className="text-[10px] text-slate-300 overflow-x-auto font-mono">
                           {JSON.stringify(selectedLog.metadata.after, null, 2)}
                         </pre>
                       </div>
                     </div>
                   </div>
                 )}
-
-                <div className="space-y-2">
-                  <h3 className="font-bold">Full Payload</h3>
-                  <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 font-mono text-[11px] text-blue-300">
-                    <pre>{JSON.stringify(selectedLog.metadata, null, 2)}</pre>
-                  </div>
-                </div>
               </div>
             </motion.div>
           </>

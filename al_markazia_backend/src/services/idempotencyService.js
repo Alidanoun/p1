@@ -6,7 +6,7 @@ class IdempotencyService {
     this.container = container;
     this.redis = container.redis;
     this.logger = container.logger;
-    this.TTL = 3600;
+    this.TTL = 86400; // 24 hours in seconds
   }
 
   async start(key) {

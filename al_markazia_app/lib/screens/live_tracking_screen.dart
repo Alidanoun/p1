@@ -6,6 +6,7 @@ import '../models/order_model.dart';
 import '../services/tracking_service.dart';
 import '../theme/design_system.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../config/features.dart';
 
 class LiveTrackingScreen extends StatefulWidget {
   final OrderModel order;
@@ -60,6 +61,44 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    
+    // 🛡️ Feature Flag Check
+    if (!AppFeatures.enableDriverTracking) {
+      return Scaffold(
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        appBar: AppBar(
+          title: Text(l10n.trackOrder),
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_ios_new),
+            onPressed: () => Navigator.pop(context),
+          ),
+        ),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.map_outlined, size: 80, color: Colors.grey.withOpacity(0.5))
+                  .animate(onPlay: (c) => c.repeat())
+                  .shimmer(duration: 2.seconds),
+              const SizedBox(height: 24),
+              Text(
+                'خاصية تتبع السائق ستتوفر قريباً 🚀',
+                style: DesignSystem.heading(context).copyWith(fontSize: 18),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'طلبك الآن قيد المعالجة وسيصلك في الموعد المحدد',
+                style: DesignSystem.body(context, color: Colors.grey),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     final destPos = widget.order.destLat != null 
         ? LatLng(widget.order.destLat!, widget.order.destLng!)
         : const LatLng(31.9631, 35.9303); // Simulation fallback

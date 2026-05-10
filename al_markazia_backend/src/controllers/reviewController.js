@@ -2,6 +2,8 @@ const prisma = require('../lib/prisma');
 const logger = require('../utils/logger');
 const { sanitizeComment, isContentSafe } = require('../services/contentFilter');
 const { SOCKET_EVENTS, SOCKET_ROOMS } = require('../shared/socketEvents');
+const { mapOrderResponse } = require('../mappers/order.mapper');
+const { ORDER_INCLUDE_FULL } = require('../shared/prismaConstants');
 
 /**
  * 🔒 Submit a new review (Customer Only + Verified Purchase)
@@ -81,7 +83,7 @@ exports.submitReview = async (req, res) => {
         rating: ratingInt,
         comment: cleanComment,
         isVerifiedPurchase: true,
-        isApproved: ratingInt > 2,
+        isApproved: false, // 🛡️ [SEC-FIX] No auto-approval to prevent bias/spam
         ipAddress: req.ip,
         userAgent: req.get('User-Agent')?.substring(0, 200)
       },
@@ -145,7 +147,7 @@ exports.getItemReviews = async (req, res) => {
 };
 
 /**
- * 👮 Admin: Fetch all reviews (Consolidated + Pagination)
+ * 👮 Admin: Fetch all reviews (Consolidated + Correct Pagination)
  */
 exports.getAllReviews = async (req, res) => {
   try {
@@ -153,29 +155,27 @@ exports.getAllReviews = async (req, res) => {
     const limit = Math.min(100, parseInt(req.query.limit) || 50);
     const skip = (page - 1) * limit;
 
-    const itemReviews = await prisma.review.findMany({
-      include: {
-        item: { select: { title: true, id: true, image: true } },
-        customer: { select: { name: true, phone: true } }
-      },
-      orderBy: { createdAt: 'desc' },
-      skip,
-      take: limit
-    });
+    // 🚀 [PERF-FIX] Fetch both types without per-type pagination to avoid data loss in merge
+    // For small-medium scale (current), in-memory merge is more accurate than independent skips
+    const [itemReviews, orderRatings] = await Promise.all([
+      prisma.review.findMany({
+        include: {
+          item: { select: { title: true, id: true, image: true } },
+          customer: { select: { name: true, phone: true } }
+        }
+      }),
+      prisma.order.findMany({
+        where: { rating: { not: null } },
+        include: ORDER_INCLUDE_FULL
+      })
+    ]);
 
     const mappedItemReviews = itemReviews.map(r => ({
       ...r,
       type: 'item_review',
-      customerName: r.customer.name,
-      customerPhone: r.customer.phone
+      customerName: r.customer?.name || 'مجهول',
+      customerPhone: r.customer?.phone
     }));
-
-    const orderRatings = await prisma.order.findMany({
-      where: { rating: { not: null } },
-      orderBy: { createdAt: 'desc' },
-      skip,
-      take: limit
-    });
 
     const mappedOrderRatings = orderRatings.map(o => ({
       id: `order-${o.id}`,
@@ -187,14 +187,23 @@ exports.getAllReviews = async (req, res) => {
       isApproved: o.isRatingApproved,
       type: 'order_rating',
       createdAt: o.createdAt,
-      orderNumber: o.orderNumber
+      orderNumber: o.orderNumber,
+      fullOrder: mapOrderResponse(o) // 🧾 [FIX] Include full order for invoice viewing
     }));
 
+    // 🧩 Merge and Sort by Date
     const all = [...mappedItemReviews, ...mappedOrderRatings].sort((a, b) => 
       new Date(b.createdAt) - new Date(a.createdAt)
     );
 
-    res.json({ success: true, data: all });
+    const total = all.length;
+    const paginated = all.slice(skip, skip + limit);
+
+    res.json({ 
+      success: true, 
+      data: paginated,
+      pagination: { total, page, limit, pages: Math.ceil(total / limit) }
+    });
   } catch (error) {
     logger.error('Get all reviews error:', error);
     res.status(500).json({ success: false, error: 'Internal server error' });
@@ -209,6 +218,7 @@ exports.toggleApproval = async (req, res) => {
     const { id } = req.params;
     const { isApproved } = req.body;
 
+    // Handle Order Rating Approval
     if (typeof id === 'string' && id.startsWith('order-')) {
       const realId = parseInt(id.replace('order-', ''));
       if (isNaN(realId)) return res.status(400).json({ error: 'Invalid Order ID' });
@@ -220,6 +230,7 @@ exports.toggleApproval = async (req, res) => {
       return res.json({ success: true });
     }
 
+    // Handle Item Review Approval
     const reviewId = parseInt(id);
     if (isNaN(reviewId)) return res.status(400).json({ error: 'Invalid Review ID' });
 
@@ -256,6 +267,65 @@ exports.flagReview = async (req, res) => {
 };
 
 /**
+ * 📝 Customer: Update an existing review
+ */
+exports.updateReview = async (req, res) => {
+  try {
+    const reviewId = parseInt(req.params.id);
+    const { rating, comment } = req.body;
+
+    if (isNaN(reviewId)) return res.status(400).json({ error: 'Invalid ID' });
+
+    // 1. Fetch Review to check ownership
+    const review = await prisma.review.findUnique({
+      where: { id: reviewId },
+      include: { customer: { select: { uuid: true } } }
+    });
+
+    if (!review) return res.status(404).json({ error: 'التقييم غير موجود' });
+    
+    // 🛡️ Ownership check
+    if (review.customer.uuid !== req.user.id) {
+      return res.status(403).json({ error: 'لا يمكنك تعديل تقييم لا تملكه' });
+    }
+
+    // 2. Validation
+    const ratingInt = parseInt(rating);
+    if (rating && (isNaN(ratingInt) || ratingInt < 1 || ratingInt > 5)) {
+      return res.status(400).json({ error: 'التقييم يجب أن يكون بين 1 و 5' });
+    }
+
+    // 3. Content Sanitization
+    const cleanComment = comment !== undefined ? sanitizeComment(comment) : review.comment;
+    if (cleanComment && cleanComment !== review.comment) {
+      const safety = isContentSafe(cleanComment);
+      if (!safety.safe) {
+        return res.status(400).json({ error: 'التعليق يحتوي على محتوى غير مسموح' });
+      }
+    }
+
+    // 4. Update
+    const updated = await prisma.review.update({
+      where: { id: reviewId },
+      data: {
+        rating: ratingInt || review.rating,
+        comment: cleanComment,
+        isApproved: false, // 🛡️ Re-review required after update
+        updatedAt: new Date()
+      }
+    });
+
+    // 🚀 Update Item Cache (Background)
+    await updateItemStats(updated.itemId);
+
+    res.json({ success: true, data: updated });
+  } catch (error) {
+    logger.error('Update review error', { error: error.message });
+    res.status(500).json({ success: false, error: 'فشل تحديث التقييم' });
+  }
+};
+
+/**
  * 👮 Admin: Delete a review
  */
 exports.deleteReview = async (req, res) => {
@@ -277,18 +347,53 @@ exports.deleteReview = async (req, res) => {
 /**
  * ⚡ Performance Helper: Atomic Item Stats Synchronization
  */
-async function updateItemStats(itemId) {
-  const stats = await prisma.review.aggregate({
-    where: { itemId, isApproved: true },
-    _avg: { rating: true },
-    _count: { id: true }
-  });
+/**
+ * 👮 Admin: Get review statistics (Star distribution)
+ */
+exports.getReviewStats = async (req, res) => {
+  try {
+    const [itemStats, orderStats] = await Promise.all([
+      prisma.review.groupBy({
+        by: ['rating'],
+        _count: { id: true }
+      }),
+      prisma.order.groupBy({
+        by: ['rating'],
+        where: { rating: { not: null } },
+        _count: { id: true }
+      })
+    ]);
 
-  await prisma.item.update({
-    where: { id: itemId },
-    data: {
-      cachedAvgRating: stats._avg.rating || 0,
-      cachedReviewCount: stats._count.id || 0
-    }
+    const distribution = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    
+    [...itemStats, ...orderStats].forEach(stat => {
+      if (stat.rating) distribution[stat.rating] += stat._count.id;
+    });
+
+    res.json({ success: true, data: distribution });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Failed to fetch stats' });
+  }
+};
+
+/**
+ * ⚡ Performance Helper: Atomic Item Stats Synchronization
+ */
+async function updateItemStats(itemId) {
+  // 🛡️ [FIX] Use transaction for atomic aggregation and update
+  await prisma.$transaction(async (tx) => {
+    const stats = await tx.review.aggregate({
+      where: { itemId, isApproved: true },
+      _avg: { rating: true },
+      _count: { id: true }
+    });
+
+    await tx.item.update({
+      where: { id: itemId },
+      data: {
+        cachedAvgRating: stats._avg.rating || 0,
+        cachedReviewCount: stats._count.id || 0
+      }
+    });
   });
 }

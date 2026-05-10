@@ -1,6 +1,7 @@
 const prisma = require('../lib/prisma');
 const response = require('../utils/response');
 const { translateAction, getFriendlyCategory } = require('../utils/auditTranslator');
+const { decrypt, hashBlind } = require('../utils/crypto');
 
 /**
  * 🧾 Audit Controller
@@ -47,23 +48,36 @@ const getLogs = async (req, res) => {
       prisma.systemAuditLog.count({ where })
     ]);
 
-    // 🕵️ Enrichment: Map User IDs to real names/emails
-    const uniqueUserUuids = [...new Set(rawLogs.map(l => l.userId).filter(Boolean))];
-    const users = await prisma.user.findMany({
-      where: { uuid: { in: uniqueUserUuids } },
-      select: { uuid: true, name: true, email: true, role: true }
+    // 1. Extract unique users and resolve identities
+    const enrichedLogs = rawLogs.map(log => {
+      let resolvedEmail = log.userEmail;
+      if (resolvedEmail && resolvedEmail.includes(':')) {
+        resolvedEmail = decrypt(resolvedEmail);
+      }
+      return { ...log, resolvedEmail, emailHash: resolvedEmail ? hashBlind(resolvedEmail) : null };
     });
 
-    const userMap = users.reduce((acc, u) => ({ ...acc, [u.uuid]: u }), {});
+    const uniqueEmailHashes = [...new Set(enrichedLogs.map(l => l.emailHash).filter(Boolean))];
+    const users = await prisma.user.findMany({
+      where: { emailHash: { in: uniqueEmailHashes } },
+      select: { emailHash: true, name: true, email: true, role: true }
+    });
 
-    // 🌍 Transformation: Add human-friendly fields
-    const logs = rawLogs.map(log => {
-      const user = userMap[log.userId];
+    const userMap = users.reduce((acc, u) => {
+      acc[u.emailHash] = u;
+      return acc;
+    }, {});
+
+    // 2. Transform into human-friendly format
+    const logs = enrichedLogs.map(log => {
+      const user = userMap[log.emailHash];
+      const nameFromEmail = log.resolvedEmail ? log.resolvedEmail.split('@')[0] : 'System';
+      
       return {
         ...log,
         friendlyAction: translateAction(log.action),
         friendlyCategory: getFriendlyCategory(log),
-        userName: user ? user.name || user.email.split('@')[0] : (log.userEmail || 'System'),
+        userName: user ? user.name || nameFromEmail : (log.resolvedEmail || 'System'),
         userDisplay: user ? `${user.name || 'Admin'} (${user.role})` : 'النظام الآلي'
       };
     });

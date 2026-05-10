@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../models/cart_item.dart';
 import '../models/order_model.dart';
 import '../models/menu_item.dart';
@@ -12,6 +13,7 @@ class StorageService extends ChangeNotifier {
   StorageService._internal();
 
   late SharedPreferences _prefs;
+  final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
 
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
@@ -219,8 +221,16 @@ class StorageService extends ChangeNotifier {
     notifyListeners();
   }
 
-  // --- Shared Tools ---
-  String? getString(String key) => _prefs.getString(key);
-  Future<void> setString(String key, String value) async => await _prefs.setString(key, value);
-  Future<void> remove(String key) async => await _prefs.remove(key);
+  // --- Secure Storage (Encrypted) ---
+  Future<void> setSecureString(String key, String value) async {
+    await _secureStorage.write(key: key, value: value);
+  }
+
+  Future<String?> getSecureString(String key) async {
+    return await _secureStorage.read(key: key);
+  }
+
+  Future<void> removeSecure(String key) async {
+    await _secureStorage.delete(key: key);
+  }
 }
