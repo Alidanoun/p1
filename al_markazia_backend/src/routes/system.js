@@ -2,7 +2,8 @@ const express = require('express');
 const router = express.Router();
 const configService = require('../services/configService');
 const systemController = require('../controllers/systemController');
-const { authenticateToken, isAdmin } = require('../middleware/auth');
+const { authenticateToken, isAdmin, hasPermission } = require('../middleware/auth');
+const { PERMISSIONS } = require('../config/permissions');
 
 /**
  * ⚙️ System Configuration Routes
@@ -18,8 +19,8 @@ router.get('/config', async (req, res) => {
   }
 });
 
-// Admin: Refresh Cache
-router.post('/config/refresh', async (req, res) => {
+// Admin: Refresh Cache (RBAC v3)
+router.post('/config/refresh', authenticateToken, hasPermission(PERMISSIONS.SYSTEM_CONFIG_MANAGE), async (req, res) => {
   try {
     const config = await configService.refreshCache();
     res.json({ success: true, data: config });

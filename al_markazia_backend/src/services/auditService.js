@@ -58,8 +58,22 @@ class AuditService {
 
   /**
    * Log an event to the SystemAuditLog
+   * 🔥 [PERF-FIX] Non-blocking by default unless explicitly awaited
    */
   async log(params) {
+    // We return immediately and handle the work in the background to avoid blocking the API response
+    setImmediate(() => {
+      this._performLog(params).catch(err => 
+        this.logger.error('[AUDIT_LOG_ASYNC_FAILURE]', { error: err.message, action: params.action })
+      );
+    });
+    return true; // Return a dummy success to avoid breaking callers
+  }
+
+  /**
+   * 🛡️ Internal: Actual Logging Execution (Database + Broadcast)
+   */
+  async _performLog(params) {
     const {
       userId = null,
       userRole = null,

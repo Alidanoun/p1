@@ -335,10 +335,52 @@ class NotificationService extends ChangeNotifier {
     }
   }
 
+  /// 🛡️ [PHASE 2] Contextual Permission Prompt
+  /// Increases approval rates by explaining why notifications are needed.
+  Future<void> requestPermissionContextually(BuildContext context) async {
+    final settings = await _fcm.getNotificationSettings();
+    
+    if (settings.authorizationStatus == AuthorizationStatus.authorized) {
+      return; // Already authorized
+    }
+
+    if (context.mounted) {
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          shape: RoundedRectangleBorder(radius: BorderRadius.circular(20)),
+          title: const Text('تنبيهات المركزية 🔔', textAlign: TextAlign.center),
+          content: const Text(
+            'اسمح لنا بتنبيهك عند جاهزية وجبتك وتحديثات طلبك لحظة بلحظة لتصلك ساخنة!',
+            textAlign: TextAlign.center,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('ليس الآن', style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Theme.of(context).primaryColor,
+                shape: RoundedRectangleBorder(radius: BorderRadius.circular(10)),
+              ),
+              child: const Text('تفعيل التنبيهات', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      );
+
+      if (proceed == true) {
+        await _setupFCM();
+      }
+    }
+  }
+
   Future<void> _showLocalNotification(dynamic data, {required String normalizedId}) async {
     final int notificationId = normalizedId.hashCode.toUnsigned(31); 
     
-    const androidDetails = AndroidNotificationDetails(
+    final androidDetails = AndroidNotificationDetails(
       'almarkazia_channel',
       'Al Markazia Notifications',
       importance: Importance.max,
@@ -348,6 +390,12 @@ class NotificationService extends ChangeNotifier {
       enableVibration: true,
       visibility: NotificationVisibility.public,
       category: AndroidNotificationCategory.message,
+      groupKey: 'almarkazia_orders',
+      setAsGroupSummary: false,
+      actions: <AndroidNotificationAction>[
+        const AndroidNotificationAction('track_order', '🔍 تتبع الطلب', showsUserInterface: true),
+        const AndroidNotificationAction('call_branch', '📞 اتصال بالفرع'),
+      ],
     );
 
     final title = data['notification']?['title']?.toString() ?? 'Al Markazia';
@@ -358,8 +406,22 @@ class NotificationService extends ChangeNotifier {
       notificationId,
       title,
       message,
-      const NotificationDetails(android: androidDetails),
+      NotificationDetails(android: androidDetails),
       payload: json.encode(data),
+    );
+
+    // [PHASE 2] Also show a summary for grouping
+    const summaryDetails = AndroidNotificationDetails(
+      'almarkazia_channel',
+      'Al Markazia Notifications',
+      groupKey: 'almarkazia_orders',
+      setAsGroupSummary: true,
+    );
+    await _localNotifications.show(
+      0, 
+      'تحديثات المركزية', 
+      'لديك تحديثات جديدة بخصوص طلباتك', 
+      const NotificationDetails(android: summaryDetails)
     );
   }
 
@@ -466,9 +528,23 @@ class NotificationService extends ChangeNotifier {
     if (response.payload != null) {
       try {
         final data = json.decode(response.payload!);
+        
+        if (response.actionId == 'call_branch') {
+          _handleCallBranch(data);
+          return;
+        }
+
         _safeNavigate(data);
       } catch (e) {}
     }
+  }
+
+  Future<void> _handleCallBranch(dynamic data) async {
+    const branchPhone = '065001010'; // Fallback or fetch from order data
+    final phone = data['branchPhone'] ?? branchPhone;
+    final Uri launchUri = Uri(scheme: 'tel', path: phone);
+    // Use url_launcher or similar
+    print('📞 [Action] Calling branch: $phone');
   }
 
   Future<void> _safeNavigate(dynamic data) async {

@@ -19,7 +19,7 @@ const orderRoutes = require('./orders');
 const categoryRoutes = require('./categories');
 const notificationRoutes = require('./notifications');
 const customerRoutes = require('./customers');
-const reviewRoutes = require('./reviews');
+const ratingRoutes = require('./ratings');
 const settingsRoutes = require('./settings');
 const metricsRoutes = require('./metrics');
 const analyticsRoutes = require('./analytics');
@@ -34,6 +34,8 @@ const loyaltyRoutes = require('./loyalty');
 const orderModificationRoutes = require('./orderModifications');
 const branchRoutes = require('./branch');
 const auditRoutes = require('./audit');
+const notificationAdminRoutes = require('./notificationAdmin');
+const adminRatingsRoutes = require('./adminRatings');
 
 // ─── Route Mounting ─────────────────────────────────────────
 // Core Business
@@ -46,7 +48,7 @@ router.use('/customers', customerRoutes);
 
 // Operations
 router.use('/notifications', notificationRoutes);
-router.use('/reviews', governorGuard('AUXILIARY'), reviewRoutes);
+router.use('/ratings', ratingRoutes);
 router.use('/settings', settingsRoutes);
 router.use('/metrics', metricsRoutes);
 router.use('/dashboard', dashboardRoutes);
@@ -64,6 +66,8 @@ const path = require('path');
 router.use('/uploads', express.static(path.join(__dirname, '../../uploads')));
 router.use('/system', systemRoutes);
 router.use('/admin/audit', auditRoutes);
+router.use('/admin/notifications', notificationAdminRoutes);
+router.use('/admin/ratings', adminRatingsRoutes);
 router.use('/health', healthCheckRoutes);
 router.use('/delivery-zones', deliveryZoneRoutes);
 

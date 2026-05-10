@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const logger = require('../utils/logger');
 const { decrypt } = require('../utils/crypto');
+const { fcmBreaker } = require('../middleware/notificationCircuitBreaker');
 
 // ⚙️ Advanced FCM Configuration
 const MAX_RETRIES = 3;
@@ -14,13 +15,25 @@ const metrics = {
   failed: 0,
   retried: 0,
   invalidTokensRemoved: 0,
-  lastReset: new Date()
+  circuitBreakerOpens: 0,
+  lastReset: new Date(),
+  byType: {} // Track counts by event type
 };
 
 const getMetrics = () => ({
   ...metrics,
   successRate: metrics.sent > 0 ? ((metrics.sent / (metrics.sent + metrics.failed)) * 100).toFixed(2) + '%' : '0%'
 });
+
+const resetMetrics = () => {
+  metrics.sent = 0;
+  metrics.failed = 0;
+  metrics.retried = 0;
+  metrics.invalidTokensRemoved = 0;
+  metrics.circuitBreakerOpens = 0;
+  metrics.lastReset = new Date();
+  metrics.byType = {};
+};
 
 // Initialize Firebase Admin with Fallback Logic
 const serviceAccountPath = path.resolve(__dirname, '../../firebase-service-account.json');
@@ -64,12 +77,20 @@ initFirebase();
 /**
  * 🛡️ Private: Guaranteed Delivery Logic with Exponential Backoff
  */
-const _sendWithRetry = async (message, notificationId, attempt = 1) => {
+const _sendWithRetry = async (message, notificationId, eventType = 'unknown', attempt = 1) => {
   if (!fcmEnabled) return null;
 
   try {
-    const responseId = await admin.messaging().send(message);
+    // ⚡ [PHASE 1] Circuit Breaker Protection
+    const responseId = await fcmBreaker.fire(
+      async (msg) => await admin.messaging().send(msg), 
+      message
+    );
+    
     metrics.sent++;
+    if (eventType) {
+      metrics.byType[eventType] = (metrics.byType[eventType] || 0) + 1;
+    }
     logger.info('[FCM Delivery] ✅ Success', { 
       messageId: responseId, 
       notificationId, 
@@ -171,7 +192,7 @@ const sendToToken = async (token, title, body, data = {}) => {
     }
   };
 
-  const result = await _sendWithRetry(message, notificationId);
+  const result = await _sendWithRetry(message, notificationId, data.type || 'direct');
   return result !== null;
 };
 
@@ -197,7 +218,7 @@ const sendBroadcast = async (title, body, data = {}) => {
     }
   };
 
-  const result = await _sendWithRetry(message, notificationId);
+  const result = await _sendWithRetry(message, notificationId, 'broadcast');
   return result !== null;
 };
 
@@ -223,7 +244,7 @@ const sendToTopic = async (topic, title, body, data = {}) => {
     }
   };
 
-  const result = await _sendWithRetry(message, notificationId);
+  const result = await _sendWithRetry(message, notificationId, `topic:${topic}`);
   return result !== null;
 };
 

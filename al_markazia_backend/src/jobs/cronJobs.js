@@ -94,24 +94,29 @@ function initCronJobs(io = null) {
   
   // 4. 🟢 الإضافة الوقائية: تنظيف الطلبات العالقة - كل ساعة (الدقيقة 15)
   // Note: cleanupStuckOrders() has its own internal distributed lock too (double safety)
-  cron.schedule('15 * * * *', async () => {
-    try {
-      logger.info('Cron Job Trace: Starting Cleanup of Stuck Pending Orders...');
-      await MaintenanceService.cleanupStuckOrders();
-    } catch (err) {
-      logger.error('Cron Job Failed: Stuck Orders Cleanup', { error: err.message });
-    }
+  cron.schedule('*/10 * * * *', async () => {
+    await withLock('cancellation_timeout', 60, async () => {
+      try {
+        logger.info('Cron Job Trace: Checking for Stuck Cancellation Requests...');
+        await MaintenanceService.cleanupWaitingCancellations();
+      } catch (err) {
+        logger.error('Cron Job Failed: Cancellation Timeout Cleanup', { error: err.message });
+      }
+    });
   });
 
   // تشغيل أولي عند بدء السيرفر (Startup Check) بعد 5 ثوانٍ لضمان استقرار الربط
   setTimeout(async () => {
     try {
-      logger.info('Startup Trace: Running Initial Stuck Orders Cleanup...');
-      await MaintenanceService.cleanupStuckOrders();
-      await MaintenanceService.cleanupOldIdempotencyRecords();
-      await MaintenanceService.cleanupNotificationLogs();
-      await MaintenanceService.expireFinancialApprovals();
-      await otpService.cleanupExpired();
+      logger.info('Startup Trace: Running Initial Cleanups...');
+      await Promise.all([
+        MaintenanceService.cleanupStuckOrders(),
+        MaintenanceService.cleanupOldIdempotencyRecords(),
+        MaintenanceService.cleanupNotificationLogs(),
+        MaintenanceService.expireFinancialApprovals(),
+        MaintenanceService.cleanupWaitingCancellations(),
+        otpService.cleanupExpired()
+      ]);
     } catch (err) {
       logger.error('Startup Cleanup Failed', { error: err.message });
     }
