@@ -38,9 +38,15 @@ class DistributedEventBus {
    * 📥 Subscribe: Listen to global events and run handlers
    */
   async subscribe(onEvent) {
-    await subscriber.subscribe(this.CHANNEL, async (message) => {
+    await subscriber.subscribe(this.CHANNEL);
+    
+    subscriber.on('message', async (channel, message) => {
+      if (channel !== this.CHANNEL) return;
+      
       try {
+        if (!message) return;
         const event = JSON.parse(message);
+        if (!event || !event.eventId) return;
         
         // 🛡️ [IDEMPOTENCY-GUARD] Check if this instance already processed this event
         const cache = require('../lib/redis').cache;
@@ -52,10 +58,10 @@ class DistributedEventBus {
           return;
         }
 
-        // Mark as processed (short TTL to prevent memory leak, but long enough for race conditions)
+        // Mark as processed (short TTL to prevent memory leak)
         await cache.set(processedKey, 'true', 'EX', 300); 
 
-        // Execute local handler (e.g., Socket emission)
+        // Execute local handler
         await onEvent(event);
 
       } catch (err) {
