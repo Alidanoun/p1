@@ -343,8 +343,6 @@ model Customer {
   username            String?            @unique
   uuid                String             @unique @default(uuid())
   tokenVersion        Int                @default(1)
-  authVersion         Int                @default(1)
-  permissionVersion   Int                @default(1)
   failedAttempts      Int                @default(0)
   lockUntil           DateTime?
   auditLogs           CustomerAuditLog[]
@@ -833,8 +831,6 @@ model CustomerReward {
 model BranchMetric {
   id            String   @id @default(uuid())
   branchId      String   @unique
-  id              String   @id @default(uuid())
-  branchId        String   @unique
   totalOrders     Int
   activeOrders    Int
   cancellations   Int

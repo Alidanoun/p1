@@ -21,9 +21,12 @@ async function init() {
 
     // 2. 💓 Initialize Transactional Wake-up Listener (Outbox Pulse)
     // This instance will wake up and process pending outbox events when it hears a pulse
-    await subscriber.subscribe('outbox:pulse', async () => {
-      logger.debug('[SDS-Backbone] Outbox Pulse received. Dispatching pending events...');
-      await container.outboxService.dispatchPending();
+    await subscriber.subscribe('outbox:pulse');
+    subscriber.on('message', async (channel) => {
+      if (channel === 'outbox:pulse') {
+        logger.debug('[SDS-Backbone] Outbox Pulse received. Dispatching pending events...');
+        await container.outboxService.dispatchPending();
+      }
     });
 
     // 3. 🛡️ Safety Net: Periodic Dispatch (Fallback for missed pulses)
