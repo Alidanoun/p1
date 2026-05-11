@@ -262,6 +262,12 @@ module.exports = {
         socket.emit(type, SecurityPolicyService.wrapPayload(payload));
       };
 
+      socket.joinManaged = async (room) => {
+        if (!room) return;
+        await socket.join(room);
+        socket.data.authRooms.add(room);
+      };
+
       socket.recalculateRooms = async () => {
         try {
           // 1. Leave all managed auth rooms (The Zombie Room Killer)
