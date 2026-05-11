@@ -47,5 +47,6 @@ router.post('/logs/frontend-error', async (req, res) => {
  * 🛡️ Diagnostic Control Plane
  */
 router.get('/diagnostics', authenticateToken, isAdmin, systemController.getSystemDiagnostics);
+router.get('/event-health', authenticateToken, isAdmin, systemController.getEventHealth);
 
 module.exports = router;

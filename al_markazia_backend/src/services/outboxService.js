@@ -1,156 +1,87 @@
+const prisma = require('../lib/prisma');
+const logger = require('../utils/logger');
+const { cache: redis } = require('../lib/redis');
+
 /**
- * 📮 Transactional Outbox Service
+ * 📮 Outbox Service (SDS 2.0)
+ * Implements Transactional Outbox with Wake-up Pulse pattern.
  */
 class OutboxService {
-  constructor(container) {
-    this.container = container;
-    this.prisma = container.prisma;
-    this.logger = container.logger;
-  }
-
-  async enqueue(type, payload, tx, sequenceNumber = null) {
-    if (!tx) throw new Error('OUTBOX_REQUIRES_TRANSACTION');
-    
-    const { getCorrelationId, getBranchId } = require('../utils/context');
-    const metadata = {
-      correlationId: getCorrelationId(),
-      branchId: getBranchId(),
-      sequenceNumber, // 🧷 [PHASE 5] Global Ordering Anchor
-      timestamp: new Date().toISOString()
-    };
-
-    return await tx.outboxEvent.create({
-      data: { type, payload, metadata, status: 'PENDING' }
+  /**
+   * 📥 Enqueue: Save event to DB (Must be used INSIDE a transaction)
+   */
+  async enqueue(tx, { type, aggregateId, aggregateType, payload, version, eventSequence, metadata = {} }) {
+    return tx.outboxEvent.create({
+      data: {
+        type,
+        aggregateId: String(aggregateId),
+        aggregateType,
+        payload: payload || {},
+        version: version || 1,
+        eventSequence: eventSequence || 1,
+        metadata: metadata || {}
+      }
     });
   }
 
-  async processPending() {
-    const eventBus = require('../events/eventBus');
+  /**
+   * 💓 Pulse: Wake up all instances to process their local outbox queue
+   */
+  async pulse() {
     try {
-      const pendingCount = await this.prisma.outboxEvent.count({ where: { status: 'PENDING' } });
-      if (pendingCount > 500) {
-        // Fallback for systemControlPlane as it might not be in container yet
-        try {
-          const controlPlane = require('./systemControlPlane');
-          await controlPlane.raiseAlert('OUTBOX_JAM', { pendingCount });
-        } catch (e) {
-          this.logger.logError('OutboxService.raiseAlert', e, { pendingCount });
-        }
-      }
-
-      const events = await this.prisma.outboxEvent.findMany({
-        where: { status: 'PENDING' },
-        orderBy: { createdAt: 'asc' },
-        take: 20
-      });
-
-      for (const event of events) {
-        try {
-          await this.prisma.outboxEvent.update({
-            where: { id: event.id },
-            data: { status: 'DISPATCHED', processedAt: new Date() }
-          });
-          await eventBus.publish({ 
-            type: event.type, 
-            payload: event.payload, 
-            metadata: { ...event.metadata, outboxId: event.id } 
-          });
-        } catch (err) {
-          const updatedEvent = await this.prisma.outboxEvent.update({
-            where: { id: event.id },
-            data: { status: 'FAILED', error: err.message, retries: { increment: 1 } }
-          });
-
-          // 🛡️ [SEC-FIX] Automatic Rollback Logic: If event fails 3 times, trigger compensation
-          if (updatedEvent.retries >= 3) {
-            this.logger.reasoning(`Event ${event.id} (${event.type}) reached max retries. Triggering automatic compensation (Rollback).`, { eventId: event.id });
-            await this.triggerRollback(updatedEvent);
-          }
-        }
-      }
+      await redis.publish('outbox:pulse', JSON.stringify({ timestamp: Date.now() }));
     } catch (err) {
-      this.logger.error('[Outbox] Background dispatch failed', { error: err.message });
-    }
-  }
-
-  async immediateDispatch(eventId) {
-    const eventBus = require('../events/eventBus');
-    try {
-      // 🛡️ [PHASE 4] Atomicity: Check and mark as DISPATCHED in a small transaction
-      const event = await this.prisma.$transaction(async (tx) => {
-         const e = await tx.outboxEvent.findUnique({ where: { id: eventId } });
-         if (!e || e.status !== 'PENDING') return null;
-
-         return await tx.outboxEvent.update({
-           where: { id: eventId },
-           data: { status: 'DISPATCHED', processedAt: new Date() }
-         });
-      });
-
-      if (!event) return;
-
-      // 🚀 Publish with original metadata (Correlation ID preserved)
-      await eventBus.publish({ 
-        type: event.type, 
-        payload: event.payload, 
-        metadata: { ...event.metadata, outboxId: event.id, sync: true } 
-      });
-      
-    } catch (err) {
-      this.logger.warn(`[Outbox] Immediate dispatch failed for ${eventId}`, { error: err.message });
-      // Record failure for background retry
-      await this.prisma.outboxEvent.update({
-        where: { id: eventId },
-        data: { status: 'FAILED', error: `Immediate: ${err.message}` }
-      }).catch(() => {});
-    }
-  }
-
-  async retryFailed() {
-    try {
-      await this.prisma.outboxEvent.updateMany({
-        where: { status: 'FAILED', retries: { lt: 3 } },
-        data: { status: 'PENDING' }
-      });
-    } catch (err) {
-      this.logger.error('[Outbox] Failed to retry events', { error: err.message });
+      logger.error('[OutboxService] Pulse failed', { error: err.message });
     }
   }
 
   /**
-   * 🔄 Trigger Compensating Transaction (Rollback)
+   * 🚀 Dispatch: Fetch and publish pending events to Redis Bus
+   * Uses a lock to prevent multiple workers from processing the same events.
    */
-  async triggerRollback(event) {
-    const eventBus = require('../events/eventBus');
-    this.logger.warn(`[Outbox] 🚨 MAX_RETRIES reached. Triggering Rollback for event ${event.id}`, { type: event.type });
+  async dispatchPending() {
+    const lockKey = 'lock:outbox_dispatcher';
+    const hasLock = await redis.set(lockKey, 'locked', 'EX', 5, 'NX');
+    if (!hasLock) return;
 
     try {
-      await eventBus.publish({
-        type: `${event.type}.ROLLBACK`,
-        payload: event.payload,
-        metadata: { originalEventId: event.id, reason: 'MAX_RETRIES_EXCEEDED' }
+      const pending = await prisma.outboxEvent.findMany({
+        where: { status: 'PENDING' },
+        orderBy: { createdAt: 'asc' },
+        take: 50
       });
 
-      await this.prisma.outboxEvent.update({
-        where: { id: event.id },
-        data: { status: 'ROLLED_BACK' }
-      });
-    } catch (err) {
-      this.logger.error(`[Outbox] Critical: Rollback publication failed for ${event.id}`, { error: err.message });
+      if (pending.length === 0) return;
+
+      const distributedBus = require('../events/distributedEventBus');
+      
+      for (const event of pending) {
+        try {
+          await distributedBus.publish(event.type, event.payload, {
+            eventId: event.id,
+            aggregateId: event.aggregateId,
+            aggregateType: event.aggregateType,
+            version: event.version,
+            eventSequence: event.eventSequence,
+            metadata: event.metadata
+          });
+
+          await prisma.outboxEvent.update({
+            where: { id: event.id },
+            data: { status: 'DISPATCHED', processedAt: new Date() }
+          });
+        } catch (err) {
+          logger.error(`[OutboxService] Failed to dispatch event ${event.id}`, { error: err.message });
+          await prisma.outboxEvent.update({
+            where: { id: event.id },
+            data: { status: 'FAILED', error: err.message, retries: { increment: 1 } }
+          });
+        }
+      }
+    } finally {
+      await redis.del(lockKey);
     }
   }
 }
 
-// --- 🛡️ Backward Compatibility ---
-const getContainer = () => require('../lib/container');
-const proxy = new Proxy({}, {
-  get: (target, prop) => {
-    if (prop === 'OutboxService') return OutboxService;
-    const service = getContainer().outboxService;
-    const val = service[prop];
-    return typeof val === 'function' ? val.bind(service) : val;
-  }
-});
-
-module.exports = proxy;
-module.exports.OutboxService = OutboxService;
+module.exports = new OutboxService();

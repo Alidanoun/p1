@@ -75,7 +75,10 @@ exports.updateAdminCredentials = async (req, res) => {
     if (Object.keys(updateData).length > 0) {
       await prisma.user.update({
         where: { uuid: adminId },
-        data: updateData
+        data: { 
+          ...updateData,
+          authVersion: { increment: 1 } // 🔥 Invalidate all old sessions on credential change
+        }
       });
 
       // Log the change
@@ -130,7 +133,11 @@ exports.updateBranchCredentials = async (req, res) => {
 
     await prisma.user.update({
       where: { id: manager.id },
-      data: updateData
+      data: {
+        ...updateData,
+        authVersion: { increment: 1 }, // 🔥 Force relogin if password changed
+        permissionVersion: { increment: 1 } // 🔥 Refresh permissions
+      }
     });
 
     // Log the change

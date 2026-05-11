@@ -2,7 +2,7 @@ const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const logger = require('../utils/logger');
 const prisma = require('../lib/prisma');
-const redis = require('../lib/redis');
+const { cache: redis } = require('../lib/redis'); 
 const auditService = require('./auditService');
 
 const {
@@ -15,431 +15,159 @@ const {
   JWT_PUBLIC_KEY
 } = require('../config/secrets');
 
-// Keys are now loaded from secrets.js directly in the destructuring block above.
 const PRIVATE_KEY = JWT_PRIVATE_KEY;
 const PUBLIC_KEY = JWT_PUBLIC_KEY;
 
 /**
- * Enterprise Token Service (Level 4 Security)
- * Handles generation, Redis-backed session management, and JTI rotation.
+ * 🏰 Enterprise Token Service (Hardened v3)
+ * Implements Session Registry, Auth/Permission Versioning, and Hybrid Fallback.
  */
 class TokenService {
-  /**
-   * Generates a signed Access Token for short-term authorization
-   */
   static generateAccessToken(user, jti) {
     return jwt.sign(
       { 
         id: user.uuid, 
-        phone: user.phone,
         role: user.role || 'customer',
         branchId: user.branchId || null,
-        jti: jti // Bind to session
+        sid: jti, 
+        av: user.authVersion || 1, 
+        pv: user.permissionVersion || 1, 
+        iat: Math.floor(Date.now() / 1000)
       },
       PRIVATE_KEY,
       { algorithm: 'RS256', expiresIn: ACCESS_TOKEN_EXPIRY }
     );
   }
 
-  /**
-   * Generates AND SAVES a signed Refresh Token to Redis.
-   * 🛡️ JTI-based Session Store: Allows instant revocation and multi-device tracking.
-   */
-  static async generateAndSaveRefreshToken(user, familyId = null, fingerprint = null) {
+  static async generateAndSaveRefreshToken(user, context = {}) {
     const role = user.role || 'customer';
-    const jti = uuidv4(); // Unique Session Identifier
-    const family = familyId || uuidv4(); // Token Family for Replay Detection
+    const jti = uuidv4(); 
+    const family = context.familyId || uuidv4();
     const userId = user.uuid;
 
     const token = jwt.sign(
-      { id: userId, role: role, jti: jti },
+      { id: userId, role, jti },
       REFRESH_TOKEN_SECRET,
       { expiresIn: REFRESH_TOKEN_EXPIRY }
     );
 
-    // 🚀 Store in Redis: Hot Storage for Active Sessions
     const sessionKey = `session:${userId}:${jti}`;
     const sessionData = {
-      jti,
-      userId,
+      sid: jti,
+      uid: userId,
       role,
       branchId: user.branchId || null,
-      fingerprint: fingerprint, // 🛡️ Bind to fingerprint in Redis
+      av: user.authVersion || 1,
+      pv: user.permissionVersion || 1,
+      ip: context.ip || 'unknown',
+      ua: context.userAgent || 'unknown',
+      fingerprint: context.fingerprint || null,
       createdAt: new Date().toISOString()
     };
 
-    // Save to Redis with expiry (matched to Refresh Token duration)
     const ttlSeconds = Math.floor(REFRESH_TOKEN_EXPIRY_MS / 1000);
     await redis.set(sessionKey, JSON.stringify(sessionData), 'EX', ttlSeconds);
+    await redis.sadd(`user_sessions:${userId}`, jti);
+    await redis.expire(`user_sessions:${userId}`, ttlSeconds);
 
-    // 📊 Backup to DB: Cold Storage (Security Truth)
     await prisma.refreshToken.create({
       data: {
         token,
-        userId: userId,
+        userId,
         role,
-        jti: jti,
+        jti,
         tokenFamily: family,
-        fingerprint: fingerprint,
+        fingerprint: context.fingerprint,
         expiresAt: new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS)
       }
-    }).catch(e => logger.error('Cold storage backup failed', { error: e.message }));
+    }).catch(e => logger.error('[TokenService] DB backup failed', { error: e.message }));
 
     return { token, jti, family };
   }
 
-  /**
-   * Verifies an Access Token and returns the decoded payload
-   */
+  static async validateAndRotate(oldTokenString, clientIp = 'unknown', currentFingerprint = null) {
+    const decoded = jwt.verify(oldTokenString, REFRESH_TOKEN_SECRET);
+    const { id: userId, jti: oldJti, role } = decoded;
+
+    const sessionKey = `session:${userId}:${oldJti}`;
+    const sessionDataRaw = await redis.get(sessionKey);
+    
+    if (!sessionDataRaw) throw new Error('SESSION_EXPIRED');
+    const sessionData = JSON.parse(sessionDataRaw);
+
+    // 🛡️ Security Checks
+    if (sessionData.fingerprint && currentFingerprint && sessionData.fingerprint !== currentFingerprint.hash) {
+      await this.revokeAllUserSessions(userId);
+      throw new Error('SECURITY_BREACH');
+    }
+
+    // Resolve User for fresh versions
+    let user = await prisma.user.findUnique({ where: { uuid: userId } });
+    if (!user) user = await prisma.customer.findUnique({ where: { uuid: userId } });
+
+    if (!user || !user.isActive) throw new Error('USER_INACTIVE');
+
+    // Atomic Rotation
+    const { token: newRefreshToken, jti: newJti } = await this.generateAndSaveRefreshToken(user, {
+      ip: clientIp,
+      fingerprint: currentFingerprint?.hash
+    });
+    const accessToken = this.generateAccessToken(user, newJti);
+
+    // Remove old session
+    await redis.del(sessionKey);
+    await redis.srem(`user_sessions:${userId}`, oldJti);
+
+    return { accessToken, newRefreshToken: { token: newRefreshToken }, user };
+  }
+
+  static async validateSessionState(decoded) {
+    const { id: userId, sid: jti, av: tokenAv, pv: tokenPv } = decoded;
+    const sessionKey = `session:${userId}:${jti}`;
+    let sessionData = await redis.get(sessionKey);
+
+    if (sessionData) {
+      sessionData = JSON.parse(sessionData);
+      if (sessionData.av !== tokenAv || sessionData.pv !== tokenPv) return { valid: false, reason: 'VERSION_DRIFT' };
+      return { valid: true, session: sessionData };
+    }
+
+    // Authority Fallback
+    let user = await prisma.user.findUnique({ where: { uuid: userId }, select: { authVersion: true, permissionVersion: true, isActive: true, role: true, branchId: true } });
+    if (!user) user = await prisma.customer.findUnique({ where: { uuid: userId }, select: { authVersion: true, permissionVersion: true, isActive: true, role: true } });
+
+    if (!user || !user.isActive) return { valid: false, reason: 'USER_INACTIVE' };
+    if (user.authVersion !== tokenAv || user.permissionVersion !== tokenPv) return { valid: false, reason: 'STATE_INVALIDATED' };
+
+    await redis.set(sessionKey, JSON.stringify({ sid: jti, uid: userId, role: user.role, branchId: user.branchId, av: user.authVersion, pv: user.permissionVersion }), 'EX', 3600);
+    return { valid: true };
+  }
+
   static verifyAccessToken(token) {
     try {
-      const decoded = jwt.verify(token, PUBLIC_KEY, { algorithms: ['RS256'] });
-      if (!decoded || typeof decoded !== 'object') {
-        throw new Error('INVALID_TOKEN_PAYLOAD');
-      }
-      return decoded;
+      return jwt.verify(token, PUBLIC_KEY, { algorithms: ['RS256'] });
     } catch (error) {
-      if (error.name === 'TokenExpiredError') {
-        throw new Error('TOKEN_EXPIRED');
-      }
-      throw new Error('INVALID_TOKEN');
+      throw new Error(error.name === 'TokenExpiredError' ? 'TOKEN_EXPIRED' : 'INVALID_TOKEN');
     }
   }
 
-  /**
-   * Implements Secure Rotation & Abuse Detection with Redis Session Validation
-   * 🛡️ Enhanced with a 30s Idempotent Grace Period and Device Fingerprinting.
-   */
-  static async validateAndRotate(oldTokenString, clientIp = 'unknown', currentFingerprint = null) {
-    try {
-      // 🛡️ Pre-validation Sanitization
-      if (!oldTokenString || typeof oldTokenString !== 'string' || !oldTokenString.includes('.')) {
-        throw new Error('MALFORMED_TOKEN_FORMAT');
-      }
-
-      // 1. JWT Standard Verification
-      const decoded = jwt.verify(oldTokenString, REFRESH_TOKEN_SECRET);
-      const { id: userId, jti: oldJti, role } = decoded;
-
-      // 🛡️ [PHASE 1.5] Identity Integrity Check
-      if (!userId || !oldJti) {
-        logger.security('REFRESH_BLOCKED: Malformed token payload', { userId, oldJti });
-        throw new Error('MALFORMED_TOKEN_PAYLOAD');
-      }
-
-      // 🛡️ [PHASE 2] Rate Limit Check: Max 20 refresh attempts per 60 seconds
-      // (Increased from 10 to 20 to support multi-tab users safely)
-      const refreshRateLimitKey = `refresh:rate:${userId}`;
-      const refreshAttempts = await redis.incr(refreshRateLimitKey);
-      
-      // Set expiry only on first increment
-      if (refreshAttempts === 1) {
-        await redis.expire(refreshRateLimitKey, 60);
-      }
-
-      if (refreshAttempts > 20) {
-        logger.security('REFRESH_RATE_LIMIT_EXCEEDED', { 
-          userId, 
-          attempts: refreshAttempts,
-          ip: clientIp 
-        });
-        throw new Error('TOO_MANY_REFRESH_ATTEMPTS');
-      }
-
-      // 2. Redis Session Lookup (Source of Truth)
-      const sessionKey = `session:${userId}:${oldJti}`;
-      const sessionDataRaw = await redis.get(sessionKey);
-
-      if (!sessionDataRaw) {
-        // 🛡️ [SEC-FIX] DB Fallback & Replay Detection
-        const dbToken = await prisma.refreshToken.findUnique({ where: { jti: oldJti } });
-        
-        if (!dbToken || dbToken.isRevoked) {
-          logger.security('[REFRESH_BLOCKED] Attempt to use revoked or non-existent token.', { userId, oldJti });
-          throw new Error('SESSION_EXPIRED');
-        }
-
-        if (dbToken.isUsed) {
-          logger.security('[REPLAY_DETECTED] Critical: Token already used. Revoking entire family.', { userId, family: dbToken.tokenFamily });
-          await prisma.refreshToken.updateMany({
-            where: { tokenFamily: dbToken.tokenFamily },
-            data: { isRevoked: true }
-          });
-          await this.revokeAllSessions(userId);
-          await auditService.log({
-            userId,
-            action: 'SECURITY_BREACH',
-            status: 'FAIL',
-            severity: 'CRITICAL',
-            metadata: { reason: 'REPLAY_DETECTED', family: dbToken.tokenFamily }
-          }).catch(() => {});
-          throw new Error('SECURITY_BREACH');
-        }
-
-        // 🛡️ [PHASE 4] Device Binding Check
-        const storedFingerprint = dbToken.fingerprint;
-        if (storedFingerprint && currentFingerprint) {
-          if (storedFingerprint !== currentFingerprint.hash) {
-             logger.security('[FINGERPRINT_MISMATCH] Warning: Token used from unauthorized device (DB check).', { userId, oldJti });
-              await this.revokeAllSessions(userId);
-              await auditService.log({
-                userId,
-                action: 'SECURITY_BREACH',
-                status: 'FAIL',
-                severity: 'CRITICAL',
-                metadata: { reason: 'FINGERPRINT_MISMATCH_DB', jti: oldJti }
-              }).catch(() => {});
-              throw new Error('SECURITY_BREACH');
-          }
-        }
-
-        throw new Error('SESSION_REVOKED_OR_EXPIRED');
-      }
-
-      const sessionData = JSON.parse(sessionDataRaw);
-
-      // 🛡️ [PHASE 4] Redis-Level Fingerprint Check
-      if (sessionData.fingerprint && currentFingerprint) {
-        if (sessionData.fingerprint !== currentFingerprint.hash) {
-          logger.security('[FINGERPRINT_MISMATCH] Warning: Token used from unauthorized device (Redis check).', { userId, oldJti });
-          await this.revokeAllSessions(userId);
-          await auditService.log({
-            userId,
-            action: 'SECURITY_BREACH',
-            status: 'FAIL',
-            severity: 'CRITICAL',
-            metadata: { reason: 'FINGERPRINT_MISMATCH_REDIS', jti: oldJti }
-          }).catch(() => {});
-          throw new Error('SECURITY_BREACH');
-        }
-      }
-
-      // 🔄 [GRACE PERIOD LOGIC] Handle concurrent refresh requests (e.g. React StrictMode)
-      if (sessionData.status === 'ROTATED') {
-        // 🛡️ [SEC-FIX] Strict Dual Validation: IP + Fingerprint
-        const isSameIp = sessionData.rotatedIp === clientIp;
-        const isSameFingerprint = !sessionData.fingerprint || (currentFingerprint && sessionData.fingerprint === currentFingerprint.hash);
-
-        if (!isSameIp || !isSameFingerprint) {
-          logger.security('[REPLAY_ATTACK_DETECTED] Critical: Rotated token used from different device/IP.', { 
-            userId, 
-            oldJti, 
-            originalIp: sessionData.rotatedIp, 
-            newIp: clientIp,
-            fingerprintMatch: isSameFingerprint
-          });
-          
-          // 🚨 [PANIC-RESPONSE] Revoke all sessions immediately
-          await this.revokeAllSessions(userId);
-          await auditService.log({
-            userId,
-            action: 'SECURITY_BREACH',
-            status: 'FAIL',
-            severity: 'CRITICAL',
-            metadata: { reason: 'REPLAY_ATTACK_ROTATED_TOKEN', oldJti, newIp: clientIp }
-          }).catch(() => {});
-          throw new Error('SECURITY_BREACH');
-        }
-
-        // 🛡️ [SEC-FIX] Reduced Grace Window: 10s (Enough for concurrent UI retries, too short for hackers)
-        const rotatedAt = new Date(sessionData.rotatedAt).getTime();
-        if (Date.now() - rotatedAt > 10000) {
-          logger.warn('[REFRESH_GRACE_EXPIRED] Token reuse attempt outside 10s window', { userId, oldJti });
-          throw new Error('SESSION_EXPIRED');
-        }
-
-        logger.info('[REFRESH_GRACE_ACCEPTED] Idempotent retry handled successfully.', { 
-          userId, 
-          oldJti,
-          withinGracePeriod: true,
-          gracePeriodSeconds: 10
-        });
-
-        return { 
-          accessToken: sessionData.idempotentResponse.accessToken, 
-          newRefreshToken: { token: sessionData.idempotentResponse.refreshToken },
-          user: { uuid: userId, role }
-        };
-      }
-
-      // 3. Resolve Identity (Only if not rotated)
-      let user;
-      const isAdminRole = ['admin', 'branch_manager', 'manager'].includes(role);
-      
-      if (isAdminRole) {
-        user = await prisma.user.findFirst({ where: { uuid: userId } });
-      } else {
-        user = await prisma.customer.findFirst({ where: { uuid: userId } });
-      }
-
-      if (!user) throw new Error('USER_NOT_FOUND');
-
-      // 🛡️ [CRITICAL] Active Status & Token Version Guard
-      const isDisabled = (user.isActive === false) || (user.isBlacklisted === true);
-      const isVersionMismatch = decoded.tokenVersion && user.tokenVersion !== decoded.tokenVersion;
-
-      if (isDisabled || isVersionMismatch) {
-        const reason = isDisabled ? 'Account disabled/blacklisted' : 'Token version mismatch (Replay Attack?)';
-        logger.security(`Rotation blocked: ${reason}`, { userId });
-        
-        if (isVersionMismatch) {
-          const { captureSecurityEvent } = require('../config/sentry');
-          captureSecurityEvent(new Error(`REPLAY_ATTACK_DETECTED: ${reason}`), {
-            userId,
-            module: 'auth',
-            attackType: 'token_version_mismatch',
-            severity: 'critical',
-            ipAddress: clientIp
-          });
-          
-          await auditService.log({
-            userId,
-            action: 'AUTH_REPLAY_ATTACK',
-            status: 'FAIL',
-            severity: 'CRITICAL',
-            metadata: { 
-              reason, 
-              expectedVersion: user.tokenVersion, 
-              gotVersion: decoded.tokenVersion 
-            }
-          }).catch(() => {});
-        }
-
-        await this.revokeAllSessions(userId);
-        throw new Error(isDisabled ? 'ACCOUNT_DISABLED_OR_BLOCKED' : 'SESSION_EXPIRED');
-      }
-
-      // 4. ATOMIC ROTATION
-      // Find family from DB
-      const dbToken = await prisma.refreshToken.findUnique({ where: { jti: oldJti } });
-      
-      if (dbToken && dbToken.isUsed) {
-        logger.security('[REPLAY_DETECTED] Token used while session still in Redis. (Concurrent Attack?)', { userId, oldJti });
-        await this.revokeAllSessions(userId);
-        throw new Error('SECURITY_BREACH');
-      }
-
-      // 🛡️ [SEC-FIX] Device Binding Check (if session still in Redis)
-      if (dbToken && dbToken.fingerprint && currentFingerprint && dbToken.fingerprint !== currentFingerprint.hash) {
-        logger.security('[FINGERPRINT_MISMATCH] Rotation blocked: Device changed during session.', { userId, oldJti });
-        await this.revokeAllSessions(userId);
-        throw new Error('SECURITY_BREACH');
-      }
-
-      // Generate New Pair in the same family
-      const { token: newRefreshTokenString, jti: newJti } = await this.generateAndSaveRefreshToken(user, dbToken?.tokenFamily, currentFingerprint.hash);
-      const accessToken = this.generateAccessToken(user, newJti);
-
-      // Mark old as used in DB
-      if (dbToken) {
-        await prisma.refreshToken.update({
-          where: { id: dbToken.id },
-          data: { isUsed: true }
-        });
-      }
-
-      // 🕒 MARK AS ROTATED (Grace Period: 60s)
-      // Increased from 30s to 60s to handle slow networks/proxies
-      const gracePeriodData = {
-        status: 'ROTATED',
-        role: user.role || 'customer',
-        branchId: user.branchId || null,
-        rotatedAt: new Date().toISOString(),
-        rotatedIp: clientIp,
-        idempotentResponse: {
-          accessToken,
-          refreshToken: newRefreshTokenString
-        }
-      };
-      await redis.set(sessionKey, JSON.stringify(gracePeriodData), 'EX', 10);
-
-      logger.info('[REFRESH_ROTATION] Token successfully rotated.', { 
-        userId, 
-        oldJti, 
-        newJti,
-        ip: clientIp 
-      });
-
-      return { 
-        accessToken, 
-        newRefreshToken: { token: newRefreshTokenString }, 
-        user 
-      };
-    } catch (error) {
-      // 🛡️ [SEC-FIX] Preserve critical security signals
-      const criticalErrors = [
-        'SECURITY_BREACH', 
-        'TOO_MANY_REFRESH_ATTEMPTS', 
-        'ACCOUNT_DISABLED_OR_BLOCKED',
-        'MALFORMED_TOKEN_PAYLOAD'
-      ];
-      
-      if (criticalErrors.includes(error.message)) {
-        throw error;
-      }
-
-      logger.error('Token Rotation Failed', { error: error.message });
-      throw new Error('REFRESH_TOKEN_INVALID');
-    }
-  }
-
-  /**
-   * Manual Revocation (Logout)
-   */
   static async revokeToken(tokenString) {
     try {
       const decoded = jwt.verify(tokenString, REFRESH_TOKEN_SECRET);
-      const sessionKey = `session:${decoded.id}:${decoded.jti}`;
-      await redis.del(sessionKey);
-      await prisma.refreshToken.deleteMany({ where: { jti: decoded.jti } }).catch(() => {});
-    } catch (e) {
-      // Token might be malformed or already expired
+      await redis.del(`session:${decoded.id}:${decoded.jti}`);
+      await redis.srem(`user_sessions:${decoded.id}`, decoded.jti);
+    } catch (e) {}
+  }
+
+  static async revokeAllUserSessions(userId) {
+    const sessionsKey = `user_sessions:${userId}`;
+    const sids = await redis.smembers(sessionsKey);
+    if (sids.length > 0) {
+      const keysToDelete = sids.map(sid => `session:${userId}:${sid}`);
+      await redis.del(...keysToDelete, sessionsKey);
     }
-  }
-
-  /**
-   * Panic Revocation (Security Breach / Reset Password)
-   */
-  static async revokeAllSessions(userId) {
-    // 1. Clear Redis (Safe SCAN pattern matching)
-    const pattern = `session:${userId}:*`;
-    let cursor = '0';
-    let totalKeysFound = 0;
-
-    do {
-      const [newCursor, keys] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
-      cursor = newCursor;
-      if (keys.length > 0) {
-        await redis.del(...keys);
-        totalKeysFound += keys.length;
-      }
-    } while (cursor !== '0');
-
-    // 2. Clear DB Backup
-    await prisma.refreshToken.deleteMany({ where: { userId } }).catch(() => {});
-    
-    logger.info('Panic: All sessions revoked for user', { userId, totalKeysFound });
-  }
-
-  /**
-   * 🖥️ Fetch Active Sessions for a user
-   */
-  static async getActiveSessions(userId) {
-    const sessions = await prisma.refreshToken.findMany({
-      where: { userId, isRevoked: false, isUsed: false, expiresAt: { gt: new Date() } },
-      select: {
-        id: true,
-        jti: true,
-        createdAt: true,
-        expiresAt: true,
-        tokenFamily: true
-      },
-      orderBy: { createdAt: 'desc' }
-    });
-
-    return sessions;
+    await prisma.refreshToken.updateMany({ where: { userId }, data: { isRevoked: true } }).catch(() => {});
   }
 }
 
 module.exports = TokenService;
-

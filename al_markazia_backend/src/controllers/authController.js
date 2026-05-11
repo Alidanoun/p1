@@ -95,7 +95,6 @@ const refreshToken = async (req, res) => {
       req
     });
 
-    // ✅ Return both tokens (refreshToken is for mobile app storage)
     response.success(res, { 
       accessToken,
       refreshToken: newRefreshToken.token
@@ -254,8 +253,12 @@ const login = async (req, res) => {
     // 🛡️ [SEC-FIX] Device Fingerprinting
     const fingerprint = generateFingerprint(req);
 
-    // 🔐 [SEC-FIX] JTI-based Session Logic moved to TokenService
-    const { token: refreshToken, jti } = await TokenService.generateAndSaveRefreshToken(account, null, fingerprint.hash);
+    // 🔐 [SEC-FIX] JTI-based Session Logic
+    const { token: refreshToken, jti } = await TokenService.generateAndSaveRefreshToken(account, {
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+      fingerprint: fingerprint.hash
+    });
     const accessToken = TokenService.generateAccessToken(account, jti);
 
     // 🛡️ Cookie Hardening (Level 5 Security)
@@ -572,18 +575,29 @@ const resetPassword = async (req, res) => {
       if (isUser) {
         updatedAccount = await tx.user.update({
           where: { emailHash: targetHash },
-          data: { password: hashedPassword, failedAttempts: 0, lockUntil: null }
+          data: { 
+            password: hashedPassword, 
+            failedAttempts: 0, 
+            lockUntil: null,
+            authVersion: { increment: 1 } // 🔥 Invalidate all old sessions
+          }
         });
       } else {
         updatedAccount = await tx.customer.update({
           where: { emailHash: targetHash },
-          data: { password: hashedPassword, failedAttempts: 0, lockUntil: null }
+          data: { 
+            password: hashedPassword, 
+            failedAttempts: 0, 
+            lockUntil: null,
+            authVersion: { increment: 1 } // 🔥 Invalidate all old sessions
+          }
         });
       }
 
-      // 🔥 Revoke ALL old sessions (Security Best Practice)
-      await tx.refreshToken.deleteMany({
-        where: { userId: updatedAccount.uuid }
+      // 🔥 Revoke old refresh tokens in DB
+      await tx.refreshToken.updateMany({
+        where: { userId: updatedAccount.uuid },
+        data: { isRevoked: true }
       });
 
       // 📝 Audit Log

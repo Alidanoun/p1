@@ -105,3 +105,37 @@ exports.getSystemDiagnostics = async (req, res) => {
     res.status(500).json({ error: 'Internal Diagnostics Error' });
   }
 };
+/**
+ * 🛰️ Event Bus Health Monitor
+ * Reports on Redis Pub/Sub connectivity and distributed sync status.
+ */
+exports.getEventHealth = async (req, res) => {
+  try {
+    const { publisher, subscriber } = require('../lib/redis');
+    const os = require('os');
+
+    const health = {
+      instance: os.hostname(),
+      timestamp: new Date().toISOString(),
+      connections: {
+        publisher: publisher.status,
+        subscriber: subscriber.status
+      },
+      pubsub: {
+        channelsSubscribed: subscriber.condition?.subscriber?.channels?.length || 0,
+        db: subscriber.options.db
+      },
+      uptime: Math.floor(process.uptime())
+    };
+
+    const isHealthy = publisher.status === 'ready' && subscriber.status === 'ready';
+
+    res.json({
+      success: isHealthy,
+      data: health
+    });
+  } catch (err) {
+    logger.error('Event Health Check Failed', { error: err.message });
+    res.status(500).json({ success: false, error: 'Internal Health Check Error' });
+  }
+};

@@ -807,8 +807,8 @@ class OrderService {
     // 0. Fetch Dynamic Business Policies
     const config = await configService.getFullConfig();
 
-    // 1. 🛡️ Branch Access Control (Cross-Branch Guard)
-    const targetBranchId = await this._resolveBranchId(data.branchId || data.branch);
+    // 1. 🛡️ Canonical Branch Resolution (Security Boundary)
+    const targetBranchId = await this._resolveBranchId(data.branchId || data.branch, authUser?.id);
 
     // 1.6 🛡️ [DEFENSE-IN-DEPTH] Service-Level Branch Authorization
     // This check runs INSIDE the service, independent of any middleware.
@@ -843,16 +843,7 @@ class OrderService {
       }
     }
 
-    // 1.7 🛡️ [RACE-CONDITION-GUARD] Re-verify branch is still active
-    // Protects against branch being deactivated between middleware check and order creation
-    const branchStatus = await this.prisma.branch.findUnique({
-      where: { id: targetBranchId },
-      select: { isActive: true, name: true }
-    });
-    
-    if (!branchStatus || !branchStatus.isActive) {
-      throw new Error(`BRANCH_CLOSED: ${branchStatus?.name || 'Unknown'}`);
-    }
+    // [V3 SECURITY-FIX] Branch Operational Validation moved INSIDE transaction to prevent race conditions.
 
     // 2. 🛡️ Spam Protection (Multi-factor)
     await this._validateSpamLimits(resolvedCustomer.phone);
@@ -915,6 +906,22 @@ class OrderService {
 
     // 6. 💎 Atomic Transactional Persistence
     const { newOrder } = await this.prisma.$transaction(async (tx) => {
+      // 🛡️ [V3 SECURITY-FIX] Transactional Operational Check
+      const branchStatus = await tx.branch.findUnique({
+        where: { id: targetBranchId },
+        select: { 
+          isActive: true, 
+          operationalStatus: true, 
+          acceptingOrders: true, 
+          name: true,
+          operationalVersion: true 
+        }
+      });
+
+      if (!branchStatus || !branchStatus.isActive || branchStatus.operationalStatus !== 'OPEN' || !branchStatus.acceptingOrders) {
+        throw new Error(`BRANCH_NOT_OPERATIONAL: ${branchStatus?.name || 'Unknown'}`);
+      }
+
       const order = await tx.order.create({
         data: {
           orderNumber,
@@ -1138,53 +1145,56 @@ class OrderService {
   }
 
   /**
-   * 🏢 Helper: Resolves a branch ID from various inputs (ID, code, or fallback to default)
+   * 🛡️ Canonical Branch Resolver (Enterprise Guard)
+   * Exclusively accepts UUIDs. Enforces strict identity and operational safety.
    */
-  async _resolveBranchId(input) {
-    if (!input) {
-      throw new Error('BRANCH_REQUIRED: Order creation requires a valid branch context.');
+  async _resolveBranchId(input, userId = 'guest') {
+    if (!input || typeof input !== 'string') {
+      throw new Error('BRANCH_ID_REQUIRED');
     }
 
-    // 1. If it's already a valid UUID of an existing branch
-    if (input.length > 30) {
-      const branch = await this.prisma.branch.findUnique({ where: { id: input }, select: { id: true } });
-      logger.debug(`[_resolveBranchId] UUID check result for ${input}:`, { branch });
-      if (branch) return branch.id;
+    // 1. 🛡️ Syntax Check: Must be a valid UUID format
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(input)) {
+      await this._logInvalidBranchAttempt(userId, input, 'INVALID_FORMAT');
+      throw new Error('INVALID_BRANCH_IDENTIFIER: Only UUID is allowed for routing.');
     }
 
-    // 2. If it's a code (e.g. 'KHALDA' or 'CITY')
-    if (typeof input === 'string') {
-      let branch = await this.prisma.branch.findUnique({ where: { code: input }, select: { id: true } });
-      
-      // 🕵️ Fallback: Search by Name if code doesn't match (handles Arabic names from app)
-      if (!branch) {
-        logger.debug(`[_resolveBranchId] Code mismatch for "${input}", trying Name lookup...`);
-        branch = await this.prisma.branch.findFirst({ 
-          where: { 
-            OR: [
-              { name: { contains: input, mode: 'insensitive' } },
-              { name: input }
-            ]
-          }, 
-          select: { id: true } 
-        });
-      }
+    // 2. 🛡️ Registry Validation: Check existence in Canonical Registry
+    const branch = await this.prisma.branch.findUnique({ 
+      where: { id: input, isDeleted: false }, 
+      select: { id: true } 
+    });
 
-      // 🕵️ Extreme Fallback: Handle "فرع ..." prefix if app sends it
-      if (!branch && input.includes('فرع')) {
-        const cleanName = input.replace('فرع', '').trim();
-        branch = await this.prisma.branch.findFirst({
-          where: { name: { contains: cleanName, mode: 'insensitive' } },
-          select: { id: true }
-        });
-      }
-
-      logger.debug(`[_resolveBranchId] Resolution result for "${input}":`, { branch });
-      if (branch) return branch.id;
+    if (!branch) {
+      await this._logInvalidBranchAttempt(userId, input, 'NOT_FOUND');
+      throw new Error('BRANCH_NOT_FOUND: The targeted identity does not exist in the registry.');
     }
 
-    // 🚫 Strict Branch Context: If not found, reject order.
-    throw new Error('INVALID_BRANCH: The specified branch does not exist.');
+    return branch.id;
+  }
+
+  /**
+   * 🕵️ Security Audit: Log and Detect Branch Enumeration Attacks
+   */
+  async _logInvalidBranchAttempt(userId, providedId, reason) {
+    const redis = require('../lib/redis').cache;
+    const key = `sec:branch_enum:${userId}`;
+    
+    // Increment anomaly counter
+    const count = await redis.incr(key);
+    if (count === 1) await redis.expire(key, 3600); // 1-hour window
+
+    logger.security('INVALID_BRANCH_TARGET_ATTEMPT', { 
+      userId, 
+      providedId, 
+      reason, 
+      anomalyScore: count 
+    });
+
+    if (count > 10) {
+      logger.critical('BRANCH_ENUMERATION_DETECTED', { userId, count });
+    }
   }
 
   /**
@@ -1405,20 +1415,27 @@ class OrderService {
 
         if (order.status === newStatus) return mapOrderResponse(order);
 
-        // 🛡️ [SEC-FIX] Optimistic Locking Validation (If version was explicitly provided)
+        // 🛡️ [SEC-FIX] Optimistic Locking Validation
         if (version !== null && version !== undefined && order.version !== parseInt(version)) {
           throw new Error('CONCURRENCY_CONFLICT');
         }
 
         const previousStatus = order.status;
+        const currentVersion = order.version;
 
-        // 🛡️ [SEC-FIX] State Machine Validation (Enterprise Guard)
+        // 🛡️ [SEC-FIX] State Machine Validation
         validateTransition(previousStatus, newStatus, orderId, this.container.auditService, user);
 
         const { updatedOrder, _outboxId } = await this.prisma.$transaction(async (tx) => {
           const updated = await tx.order.update({
-            where: { id: order.id, version: order.version },
-            data: { status: newStatus, version: { increment: 1 }, eventSequence: { increment: 1 } },
+            where: { id: order.id, version: currentVersion },
+            data: { 
+              status: newStatus, 
+              version: { increment: 1 }, 
+              eventSequence: { increment: 1 },
+              previousVersion: currentVersion,
+              causedByEventId: user?.eventId || null 
+            },
             include: ORDER_INCLUDE_FULL
           });
 
@@ -1432,19 +1449,30 @@ class OrderService {
             }
           }
 
-          // 📮 Transactional Outbox Enqueue
-          const outboxService = require('./outboxService');
-          const outbox = await this.container.outboxService.enqueue(eventTypes.ORDER_STATUS_CHANGED, {
-            previousStatus,
-            newStatus,
-            order: {
-              ...mapOrderResponse(updated),
-              pointsEarned
-            }
-          }, tx);
+          // 📮 Authoritative Event Publication (Transactional Outbox)
+          const outbox = await this.container.eventPublisher.publishEvent({
+            type: 'ORDER_STATUS_CHANGED',
+            aggregateId: updated.id,
+            version: updated.version,
+            eventSequence: updated.eventSequence,
+            previousVersion: currentVersion,
+            causationId: user?.eventId || null,
+            payload: {
+              previousStatus,
+              newStatus,
+              order: {
+                ...mapOrderResponse(updated),
+                pointsEarned
+              }
+            },
+            metadata: { aggregateType: 'Order', tx } // 🛡️ Level 2: Atomic Persistence
+          });
 
           return { updatedOrder: updated, _outboxId: outbox.id };
         }, { timeout: 15000 });
+
+        // 💓 SDS 2.0 Wake-up Pulse: Trigger immediate background distribution
+        await this.container.outboxService.pulse();
 
         const mappedOrder = mapOrderResponse(updatedOrder);
 

@@ -22,6 +22,9 @@ module.exports = {
       return new RegExp(`^${escaped}$`);
     });
 
+    const { createAdapter } = require('@socket.io/redis-adapter');
+    const { publisher, subscriber } = require('./lib/redis');
+
     io = new Server(httpServer, {
       cors: {
         origin: (origin, callback) => {
@@ -40,7 +43,24 @@ module.exports = {
         credentials: true
       }
     });
+
+    // 📡 [CLUSTER-SYNC] Initialize Redis Adapter BEFORE any connections
+    // 📡 [CLUSTER-SYNC] Initialize Redis Adapter BEFORE any connections
+    io.adapter(createAdapter(publisher, subscriber));
+    logger.info('📡 Socket.io Redis Adapter enabled (Distributed Sockets Active)');
     
+    // --- 🛡️ SDS 3.0: Global Smart Broadcast Helper ---
+    io.broadcastSmart = async (room, type, payload) => {
+      const sockets = await io.in(room).fetchSockets();
+      for (const socket of sockets) {
+        if (socket.smartEmit) {
+          await socket.smartEmit(type, payload);
+        } else {
+          socket.emit(type, payload);
+        }
+      }
+    };
+
     // --- 🛡️ SECURITY: CSRF Protection Middleware (Double Cookie Pattern) ---
     io.use(async (socket, next) => {
       try {
@@ -154,6 +174,13 @@ module.exports = {
           branchId: dbIdentity?.branchId || null 
         };
 
+        // 🛡️ [SDS 2.0] Security Metadata Initialization
+        socket.data = {
+          authRooms: new Set(), // 🏛️ Managed Security Rooms (Zombie Room Killer)
+          leaseExpiresAt: Date.now() + (60 * 1000), // ⏱️ 60s Authorization Lease
+          lastSyncSequence: 0
+        };
+
         socket.on('disconnect', () => {
           const current = connections.get(userId) || 1;
           if (current <= 1) connections.delete(userId);
@@ -179,23 +206,92 @@ module.exports = {
 
       const { id: userId, role, branchId } = socket.user;
       
-      // 📊 [METRICS] Track activity
-      socket.use(([event, ...args], next) => {
-        const metadata = socketMetadata.get(socket.id);
-        if (metadata) metadata.messageCount++;
-        next();
+      // 🛡️ [SDS 2.0] Authorization Lease Middleware (Efficient Continuous Validation)
+      socket.use(async ([event, ...args], next) => {
+        try {
+          if (Date.now() > socket.data.leaseExpiresAt) {
+            // Lease expired, re-validate against Central Registry
+            await socket.recalculateRooms();
+          }
+          next();
+        } catch (err) {
+          logger.warn('[SDS 2.0] Lease validation failed, continuing in Degraded Mode', { error: err.message });
+          next(); // Allow in Degraded Mode (Tier 2 Resilience)
+        }
       });
 
       const { SOCKET_ROOMS, ROLES } = require('./shared/socketEvents');
 
-      // 🛡️ [PHASE 2] Real-Time Isolation Layer
-      const SecurityPolicyService = require('./services/securityPolicyService');
+      // 🛡️ [SDS 3.0] Smart Emitter with Backpressure Governance
+      socket.smartEmit = async (type, payload) => {
+        const { getGovernance, INTENTS } = require('./shared/eventGovernance');
+        const pressureService = require('./services/pressureService');
+        const gov = getGovernance(type);
+
+        // 1. 🩸 Check if event should be dropped (Adaptive Degradation)
+        if (pressureService.shouldDrop(gov.intent)) {
+          return; // Dropped silently for performance, tracked in pressureService metrics
+        }
+
+        // 2. 🐌 Slow Consumer Guard (Backpressure)
+        // If the socket output buffer is too full, we downgrade to Invalidation-only
+        if (socket.conn.transport.writable && socket.bufferedAmount > 512 * 1024) { // 512KB buffer limit
+          logger.warn(`🐌 [SlowConsumer] User ${userId} buffer full. Throttling...`);
+          if (gov.intent === INTENTS.BEST_EFFORT) return; // Drop non-essential
+          // Force Invalidation only (Strip full data from payload if present)
+          if (payload.order) payload = { action: 'INVALIDATE', aggregateId: payload.aggregateId };
+        }
+
+        // 3. 🛰️ Invalidation Coalescing (The Debouncer)
+        // Only debounce if we are under high load to keep normal latency zero.
+        if (gov.intent === INTENTS.INVALIDATION && pressureService.isCoalescingRequired()) {
+          const debounceKey = `debounce:${userId}:${type}:${payload.aggregateId}`;
+          if (socket.data[debounceKey]) {
+            clearTimeout(socket.data[debounceKey]);
+          }
+          
+          socket.data[debounceKey] = setTimeout(() => {
+            socket.emit(type, this.container.securityPolicyService.wrapPayload(payload));
+            delete socket.data[debounceKey];
+          }, 300); // 300ms Coalescing Window
+          return;
+        }
+
+        // 🚀 Normal Dispatch
+        socket.emit(type, this.container.securityPolicyService.wrapPayload(payload));
+      };
+
+      socket.recalculateRooms = async () => {
+        try {
+          // 1. Leave all managed auth rooms (The Zombie Room Killer)
+          for (const room of socket.data.authRooms) {
+            socket.leave(room);
+          }
+          socket.data.authRooms.clear();
+
+          // 2. Fetch LIVE snapshot (Central Registry)
+          const liveContext = await SecurityPolicyService.getTargetRooms(socket.user);
+          
+          // 3. Re-join valid rooms
+          for (const room of liveContext) {
+            await socket.joinManaged(room);
+          }
+
+          socket.data.leaseExpiresAt = Date.now() + (60 * 1000); // Reset lease
+          logger.debug(`[SDS 2.0] Rooms recalculated for user ${socket.user.id}`);
+        } catch (err) {
+          logger.error('[SDS 2.0] Room recalculation failed', { error: err.message });
+          // 🛡️ [DEGRADED-MODE] If Redis is down, we don't kill the connection
+          // but we also don't add back any branch rooms (Fail-Safe Restricted)
+        }
+      };
+
       const rooms = await SecurityPolicyService.getTargetRooms(socket.user);
+      for (const room of rooms) {
+        await socket.joinManaged(room);
+      }
       
-      rooms.forEach(room => {
-        socket.join(room);
-        logger.debug(`[Socket] User ${userId} joined room: ${room}`);
-      });
+      logger.debug(`🛡️ v2 Boundary Sync Complete for user ${userId} [${role}]`);
 
       // 👤 Private User Room (The ultimate boundary)
       socket.join(SOCKET_ROOMS.CUSTOMER(userId));
@@ -451,6 +547,30 @@ module.exports = {
       logger.debug('📡 [Socket Audit] Status', { activeClients: clientCount, activeRooms: roomCount });
     }, 5 * 60 * 1000);
 
+    // 🛡️ [SEC-FIX] Periodic Security Revalidation (Every 120s)
+    // Ensures long-lived sockets don't drift from DB security state.
+    setInterval(async () => {
+      const sockets = await io.fetchSockets();
+      for (const s of sockets) {
+        if (s.user) {
+          const validation = await TokenService.validateSessionState({
+            id: s.user.id,
+            sid: s.user.jti,
+            av: s.user.av,
+            pv: s.user.pv
+          });
+
+          if (!validation.valid) {
+            logger.security('📡 [Socket] Periodic validation failed. Notifying client.', { userId: s.user.id, reason: validation.reason });
+            s.emit('AUTH_REVALIDATE_REQUIRED', { reason: validation.reason });
+            
+            // Give client 10s to refresh/reconnect, then force disconnect
+            setTimeout(() => s.disconnect(true), 10000);
+          }
+        }
+      }
+    }, 120 * 1000);
+
     // Mark as ready and notify all waiting promises
     isReady = true;
     logger.info('📡 Socket.IO Server marked as READY');
@@ -458,6 +578,23 @@ module.exports = {
     readyResolvers = [];
 
     return io;
+  },
+
+  /**
+   * 🚨 Remote Revalidation Trigger
+   * Called by Event Handlers when global permissions change.
+   */
+  revalidateUser: async (userId) => {
+    if (!io) return;
+    const sockets = await io.fetchSockets();
+    const userSockets = sockets.filter(s => s.user?.id === userId);
+    
+    for (const s of userSockets) {
+      logger.info(`📡 [Socket] Remote revalidation triggered for user ${userId}`);
+      s.emit('AUTH_REVALIDATE_REQUIRED', { reason: 'PERMISSIONS_CHANGED' });
+      // Short grace period before enforcement
+      setTimeout(() => s.disconnect(true), 15000);
+    }
   },
 
   // 📊 [DIAGNOSTICS] Expose Stats

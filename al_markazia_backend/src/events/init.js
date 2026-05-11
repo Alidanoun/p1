@@ -1,38 +1,42 @@
 const logger = require('../utils/logger');
-const socketModule = require('../socket');
+const distributedBus = require('./distributedEventBus');
+const outboxService = require('../services/outboxService');
+const { subscriber } = require('../lib/redis');
 
 /**
- * 🚀 Central Event System Initializer
- * Ensures ALL handlers and services are properly wired to the EventBus.
- * 
- * 🛡️ RULE: No subscriptions before Socket.IO readiness.
+ * 🛰️ Global Event System Initializer (SDS 2.0)
  */
 async function init() {
-  logger.info('[EventSystem] 🏗️ Initializing Communication Pipeline...');
-
   try {
-    // 1. 🛡️ WAIT FOR SOCKET READY
-    // This solves the "io is null" race condition on server startup
-    await socketModule.waitReady();
-    logger.info('[EventSystem] ✅ Socket Layer Ready. Wiring Handlers...');
+    // 1. 📥 Initialize Global Distributed Fabric Listener
+    // This connects Redis Pub/Sub to the local application logic
+    await distributedBus.subscribe(async (event) => {
+      // Forward global events to the local event bus (EventEmitter)
+      // This allows local handlers (like SocketHandler) to remain decoupled
+      const localBus = require('./eventBus');
+      localBus.emit(event.type, event);
+      
+      logger.debug(`[SDS-Backbone] Global event ${event.type} received and routed locally`, { eventId: event.eventId });
+    });
 
-    // 2. Load Projections (Updates internal state/metrics)
-    require('./handlers/orderHandlers');
-    
-    // 3. Load Socket Handlers (Emits real-time events)
-    require('./handlers/socketHandler');
-    
-    // 4. Initialize Push Notification Engine (FCM + Multi-Channel Fallback)
-    const notificationService = require('../services/notificationService');
-    notificationService.init();
+    // 2. 💓 Initialize Transactional Wake-up Listener (Outbox Pulse)
+    // This instance will wake up and process pending outbox events when it hears a pulse
+    await subscriber.subscribe('outbox:pulse', async () => {
+      logger.debug('[SDS-Backbone] Outbox Pulse received. Dispatching pending events...');
+      await outboxService.dispatchPending();
+    });
 
-    // 5. 🔔 Activate Event Subscribers
-    require('../subscribers/notificationSubscriber');
+    // 3. 🛡️ Safety Net: Periodic Dispatch (Fallback for missed pulses)
+    setInterval(() => {
+      outboxService.dispatchPending().catch(err => {
+        logger.error('[SDS-Backbone] Fallback dispatch failed', { error: err.message });
+      });
+    }, 30000); // Every 30 seconds
 
-    logger.info('[EventSystem] 🚀 ALL REAL-TIME SYSTEMS ONLINE.');
+    logger.info('🛰️ [SDS-Backbone] Distributed Event Fabric & Outbox Worker Active');
   } catch (err) {
-    logger.error('[EventSystem] ❌ CRITICAL: Real-time Pipeline Initialization Failed', { error: err.message });
-    // In production, we might want to alert ops or retry, but for now, we log clearly.
+    logger.error('❌ [SDS-Backbone] Initialization failed', { error: err.message });
+    throw err;
   }
 }
 
