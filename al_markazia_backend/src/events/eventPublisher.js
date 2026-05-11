@@ -27,7 +27,8 @@ async function publishEvent({
     // 1. 🏗️ Level 2: Durable Persistence (Transactional Outbox)
     // We expect 'tx' to be provided if we are inside a transaction.
     const tx = metadata.tx || prisma; 
-    const outboxService = require('../services/outboxService');
+    const container = require('../lib/container');
+    const outboxService = container.outboxService;
     
     let persistedEvent = null;
     if (isCritical) {

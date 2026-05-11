@@ -1,6 +1,6 @@
 const logger = require('../utils/logger');
 const distributedBus = require('./distributedEventBus');
-const outboxService = require('../services/outboxService');
+const container = require('../lib/container');
 const { subscriber } = require('../lib/redis');
 
 /**
@@ -23,12 +23,12 @@ async function init() {
     // This instance will wake up and process pending outbox events when it hears a pulse
     await subscriber.subscribe('outbox:pulse', async () => {
       logger.debug('[SDS-Backbone] Outbox Pulse received. Dispatching pending events...');
-      await outboxService.dispatchPending();
+      await container.outboxService.dispatchPending();
     });
 
     // 3. 🛡️ Safety Net: Periodic Dispatch (Fallback for missed pulses)
     setInterval(() => {
-      outboxService.dispatchPending().catch(err => {
+      container.outboxService.dispatchPending().catch(err => {
         logger.error('[SDS-Backbone] Fallback dispatch failed', { error: err.message });
       });
     }, 30000); // Every 30 seconds
