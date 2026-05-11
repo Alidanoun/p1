@@ -251,14 +251,14 @@ module.exports = {
           }
           
           socket.data[debounceKey] = setTimeout(() => {
-            socket.emit(type, this.container.securityPolicyService.wrapPayload(payload));
+            socket.emit(type, SecurityPolicyService.wrapPayload(payload));
             delete socket.data[debounceKey];
           }, 300); // 300ms Coalescing Window
           return;
         }
 
         // 🚀 Normal Dispatch
-        socket.emit(type, this.container.securityPolicyService.wrapPayload(payload));
+        socket.emit(type, SecurityPolicyService.wrapPayload(payload));
       };
 
       socket.recalculateRooms = async () => {

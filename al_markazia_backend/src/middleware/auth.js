@@ -2,7 +2,7 @@ const logger = require('../utils/logger');
 const TokenService = require('../services/tokenService');
 const { error: responseError } = require('../utils/response');
 const { generateFingerprint } = require('../utils/security');
-const { cache: redis } = require('../lib/redis');
+const redis = require('../lib/redis');
 
 /**
  * 🏰 Enterprise Authentication Middleware (Hardened v3)
@@ -108,8 +108,20 @@ const requireRoles = (allowedRolesOrMinRole) => (req, res, next) => {
 const isAdmin = requireRoles(['admin']);
 const isManager = requireRoles(['admin', 'branch_manager', 'manager']);
 
+/**
+ * 🛡️ Optional Authentication
+ * Tries to authenticate the user but proceeds as guest if no token is present.
+ */
+const optionalAuth = async (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) return next(); // Proceed as guest
+  return authenticateToken(req, res, next);
+};
+
 module.exports = { 
   authenticateToken, 
+  optionalAuth,
   isAdmin, 
   isManager,
   hasPermission,
