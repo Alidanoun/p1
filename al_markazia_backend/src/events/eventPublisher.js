@@ -1,13 +1,4 @@
 const prisma = require('../lib/prisma');
-const eventBus = require('./eventBus');
-const logger = require('../utils/logger');
-
-/**
- * 📣 Event Publisher
- * Persists events to the Event Store (DB) and publishes them to the Bus.
- * This is the SINGLE gateway for creating system events.
- */
-const prisma = require('../lib/prisma');
 const distributedBus = require('./distributedEventBus');
 const logger = require('../utils/logger');
 const { v4: uuidv4 } = require('uuid');

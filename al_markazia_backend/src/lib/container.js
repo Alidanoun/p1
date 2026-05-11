@@ -94,6 +94,12 @@ const factories = {
   orderStateMachine: () => {
     const { OrderStateMachine } = require('../domain/orderStateMachine');
     return new OrderStateMachine(container.logger);
+  },
+  pressureService: () => {
+    const { PressureService } = require('../services/pressureService');
+    const instance = new PressureService(container);
+    instance.startMonitoring();
+    return instance;
   }
 };
 

@@ -91,4 +91,4 @@ class PressureService {
   }
 }
 
-module.exports = new PressureService();
+module.exports = { PressureService };

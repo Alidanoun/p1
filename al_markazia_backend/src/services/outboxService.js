@@ -1,6 +1,6 @@
 const prisma = require('../lib/prisma');
 const logger = require('../utils/logger');
-const { cache: redis } = require('../lib/redis');
+const redis = require('../lib/redis');
 
 /**
  * 📮 Outbox Service (SDS 2.0)
@@ -84,4 +84,4 @@ class OutboxService {
   }
 }
 
-module.exports = new OutboxService();
+module.exports = { OutboxService };

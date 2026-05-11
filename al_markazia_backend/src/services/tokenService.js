@@ -2,7 +2,7 @@ const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const logger = require('../utils/logger');
 const prisma = require('../lib/prisma');
-const { cache: redis } = require('../lib/redis'); 
+const redis = require('../lib/redis'); 
 const auditService = require('./auditService');
 
 const {

@@ -27,10 +27,14 @@ clients.forEach((client, index) => {
   });
 });
 
-module.exports = {
-  cache,
-  publisher,
-  subscriber,
-  // Backward compatibility
-  getRedis: () => cache 
-};
+/**
+ * 🛰️ Hybrid Redis Export
+ * Exports the Primary Cache client directly to preserve backward compatibility,
+ * while attaching Publisher and Subscriber as properties for Distributed State (SDS).
+ */
+cache.cache = cache;
+cache.publisher = publisher;
+cache.subscriber = subscriber;
+cache.getRedis = () => cache;
+
+module.exports = cache;
