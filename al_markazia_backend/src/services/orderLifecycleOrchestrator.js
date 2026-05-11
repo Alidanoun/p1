@@ -57,11 +57,17 @@ class OrderLifecycleOrchestrator {
       }
 
       // C. 📮 Canonical Audit & Outbox
-      const outbox = await this.container.outboxService.enqueue(eventTypes.ORDER_STATUS_CHANGED, {
-        previousStatus: order.status,
-        newStatus,
-        order: { ...mapOrderResponse(updated), pointsEarned }
-      }, tx, updated.eventSequence);
+      const outbox = await this.container.outboxService.enqueue(tx, {
+        type: eventTypes.ORDER_STATUS_CHANGED,
+        aggregateId: order.id,
+        aggregateType: 'Order',
+        payload: {
+          previousStatus: order.status,
+          newStatus,
+          order: { ...mapOrderResponse(updated), pointsEarned }
+        },
+        eventSequence: updated.eventSequence
+      });
 
       return { updated, outboxId: outbox.id };
     }, { timeout: 15000 });

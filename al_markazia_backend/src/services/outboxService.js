@@ -82,6 +82,33 @@ class OutboxService {
       await redis.del(lockKey);
     }
   }
+  /**
+   * ⚡ Immediate Dispatch: Manually trigger dispatch for a specific event
+   * Used for latency-sensitive operations to bypass the pulse/poll delay.
+   */
+  async immediateDispatch(eventId) {
+    try {
+      const event = await prisma.outboxEvent.findUnique({ where: { id: eventId } });
+      if (!event || event.status !== 'PENDING') return;
+
+      const distributedBus = require('../events/distributedEventBus');
+      await distributedBus.publish(event.type, event.payload, {
+        eventId: event.id,
+        aggregateId: event.aggregateId,
+        aggregateType: event.aggregateType,
+        version: event.version,
+        eventSequence: event.eventSequence,
+        metadata: event.metadata
+      });
+
+      await prisma.outboxEvent.update({
+        where: { id: event.id },
+        data: { status: 'DISPATCHED', processedAt: new Date() }
+      });
+    } catch (err) {
+      logger.error(`[OutboxService] Immediate dispatch failed for ${eventId}`, { error: err.message });
+    }
+  }
 }
 
 module.exports = { OutboxService };

@@ -110,8 +110,12 @@ class WalletService {
     const resultData = { ledgerEntry, customerId, amount, balanceAfter };
 
     // 📮 [RESILIENCE-FIX] Transactional Outbox Enqueue
-    const outboxService = require('./outboxService');
-    await outboxService.enqueue('wallet.credited', resultData, tx);
+    await this.container.outboxService.enqueue(tx, {
+      type: 'wallet.credited',
+      aggregateId: customerId,
+      aggregateType: 'Customer',
+      payload: resultData
+    });
 
     // 📊 [METRICS-FIX] Track financial volume
     const metricsService = require('./metricsService');
@@ -187,8 +191,12 @@ class WalletService {
     const resultData = { ledgerEntry, customerId, amount, balanceAfter };
 
     // 📮 [RESILIENCE-FIX] Transactional Outbox Enqueue
-    const outboxService = require('./outboxService');
-    await outboxService.enqueue('wallet.debited', resultData, tx);
+    await this.container.outboxService.enqueue(tx, {
+      type: 'wallet.debited',
+      aggregateId: customerId,
+      aggregateType: 'Customer',
+      payload: resultData
+    });
 
     // 📊 [METRICS-FIX] Track financial volume
     const metricsService = require('./metricsService');

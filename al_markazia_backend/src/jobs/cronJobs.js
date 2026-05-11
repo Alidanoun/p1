@@ -146,10 +146,8 @@ function initCronJobs(io = null) {
   setInterval(async () => {
     await withLock('outbox_dispatcher', 10, async () => {
       try {
-        const outboxService = require('../services/outboxService');
-        await outboxService.processPending();
-        // Periodically retry failed ones
-        if (Math.random() < 0.1) await outboxService.retryFailed(); 
+        const container = require('../lib/container');
+        await container.outboxService.dispatchPending();
       } catch (err) {
         // Silently log outbox errors to avoid spamming cron logs
         logger.error('[Outbox] Background dispatch failed', { error: err.message });
