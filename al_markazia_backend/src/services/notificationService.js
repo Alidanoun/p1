@@ -196,12 +196,15 @@ class NotificationService {
     const io = this._getIO();
     if (!io) return false;
 
-    const { mapOrderResponse } = require('../mappers/order.mapper');
-    const { SOCKET_EVENTS } = require('../shared/socketEvents');
     const payload = {
-      ...((order && order.id !== 0) ? mapOrderResponse(order) : {}),
-      id: String(notif.id),
-      notification: { title: notif.title, message: notif.message },
+      action: 'INVALIDATE', // 🛡️ Strategic Consistency Signal
+      aggregateType: 'Order',
+      aggregateId: order?.id || notif.orderId || null,
+      version: order?.version || 1,
+      eventSequence: order?.eventSequence || 1,
+      previousVersion: order?.previousVersion || 0,
+      causedByEventId: order?.causedByEventId || null,
+      notification: { title: notif.title, message: notif.message, type: notif.type },
       timestamp: Date.now()
     };
 
@@ -220,12 +223,12 @@ class NotificationService {
     if (target.isToAdmin) {
       const execEvent = SOCKET_EVENTS.EXEC_ORDER_UPDATED;
       const finalPayload = this.container.securityPolicyService.wrapPayload(payload);
-      targetRooms.forEach(room => io.to(room).emit(execEvent, finalPayload));
+      targetRooms.forEach(room => io.broadcastSmart(room, execEvent, finalPayload));
     }
     
     if (target.isToCustomer && eventMeta.customerUuid) {
       const { SOCKET_ROOMS } = require('../shared/socketEvents');
-      io.to(SOCKET_ROOMS.CUSTOMER(eventMeta.customerUuid)).emit(SOCKET_EVENTS.CUSTOMER_ORDER_UPDATED, this.container.securityPolicyService.wrapPayload(payload));
+      io.broadcastSmart(SOCKET_ROOMS.CUSTOMER(eventMeta.customerUuid), SOCKET_EVENTS.CUSTOMER_ORDER_UPDATED, this.container.securityPolicyService.wrapPayload(payload));
     }
     return true;
   }

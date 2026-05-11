@@ -7,57 +7,70 @@ const logger = require('../utils/logger');
  * Persists events to the Event Store (DB) and publishes them to the Bus.
  * This is the SINGLE gateway for creating system events.
  */
+const prisma = require('../lib/prisma');
+const distributedBus = require('./distributedEventBus');
+const logger = require('../utils/logger');
+const { v4: uuidv4 } = require('uuid');
+
+/**
+ * 📣 Unified Event Publisher
+ * The single source of truth for creating and distributing system events.
+ * Supports Hybrid Flow: Outbox (Persistent) + Redis Pub/Sub (Real-time).
+ */
 async function publishEvent({
   type,
   aggregateId,
   payload,
-  version,
+  version = 1,
+  eventSequence = 1,
+  previousVersion = 0,
   metadata = {},
-  tenantId = 'default-restaurant'
+  isCritical = true,
+  correlationId = null,
+  causationId = null
 }) {
   try {
-    // 🛡️ [DEDUPLICATION LAYER] Prevent replay of the same aggregate version
-    if (aggregateId && version) {
-      const redis = require('../lib/redis');
-      const dedupKey = `event_dedup:${type}:${aggregateId}:${version}`;
-      
-      const cachedEvent = await redis.get(dedupKey);
-      if (cachedEvent) {
-        logger.warn(`[EventPublisher] 🛡️ Duplicate event detected: ${dedupKey}. Returning cached version.`);
-        return JSON.parse(cachedEvent);
-      }
-    }
+    const eventId = uuidv4();
+    const corrId = correlationId || metadata.correlationId || uuidv4();
 
-    // 1. Persist to DB (Source of Truth)
-    const event = await prisma.event.create({
-      data: {
+    // 1. 🏗️ Level 2: Durable Persistence (Transactional Outbox)
+    // We expect 'tx' to be provided if we are inside a transaction.
+    const tx = metadata.tx || prisma; 
+    const outboxService = require('../services/outboxService');
+    
+    let persistedEvent = null;
+    if (isCritical) {
+      persistedEvent = await outboxService.enqueue(tx, {
         type,
-        aggregateId: parseInt(aggregateId),
-        aggregateType: 'order',
-        payload: payload || {},
-        metadata: metadata || {},
-        version: version || 1,
-        tenantId: tenantId || 'default-restaurant'
-      },
-    });
-
-    // 2. Cache in Redis (TTL: 1 hour)
-    if (aggregateId && version) {
-      const redis = require('../lib/redis');
-      const dedupKey = `event_dedup:${type}:${aggregateId}:${version}`;
-      await redis.setex(dedupKey, 3600, JSON.stringify(event));
+        aggregateId,
+        aggregateType: metadata.aggregateType || 'unknown',
+        payload,
+        version,
+        eventSequence,
+        metadata: { ...metadata, correlationId: corrId, causationId }
+      });
+      
+      // 💓 Pulse: Trigger immediate background processing AFTER transaction commit
+      // In a real app, you might use a hook. Here we pulse immediately.
+      // If we are NOT in a tx, we pulse now. If we ARE, the caller should pulse.
+      if (!metadata.tx) {
+        setImmediate(() => outboxService.pulse());
+      }
+    } else {
+      // 🚀 Level 1: Fast Transport (Non-critical events only)
+      await distributedBus.publish(type, payload, {
+        version,
+        eventSequence,
+        previousVersion,
+        correlationId: corrId,
+        causationId: causationId || metadata.eventId || null,
+        isCritical
+      });
     }
 
-    // 3. Publish to memory bus (for real-time handlers: Socket, FCM, etc.)
-    try {
-      await eventBus.publish(event);
-    } catch (busErr) {
-      logger.error(`[EventPublisher] Bus publication failed for ${type}`, { error: busErr.message });
-    }
-
-    return event;
+    return persistedEvent || { id: eventId, type, payload, metadata: { correlationId: corrId } };
   } catch (err) {
-    logger.error(`[EventPublisher] Failed to persist event ${type}`, { error: err.message, aggregateId });
+    logger.error(`[EventPublisher] Failed to publish event ${type}`, { error: err.message });
     throw err; 
   }
 }

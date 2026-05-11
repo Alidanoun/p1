@@ -1,82 +1,48 @@
+const EventEmitter = require('events');
 const logger = require('../utils/logger');
 
-class EventBus {
+/**
+ * 🌉 Local Event Bus (Dispatcher)
+ * This acts as the local transport layer within a single instance.
+ * It is fed by the DistributedEventBus (Redis Pub/Sub).
+ */
+class LocalEventBus extends EventEmitter {
   constructor() {
-    this.handlers = {};
+    super();
+    this.setMaxListeners(50); // Prevent memory leak warnings for many subscribers
   }
 
   /**
-   * Subscribe a handler to a specific event type.
-   */
-  subscribe(eventType, handler) {
-    if (!this.handlers[eventType]) {
-      this.handlers[eventType] = [];
-    }
-    this.handlers[eventType].push(handler);
-    // Use logger to ensure it shows in the standard logs
-    logger.info(`[EventBus] 📥 New Subscriber for: ${eventType} (Total: ${this.handlers[eventType].length})`);
-  }
-
-  /**
-   * Publish an event to all subscribers with 🛡️ Deduplication Guard.
+   * 📤 Publish an event to local subscribers
+   * This is typically called by the DistributedEventBus bridge.
    */
   async publish(event) {
-    const { type, metadata } = event;
-    const outboxId = metadata?.outboxId;
-
-    // 🛡️ [PHASE 4] Distributed Deduplication
-    if (outboxId) {
-      const redis = require('../lib/redis');
-      const dedupKey = `event_bus_dedup:${outboxId}`;
-      
-      // Atomic SET NX with 1 hour expiry
-      const acquired = await redis.set(dedupKey, 'processed', 'NX', 'EX', 3600);
-      if (!acquired) {
-        logger.reasoning(`Skipping event ${outboxId} (${type}) because it was already processed by another worker (Distributed Deduplication).`, { outboxId });
-        return;
-      }
-    }
-
-    const handlers = this.handlers[type] || [];
-    const globalHandlers = this.handlers['*'] || [];
-    const allHandlers = [...handlers, ...globalHandlers];
+    const { type, payload, metadata } = event;
     
-    logger.debug(`[EventBus] 📤 Publishing ${type} to ${allHandlers.length} handlers`);
-
-    const promises = allHandlers.map(async (handler, index) => {
-      try {
-        await handler(event);
-      } catch (err) {
-        logger.error(`[EventBus] ❌ Error in handler #${index} for ${type}:`, { error: err.message });
-      }
-    });
-
-    await Promise.all(promises);
-  }
-  /**
-   * 📬 Temporary Polyfill for Safe Redirect (Alias Layer)
-   */
-  async emitSafe(event, data = {}, ...args) {
-    return await this.publish({ type: event, payload: data });
-  }
-
-  on(event, handler) {
-    return this.subscribe(event, (evt) => handler(evt.payload));
+    logger.debug(`[LocalBus] 📤 Dispatching ${type}`, { eventId: metadata?.eventId });
+    
+    // We use emit() which is synchronous, but handlers can be async.
+    // To maintain the 'publish' interface compatibility, we return a resolved promise.
+    this.emit(type, { type, payload, metadata });
+    return Promise.resolve();
   }
 
   /**
-   * 👁️ Smart Global Event Tracing
+   * 📬 Compatibility Layer: Alias for 'on'
    */
-  onAny(handler) {
-    this.subscribe('*', handler);
+  subscribe(eventType, handler) {
+    this.on(eventType, handler);
+    logger.info(`[LocalBus] 📥 New Subscriber for: ${eventType}`);
+  }
+
+  /**
+   * 🧪 Legacy Alias: emitSafe
+   */
+  async emitSafe(type, payload = {}) {
+    return this.publish({ type, payload, metadata: { source: 'legacy-emit' } });
   }
 }
 
-const eventBusInstance = new EventBus();
+const localBus = new LocalEventBus();
 
-// Global Logger (Smart Tracing)
-// eventBusInstance.onAny((event) => {
-//   console.log('[EVENT TRACE] ⚡', event.type);
-// });
-
-module.exports = eventBusInstance;
+module.exports = localBus;

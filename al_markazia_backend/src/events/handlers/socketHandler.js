@@ -27,11 +27,11 @@ const emitBranchMetrics = (event, context) => {
   const branchMetrics = analyticsProjection.getMetrics(branchId);
   
   // 🏢 Broadcast to the specific branch room
-  io.to(SOCKET_ROOMS.MONITOR_BRANCH(branchId)).emit(SOCKET_EVENTS.DASHBOARD_METRICS_UPDATE, branchMetrics);
+  io.broadcastSmart(SOCKET_ROOMS.MONITOR_BRANCH(branchId), SOCKET_EVENTS.DASHBOARD_METRICS_UPDATE, branchMetrics);
   
   // 🌍 Also broadcast global metrics to the global monitor room
   const globalMetrics = analyticsProjection.getMetrics(null);
-  io.to(SOCKET_ROOMS.MONITOR_GLOBAL).emit(SOCKET_EVENTS.DASHBOARD_METRICS_UPDATE, globalMetrics);
+  io.broadcastSmart(SOCKET_ROOMS.MONITOR_GLOBAL, SOCKET_EVENTS.DASHBOARD_METRICS_UPDATE, globalMetrics);
   
   logger.debug(`[SocketHandler] Metrics updated for ${context} -> Branch: ${branchId} & Global`);
 };

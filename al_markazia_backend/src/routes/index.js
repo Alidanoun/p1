@@ -36,6 +36,7 @@ const branchRoutes = require('./branch');
 const auditRoutes = require('./audit');
 const notificationAdminRoutes = require('./notificationAdmin');
 const adminRatingsRoutes = require('./adminRatings');
+const syncRoutes = require('./sync');
 
 // ─── Route Mounting ─────────────────────────────────────────
 // Core Business
@@ -66,6 +67,7 @@ router.use('/happyhour', happyHourRoutes);
 const path = require('path');
 router.use('/uploads', express.static(path.join(__dirname, '../../uploads')));
 router.use('/system', systemRoutes);
+router.use('/sync', syncRoutes);
 router.use('/admin/audit', auditRoutes);
 router.use('/admin/notifications', notificationAdminRoutes);
 router.use('/admin/ratings', adminRatingsRoutes);

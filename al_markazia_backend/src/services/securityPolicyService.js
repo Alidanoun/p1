@@ -418,62 +418,48 @@ class SecurityPolicyService {
   }
 
   /**
-   * 🛡️ Invalidate User Permissions Cache
+   * 🛡️ Invalidate User Permissions Cache (Distributed Version)
+   * This is the authoritative way to revoke or update user access.
    */
   async invalidateUserPermissions(userId) {
     const redis = this.redis;
+    const prisma = this.prisma;
     const logger = this.logger;
-    const cacheKey = `user:branches:${userId}`;
-    await redis.del(cacheKey);
-    logger.warn('[SECURITY] Permissions invalidated', { userId, timestamp: Date.now() });
+    const { publishEvent } = require('../events/eventPublisher');
 
-    // 📡 Active Boundary Re-sync
+    logger.warn('[SECURITY] Initializing Distributed Permission Invalidation', { userId });
+
     try {
-      const io = require('../socket').getIO();
-      const { SOCKET_ROOMS } = require('../shared/socketEvents');
-      if (!io) return;
+      // 1. 🏛️ Authority Update: Increment Version in DB
+      let updatedUser = await prisma.user.update({
+        where: { uuid: userId },
+        data: { permissionVersion: { increment: 1 } },
+        select: { id: true, role: true }
+      }).catch(() => null);
 
-      const userRoom = SOCKET_ROOMS.CUSTOMER(userId);
-      const sockets = await io.in(userRoom).fetchSockets();
-
-      for (const socket of sockets) {
-        logger.info(`[SecurityPolicy] Force-syncing rooms for socket ${socket.id} (User: ${userId})`);
-        
-        // 1. Refresh socket user context (to avoid stale role/branchId)
-        const prisma = this.prisma;
-        const freshUser = await prisma.user.findUnique({
+      if (!updatedUser) {
+        // Try customer table if user not found
+        await prisma.customer.update({
           where: { uuid: userId },
-          select: { id: true, role: true, branchId: true }
-        });
-
-        if (freshUser) {
-          socket.user = { 
-            ...socket.user, 
-            role: freshUser.role.toLowerCase(), 
-            branchId: freshUser.branchId 
-          };
-        }
-
-        // 2. Leave all sensitive rooms
-        const currentRooms = Array.from(socket.rooms);
-        for (const room of currentRooms) {
-          if (room.startsWith('room:exec:') || room.startsWith('room:monitor:')) {
-            socket.leave(room);
-          }
-        }
-
-        // 3. Re-calculate and Join new rooms
-        const newRooms = await this.getTargetRooms(socket.user);
-        newRooms.forEach(room => socket.join(room));
-
-        // 4. Notify client of the sync
-        socket.emit('permissions:synced', { 
-          timestamp: Date.now(),
-          rooms: newRooms.filter(r => !r.startsWith('room:user:')) 
-        });
+          data: { permissionVersion: { increment: 1 } }
+        }).catch(() => null);
       }
+
+      // 2. 🏮 Fast Layer Purge: Delete Redis cache
+      const cacheKey = `user:branches:${userId}`;
+      await redis.del(cacheKey);
+
+      // 3. 🛰️ Broadcast: Notify all instances via Distributed Event Bus
+      await publishEvent({
+        type: 'USER_PERMISSIONS_CHANGED',
+        aggregateId: null,
+        payload: { userId, reason: 'ADMIN_ACTION' },
+        isCritical: true
+      });
+
+      logger.info('[SECURITY] Distributed Invalidation Dispatch Success', { userId });
     } catch (err) {
-      logger.error('[SecurityPolicy] Failed to force-sync socket rooms', { userId, error: err.message });
+      logger.error('[SECURITY] Critical: Distributed Invalidation Failed', { userId, error: err.message });
     }
   }
 }

@@ -29,6 +29,9 @@ model User {
   fcmToken     String?
   uuid         String   @unique @default(uuid())
   tokenVersion Int      @default(1)
+  authVersion  Int      @default(1)
+  permissionVersion Int @default(1)
+  sessionEpoch      Int @default(1)
   failedAttempts Int     @default(0)
   lockUntil      DateTime?
 
@@ -226,7 +229,10 @@ model Order {
   createdAt              DateTime           @default(now())
   updatedAt              DateTime           @updatedAt
   version          Int                @default(1)
-  eventSequence    Int                @default(0)
+  eventSequence    Int                @default(1) // 🛡️ Monotonic scoped sequence for this specific aggregate
+  previousVersion  Int                @default(0) // 🔗 Link to previous state for causal tracking
+  causedByEventId  String?                        // 🕵️ Traceback to the event that triggered this state
+  snapshotEpoch    Int                @default(1) // 🏛️ Resync boundary for major resets
   isDeleted        Boolean            @default(false)
   pointsAwarded    Boolean            @default(false)
   deletedAt        DateTime?
@@ -328,12 +334,17 @@ model Customer {
   blacklistSeverity   String             @default("LOW")
   riskScore           Float              @default(0)
   riskScoreUpdatedAt  DateTime?
+  authVersion         Int                @default(1)
+  permissionVersion   Int                @default(1)
+  sessionEpoch        Int                @default(1)
   createdAt           DateTime           @default(now())
   emailVerifiedAt     DateTime?
   phoneVerifiedAt     DateTime?
   username            String?            @unique
   uuid                String             @unique @default(uuid())
   tokenVersion        Int                @default(1)
+  authVersion         Int                @default(1)
+  permissionVersion   Int                @default(1)
   failedAttempts      Int                @default(0)
   lockUntil           DateTime?
   auditLogs           CustomerAuditLog[]
@@ -759,14 +770,19 @@ model OrderModificationEvent {
 }
 
 model OutboxEvent {
-  id          String   @id @default(uuid())
-  type        String
-  payload     Json
-  status      String   @default("PENDING") // PENDING, DISPATCHED, FAILED
-  error       String?
-  retries     Int      @default(0)
-  processedAt DateTime?
-  createdAt   DateTime @default(now())
+  id             String    @id @default(uuid())
+  type           String
+  aggregateId    String?
+  aggregateType  String?
+  version        Int       @default(1)
+  eventSequence  Int       @default(1)
+  payload        Json
+  metadata       Json?
+  status         String    @default("PENDING") // PENDING, DISPATCHED, FAILED
+  error          String?
+  retries        Int       @default(0)
+  processedAt    DateTime?
+  createdAt      DateTime  @default(now())
 
   @@index([status, createdAt])
 }
@@ -817,14 +833,19 @@ model CustomerReward {
 model BranchMetric {
   id            String   @id @default(uuid())
   branchId      String   @unique
-  totalOrders   Int
-  activeOrders  Int
-  cancellations Int
-  revenue       Decimal  @db.Decimal(10, 2)
-  updatedAt     DateTime @updatedAt
-  version       Int      @default(1)
-  eventSequence Int      @default(0)
-  branch        Branch   @relation(fields: [branchId], references: [id])
+  id              String   @id @default(uuid())
+  branchId        String   @unique
+  totalOrders     Int
+  activeOrders    Int
+  cancellations   Int
+  revenue         Decimal  @db.Decimal(10, 2)
+  updatedAt       DateTime @updatedAt
+  version         Int      @default(1)
+  eventSequence   Int      @default(1) // 🛡️ Aggregate-scoped sequence
+  previousVersion Int      @default(0) // 🔗 Causal link
+  causedByEventId String?  // 🕵️ Traceability
+  snapshotEpoch   Int      @default(1) // 🏛️ Resync boundary
+  branch          Branch   @relation(fields: [branchId], references: [id])
 }
 
 model AwardedLoyaltyPoints {
