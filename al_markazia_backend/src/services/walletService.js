@@ -8,6 +8,11 @@ const { toNumber } = require('../utils/number');
  * Handles all wallet transactions and maintains the IMMUTABLE Financial Ledger.
  */
 class WalletService {
+  constructor(container) {
+    this.container = container;
+    this.prisma = container.prisma;
+    this.logger = container.logger;
+  }
 
   /**
    * ➕ Credit Wallet (with Idempotency Protection)
@@ -36,26 +41,17 @@ class WalletService {
    */
   async _verifyIntegrity(customerId, tx) {
     const customer = await tx.customer.findUnique({ where: { id: customerId }, select: { walletBalance: true } });
-    if (!customer) return; // New customer or deleted
+    if (!customer) return; 
 
-    const aggregates = await tx.financialLedger.groupBy({
-      by: ['type'],
-      where: { customerId },
-      _sum: { amount: true }
-    });
+    // 🔗 [PHASE 5] DERIVE TRUTH FROM LEDGER
+    const authoritativeBalance = await this.container.ledgerService.calculateBalanceFromLedger(customerId, tx);
 
-    let calculatedBalance = 0;
-    for (const group of aggregates) {
-      if (group.type === 'CREDIT') calculatedBalance += toNumber(group._sum.amount);
-      if (group.type === 'DEBIT') calculatedBalance -= toNumber(group._sum.amount);
-    }
-
-    const drift = Math.abs(calculatedBalance - toNumber(customer.walletBalance));
+    const drift = Math.abs(authoritativeBalance - toNumber(customer.walletBalance));
     if (drift > 0.01) {
       const controlPlane = require('./systemControlPlane');
       await controlPlane.raiseAlert('FINANCIAL_INTEGRITY_VIOLATION', { 
         customerId, 
-        calculated: calculatedBalance, 
+        authoritative: authoritativeBalance, 
         cached: customer.walletBalance,
         drift 
       });
@@ -85,20 +81,16 @@ class WalletService {
     const balanceBefore = toNumber(customer.walletBalance);
     const balanceAfter = balanceBefore + toNumber(amount);
 
-    // 3. Create Ledger Entry
-    const ledgerEntry = await tx.financialLedger.create({
-      data: {
-        customerId,
-        type: 'CREDIT',
-        category,
-        amount: toNumber(amount),
-        balanceBefore,
-        balanceAfter,
-        method: 'WALLET',
-        referenceId: String(referenceId),
-        description,
-        metadata: idempotencyKey ? { idempotencyKey } : {}
-      }
+    // 3. [PHASE 5] Create Immutable Ledger Entry via LedgerService
+    const ledgerEntry = await this.container.ledgerService.record(tx, {
+      customerId,
+      type: 'CREDIT',
+      category,
+      amount: toNumber(amount),
+      method: 'WALLET',
+      referenceId: String(referenceId),
+      description,
+      metadata: idempotencyKey ? { idempotencyKey } : {}
     });
 
     // 🛡️ [LINK-FIX] Link Approval if provided
@@ -166,20 +158,16 @@ class WalletService {
 
     const balanceAfter = balanceBefore - toNumber(amount);
 
-    // 2. Create Ledger Entry
-    const ledgerEntry = await tx.financialLedger.create({
-      data: {
-        customerId,
-        type: 'DEBIT',
-        category,
-        amount: toNumber(amount),
-        balanceBefore,
-        balanceAfter,
-        method: 'WALLET',
-        referenceId: String(referenceId),
-        description,
-        metadata: idempotencyKey ? { idempotencyKey } : {}
-      }
+    // 2. [PHASE 5] Create Immutable Ledger Entry via LedgerService
+    const ledgerEntry = await this.container.ledgerService.record(tx, {
+      customerId,
+      type: 'DEBIT',
+      category,
+      amount: toNumber(amount),
+      method: 'WALLET',
+      referenceId: String(referenceId),
+      description,
+      metadata: idempotencyKey ? { idempotencyKey } : {}
     });
 
     // 🛡️ [LINK-FIX] Link Approval if provided
@@ -215,33 +203,12 @@ class WalletService {
    * (Used if cache goes out of sync)
    */
   async reconcileBalance(customerId) {
-    return await prisma.$transaction(async (tx) => {
-      // 1. Get transaction sums grouped by type
-      const aggregates = await tx.financialLedger.groupBy({
-        by: ['type'],
-        where: { customerId },
-        _sum: { amount: true }
-      });
-
-      let calculatedBalance = 0;
-      for (const group of aggregates) {
-        if (group.type === 'CREDIT') {
-          calculatedBalance += toNumber(group._sum.amount || 0);
-        } else if (group.type === 'DEBIT') {
-          calculatedBalance -= toNumber(group._sum.amount || 0);
-        }
-      }
-
-      // 2. Update the customer's walletBalance with the reconciled value
-      const updatedCustomer = await tx.customer.update({
-        where: { id: customerId },
-        data: { walletBalance: Math.max(0, calculatedBalance) }
-      });
-
-      logger.info(`[Wallet] Reconciled balance for customer ${customerId}: ${updatedCustomer.walletBalance}`);
-      return updatedCustomer.walletBalance;
+    return await this.prisma.$transaction(async (tx) => {
+      const updated = await this.container.ledgerService.reconcileCache(customerId, tx);
+      this.logger.info(`[Wallet] Reconciled balance for customer ${customerId}: ${updated.walletBalance}`);
+      return updated.walletBalance;
     });
   }
 }
 
-module.exports = new WalletService();
+module.exports = { WalletService };

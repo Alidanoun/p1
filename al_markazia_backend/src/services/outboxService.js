@@ -8,10 +8,19 @@ class OutboxService {
     this.logger = container.logger;
   }
 
-  async enqueue(type, payload, tx) {
+  async enqueue(type, payload, tx, sequenceNumber = null) {
     if (!tx) throw new Error('OUTBOX_REQUIRES_TRANSACTION');
+    
+    const { getCorrelationId, getBranchId } = require('../utils/context');
+    const metadata = {
+      correlationId: getCorrelationId(),
+      branchId: getBranchId(),
+      sequenceNumber, // 🧷 [PHASE 5] Global Ordering Anchor
+      timestamp: new Date().toISOString()
+    };
+
     return await tx.outboxEvent.create({
-      data: { type, payload, status: 'PENDING' }
+      data: { type, payload, metadata, status: 'PENDING' }
     });
   }
 
@@ -41,7 +50,11 @@ class OutboxService {
             where: { id: event.id },
             data: { status: 'DISPATCHED', processedAt: new Date() }
           });
-          await eventBus.publish({ type: event.type, payload: event.payload, metadata: { outboxId: event.id } });
+          await eventBus.publish({ 
+            type: event.type, 
+            payload: event.payload, 
+            metadata: { ...event.metadata, outboxId: event.id } 
+          });
         } catch (err) {
           const updatedEvent = await this.prisma.outboxEvent.update({
             where: { id: event.id },
@@ -50,6 +63,7 @@ class OutboxService {
 
           // 🛡️ [SEC-FIX] Automatic Rollback Logic: If event fails 3 times, trigger compensation
           if (updatedEvent.retries >= 3) {
+            this.logger.reasoning(`Event ${event.id} (${event.type}) reached max retries. Triggering automatic compensation (Rollback).`, { eventId: event.id });
             await this.triggerRollback(updatedEvent);
           }
         }
@@ -62,17 +76,33 @@ class OutboxService {
   async immediateDispatch(eventId) {
     const eventBus = require('../events/eventBus');
     try {
-      const event = await this.prisma.outboxEvent.findUnique({ where: { id: eventId } });
-      if (!event || event.status !== 'PENDING') return;
+      // 🛡️ [PHASE 4] Atomicity: Check and mark as DISPATCHED in a small transaction
+      const event = await this.prisma.$transaction(async (tx) => {
+         const e = await tx.outboxEvent.findUnique({ where: { id: eventId } });
+         if (!e || e.status !== 'PENDING') return null;
 
-      await this.prisma.outboxEvent.update({
-        where: { id: eventId },
-        data: { status: 'DISPATCHED', processedAt: new Date() }
+         return await tx.outboxEvent.update({
+           where: { id: eventId },
+           data: { status: 'DISPATCHED', processedAt: new Date() }
+         });
       });
 
-      await eventBus.publish({ type: event.type, payload: event.payload, metadata: { outboxId: event.id, sync: true } });
+      if (!event) return;
+
+      // 🚀 Publish with original metadata (Correlation ID preserved)
+      await eventBus.publish({ 
+        type: event.type, 
+        payload: event.payload, 
+        metadata: { ...event.metadata, outboxId: event.id, sync: true } 
+      });
+      
     } catch (err) {
       this.logger.warn(`[Outbox] Immediate dispatch failed for ${eventId}`, { error: err.message });
+      // Record failure for background retry
+      await this.prisma.outboxEvent.update({
+        where: { id: eventId },
+        data: { status: 'FAILED', error: `Immediate: ${err.message}` }
+      }).catch(() => {});
     }
   }
 

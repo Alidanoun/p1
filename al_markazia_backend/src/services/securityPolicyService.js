@@ -70,6 +70,24 @@ class SecurityPolicyService {
     // 🎯 Model-Aware Field Selection (Initialize filter)
     const filter = {};
 
+    // 🔗 [PHASE 3] Authoritative Branch Context (Zero Trust)
+    // Automatically inject the branch context resolved by BranchAccessMiddleware
+    const { getBranchId } = require('../utils/context');
+    const authoritativeBranchId = getBranchId();
+    
+    if (authoritativeBranchId && normalizedRole !== 'admin') {
+      const branchScopedModels = [
+        'Order', 'BranchItem', 'FinancialLedger', 'DailyFinancialSnapshot', 
+        'FinancialApproval', 'BranchMetric', 'SystemAuditLog', 'DeliveryZone'
+      ];
+      
+      if (branchScopedModels.includes(modelName)) {
+        filter.branchId = authoritativeBranchId;
+      } else if (modelName === 'Branch') {
+        filter.id = authoritativeBranchId;
+      }
+    }
+
     // 1. Soft Delete Layer (Only apply to models that support it)
     const modelsWithSoftDelete = ['Order', 'Item', 'Category', 'Customer'];
     if (modelsWithSoftDelete.includes(modelName)) {
@@ -179,7 +197,7 @@ class SecurityPolicyService {
 
     // If a specific branch was requested, we must validate it against allowed list
     if (user.requestedBranchId) {
-      if (allowedBranchIds.includes(user.requestedBranchId)) {
+      if (normalizedRole === 'admin' || allowedBranchIds.includes(user.requestedBranchId)) {
         targetBranchIds = [user.requestedBranchId];
       } else {
         logger.security('UNAUTHORIZED_BRANCH_REQUEST', { 

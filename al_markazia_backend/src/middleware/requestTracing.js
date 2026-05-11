@@ -10,9 +10,14 @@ const requestTracing = (req, res, next) => {
   // 🛡️ Resolve Circular Dependency: Import logger inside the function
   const logger = require('../utils/logger');
 
+  const idGenerator = require('../utils/idGenerator');
+  
   // Use existing ID or generate a new UUID
-  const requestId = req.headers['x-request-id'] || req.query.requestId || crypto.randomUUID();
+  const requestId = req.headers['x-request-id'] || req.query.requestId || idGenerator.generateTraceId();
+  const correlationId = req.headers['x-correlation-id'] || req.query.correlationId || requestId;
+  
   res.setHeader('X-Request-Id', requestId);
+  res.setHeader('X-Correlation-ID', correlationId);
 
   const startTime = Date.now();
   
@@ -20,11 +25,12 @@ const requestTracing = (req, res, next) => {
   const samplingRate = 0.15 + (Math.random() * 0.1);
   const isSampled = Math.random() < samplingRate;
   req.isSampled = isSampled;
-  req.requestId = requestId; // Attach to req for easy access
+  req.requestId = requestId;
+  req.correlationId = correlationId;
 
   // 🥇 Trace Lifecycle - Entry
   if (isSampled) {
-    logger.info(`> [ReqStart] ${req.method} ${req.url}`, { requestId });
+    logger.info(`> [ReqStart] ${req.method} ${req.url}`, { requestId, correlationId });
   }
 
   // 🥈 Trace Lifecycle - Exit (Calculates Response Time)
@@ -32,13 +38,14 @@ const requestTracing = (req, res, next) => {
     const duration = Date.now() - startTime;
     logger.info(`< [ReqEnd] ${req.method} ${req.url} | ${res.statusCode} | ${duration}ms`, { 
       requestId, 
+      correlationId,
       statusCode: res.statusCode, 
       duration: `${duration}ms`
     });
   });
 
   // Run downstream logic within the storage context
-  traceContext.run({ requestId }, () => {
+  traceContext.run({ requestId, correlationId }, () => {
     next();
   });
 };

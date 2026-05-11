@@ -47,7 +47,7 @@ const BranchAccessMiddleware = async (req, res, next) => {
     // 🎯 PILLAR C: Request-Level Branch Resolution (Query/Body)
     // If no specific entity ID was found, check for branchId in request
     if (!authoritativeBranchId) {
-      authoritativeBranchId = req.query.branchId || req.body.branchId;
+      authoritativeBranchId = req.query.branchId || req.body?.branchId;
     }
 
     // 🛡️ [SECURITY-FIX] For Managers: Always override or validate branchId
@@ -81,13 +81,23 @@ const BranchAccessMiddleware = async (req, res, next) => {
     
     // Standardize query/body for legacy controllers that expect branchId there
     if (authoritativeBranchId) {
+       if (!req.query) req.query = {};
        req.query.branchId = authoritativeBranchId;
-       req.body.branchId = authoritativeBranchId;
+       
+       if (req.body) {
+         req.body.branchId = authoritativeBranchId;
+       }
     }
 
-    next();
+    // 🔗 [PHASE 3] Propagation: Update Trace Context with BranchID
+    const { traceContext } = require('../utils/context');
+    const store = traceContext.getStore() || {};
+    
+    traceContext.run({ ...store, branchId: authoritativeBranchId }, () => {
+       next();
+    });
   } catch (error) {
-    logger.error('BranchAccessMiddleware Error', { error: error.message });
+    logger.error('BranchAccessMiddleware Error', { error: error.message, stack: error.stack });
     return response.error(res, 'Internal Security Error', 'SECURITY_ERROR', 500);
   }
 };

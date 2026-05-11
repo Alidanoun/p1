@@ -21,23 +21,35 @@ class IdempotencyService {
 
   /**
    * 🚀 Start Idempotency Check
-   * Returns: { status: 'NEW' | 'COMPLETED' | 'PENDING', response: Object }
+   * @param {string} key - The provided idempotency key
+   * @param {string} operation - Name of the operation
+   * @param {object} payload - The request payload (for hashing)
+   * @param {object} actor - The user performing the action
    */
-  async start(key, operation, userId = null) {
+  async start(key, operation, payload, actor) {
     if (!key) return { status: 'NEW' };
 
-    // 1. Check Database (The Source of Truth)
+    const branchId = require('../utils/context').getBranchId();
+    const compoundKey = branchId ? `br:${branchId}:${key}` : key;
+
+    // 1. Check Database
     const existing = await prisma.idempotencyKey.findUnique({
-      where: { key }
+      where: { key: compoundKey }
     });
 
     if (existing) {
+      // 🕵️ SECURITY: If the key matches but the operation is different, it's a conflict or collision
+      if (existing.operation !== operation) {
+         throw new Error('IDEMPOTENCY_MISMATCH: Key used for a different operation.');
+      }
+
       if (existing.status === 'COMPLETED') {
-        this.logger.info(`[Idempotency] ♻️ Reusing saved response for key: ${key}`);
+        this.logger.reasoning(`Returning cached response for key: ${compoundKey}. (Operation: ${operation})`, { compoundKey });
         return { status: 'COMPLETED', response: existing.responsePayload };
       }
+      
       if (existing.status === 'PENDING') {
-        this.logger.warn(`[Idempotency] ⏳ Request already in progress for key: ${key}`);
+        this.logger.reasoning(`Rejecting concurrent request for key: ${compoundKey}. Rationale: Operation already in progress.`, { compoundKey });
         throw new Error('IDEMPOTENCY_LOCKED: Request is already being processed.');
       }
     }
@@ -46,30 +58,27 @@ class IdempotencyService {
     try {
       await prisma.idempotencyKey.create({
         data: {
-          key,
+          key: compoundKey,
           operation,
-          userId: userId?.toString(),
+          userId: actor?.id?.toString(),
           status: 'PENDING',
           expiresAt: new Date(Date.now() + this.TTL_SECONDS * 1000)
         }
       });
       return { status: 'NEW' };
     } catch (err) {
-      // Handle race condition if two requests hit at exact same millisecond
-      if (err.code === 'P2002') {
-         throw new Error('IDEMPOTENCY_LOCKED: Request already exists.');
-      }
+      if (err.code === 'P2002') throw new Error('IDEMPOTENCY_LOCKED');
       throw err;
     }
   }
 
-  /**
-   * ✅ Commit Result
-   */
   async commit(key, result) {
     if (!key) return;
+    const branchId = require('../utils/context').getBranchId();
+    const compoundKey = branchId ? `br:${branchId}:${key}` : key;
+
     await prisma.idempotencyKey.update({
-      where: { key },
+      where: { key: compoundKey },
       data: {
         status: 'COMPLETED',
         responsePayload: result
@@ -77,12 +86,11 @@ class IdempotencyService {
     });
   }
 
-  /**
-   * ❌ Rollback on Failure
-   */
   async rollback(key) {
     if (!key) return;
-    await prisma.idempotencyKey.delete({ where: { key } }).catch(() => {});
+    const branchId = require('../utils/context').getBranchId();
+    const compoundKey = branchId ? `br:${branchId}:${key}` : key;
+    await prisma.idempotencyKey.delete({ where: { key: compoundKey } }).catch(() => {});
   }
 
   /**

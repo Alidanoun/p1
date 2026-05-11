@@ -39,6 +39,10 @@ const factories = {
     const { OutboxService } = require('../services/outboxService');
     return new OutboxService(container);
   },
+  ledgerService: () => {
+    const LedgerService = require('../services/ledgerService');
+    return new LedgerService(container);
+  },
   featureFlagsService: () => {
     const { FeatureFlagsService } = require('../services/featureFlagsService');
     return new FeatureFlagsService(container);
@@ -51,9 +55,17 @@ const factories = {
     const { OrderService } = require('../services/orderService');
     return new OrderService(container);
   },
+  walletService: () => {
+    const { WalletService } = require('../services/walletService');
+    return new WalletService(container);
+  },
   contractGateway: () => {
     const { ContractGateway } = require('../services/contractGateway');
     return new ContractGateway(container);
+  },
+  systemHealthService: () => {
+    const SystemHealthService = require('../services/systemHealthService');
+    return new SystemHealthService(container);
   },
   systemControlPlane: () => {
     const { SystemControlPlane } = require('../services/systemControlPlane');
@@ -78,6 +90,10 @@ const factories = {
   orderLifecycleOrchestrator: () => {
     const OrderLifecycleOrchestrator = require('../services/orderLifecycleOrchestrator');
     return new OrderLifecycleOrchestrator(container);
+  },
+  orderStateMachine: () => {
+    const { OrderStateMachine } = require('../domain/orderStateMachine');
+    return new OrderStateMachine(container.logger);
   }
 };
 

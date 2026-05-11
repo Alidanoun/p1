@@ -1,5 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcrypt');
+const { encrypt, hashBlind } = require('../src/utils/crypto');
 const prisma = new PrismaClient();
 
 async function main() {
@@ -13,10 +14,13 @@ async function main() {
 
   console.log('🌱 Seeding database...');
   const hashedPassword = await bcrypt.hash('123456', 10);
-  
+  const email = 'admin@almarkazia.com';
+
   const admin = await prisma.user.create({
     data: {
-      email: 'admin@admin.com',
+      email: encrypt(email),
+      emailHash: hashBlind(email),
+      name: encrypt('Admin'),
       password: hashedPassword,
       role: 'admin',
     }
@@ -95,6 +99,37 @@ async function main() {
       spamTimeWindowMinutes: 30
     }
   });
+
+  console.log('🍽️ Initializing Restaurant Settings...');
+  await prisma.restaurantSettings.upsert({
+    where: { id: 1 },
+    update: {},
+    create: {
+      id: 1,
+      timezone: 'Asia/Amman',
+      isEmergencyClosed: false,
+      lastOrderMinutesBeforeClose: 15
+    }
+  });
+
+  console.log('⏰ Initializing Working Hours...');
+  const workingHours = [
+    { dayOfWeek: 0, openTime: '09:00', closeTime: '23:00' }, // Sunday
+    { dayOfWeek: 1, openTime: '09:00', closeTime: '23:00' }, // Monday
+    { dayOfWeek: 2, openTime: '09:00', closeTime: '23:00' }, // Tuesday
+    { dayOfWeek: 3, openTime: '09:00', closeTime: '23:00' }, // Wednesday
+    { dayOfWeek: 4, openTime: '09:00', closeTime: '23:00' }, // Thursday (Late Night)
+    { dayOfWeek: 5, openTime: '09:00', closeTime: '23:00' }, // Friday (Late Night)
+    { dayOfWeek: 6, openTime: '09:00', closeTime: '23:00' }, // Saturday
+  ];
+
+  for (const hour of workingHours) {
+    await prisma.workingHour.upsert({
+      where: { dayOfWeek: hour.dayOfWeek },
+      update: hour,
+      create: hour
+    });
+  }
 
   console.log('✅ Seed completed successfully!');
 }

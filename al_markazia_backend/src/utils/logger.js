@@ -2,7 +2,7 @@ const winston = require('winston');
 require('winston-daily-rotate-file');
 const path = require('path');
 const fs = require('fs');
-const { getRequestId } = require('./context');
+const { getRequestId, getCorrelationId } = require('./context');
 
 const logDir = path.join(__dirname, '../../logs');
 if (!fs.existsSync(logDir)) {
@@ -78,9 +78,11 @@ const sanitizeMetadata = winston.format((info) => {
   // Re-assign to info object (Preserving Winston's internal symbols)
   Object.assign(info, cleanInfo);
 
-  // 🔍 Trace Integration: Automatically attach RequestID if in context
+  // 🔍 Trace Integration: Automatically attach Trace IDs if in context
   const requestId = getRequestId();
+  const correlationId = getCorrelationId();
   if (requestId) info.requestId = requestId;
+  if (correlationId) info.correlationId = correlationId;
 
   // Attach standard service tag
   info.service = 'al-markazia-backend';
@@ -202,6 +204,12 @@ logger.approval = (message, meta = {}) => {
 // ⚡ Specialized Socket Event Monitoring
 logger.socket = (message, meta = {}) => {
   logger.debug(`[SOCKET] ${message}`, { ...meta, category: 'SOCKET', timestamp: new Date().toISOString() });
+};
+
+// 🧠 Specialized Causal Reasoning Logger
+// يهدف لشرح "لماذا" تم اتخاذ قرار معين (خاصة في حالات التصحيح التلقائي)
+logger.reasoning = (message, meta = {}) => {
+  logger.info(`[REASONING] ${message}`, { ...meta, category: 'CAUSAL_REASONING', timestamp: new Date().toISOString() });
 };
 
 /**
