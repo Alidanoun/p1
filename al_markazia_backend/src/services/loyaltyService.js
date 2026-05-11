@@ -140,11 +140,16 @@ class LoyaltyService {
         }
       }, { timeout: 15000 });
 
-      await this.container.outboxService.enqueue('loyalty.happy_hour_activated', {
-        title: '🎁 بدأت سـاعـة الـسـعـادة!',
-        message: `تم تفعيل مضاعفة النقاط x${result.happyHourMultiplier} الآن! اطلب واستمتع بمكافآت إضافية.`,
-        multiplier: result.happyHourMultiplier
-      }, tx);
+      await this.container.outboxService.enqueue(tx, {
+        type: 'loyalty.happy_hour_activated',
+        aggregateId: result.id,
+        aggregateType: 'LoyaltyConfig',
+        payload: {
+          title: '🎁 بدأت سـاعـة الـسـعـادة!',
+          message: `تم تفعيل مضاعفة النقاط x${result.happyHourMultiplier} الآن! اطلب واستمتع بمكافآت إضافية.`,
+          multiplier: result.happyHourMultiplier
+        }
+      });
 
       return result;
     });
@@ -167,10 +172,15 @@ class LoyaltyService {
         data: { isHappyHourEnabled: false }
       }, { timeout: 15000 });
 
-      await this.container.outboxService.enqueue('system.broadcast', {
-        title: '🏁 انتهت ساعة السعادة',
-        message: 'انتهت فترة مضاعفة النقاط حالياً، شكراً لتواجدكم معنا. انتظرونا في فترات قادمة!',
-      }, tx);
+      await this.container.outboxService.enqueue(tx, {
+        type: 'system.broadcast',
+        aggregateId: result.id,
+        aggregateType: 'LoyaltyConfig',
+        payload: {
+          title: '🏁 انتهت ساعة السعادة',
+          message: 'انتهت فترة مضاعفة النقاط حالياً، شكراً لتواجدكم معنا. انتظرونا في فترات قادمة!',
+        }
+      });
 
       return result;
     });
