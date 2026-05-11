@@ -99,8 +99,8 @@ model BranchItem {
   itemId      Int
   isAvailable Boolean  @default(true)
 
-  branch      Branch   @relation(fields: [branchId], references: [id])
-  item        Item     @relation(fields: [itemId], references: [id])
+  branch      Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  item        Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -291,7 +291,7 @@ model OrderItem {
   notes             String?
   status            OrderItemStatus @default(normal)
   rejectionReason   String?
-  item              Item?           @relation(fields: [itemId], references: [id])
+  item              Item?           @relation(fields: [itemId], references: [id], onDelete: SetNull)
   order             Order           @relation(fields: [orderId], references: [id])
   
   // Replacement Logic
