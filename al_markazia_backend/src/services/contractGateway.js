@@ -11,7 +11,8 @@ class ContractGateway {
 
   async execute(orderId, action, context, actor) {
     const startTime = Date.now();
-    const correlationId = require('../utils/context').getRequestId();
+    // 🔗 [PHASE 2] Enforcement: Automatic Correlation ID from context
+    const correlationId = require('../utils/context').getCorrelationId() || 'unknown';
 
     const health = await this.container.systemControlPlane.getHealthStatus();
     if (health.status === 'PROTECTED_MODE' && action !== 'PREVIEW') {
@@ -21,11 +22,11 @@ class ContractGateway {
 
     const idempotencyKey = context.idempotencyKey;
     if (idempotencyKey) {
-      const cachedResult = await this.container.idempotencyService.getResult(idempotencyKey);
-      if (cachedResult) return cachedResult;
-      
-      const canProceed = await this.container.idempotencyService.start(idempotencyKey);
-      if (!canProceed) throw new Error('IDEMPOTENCY_LOCKED');
+      const check = await this.container.idempotencyService.start(idempotencyKey, action, context, actor);
+      if (check.status === 'COMPLETED') {
+         this.logger.info(`[Gateway] [${correlationId}] ♻️ Returning cached result for key: ${idempotencyKey}`);
+         return check.response;
+      }
     }
 
     const lockKey = this._getLockKey(orderId, action, context, actor);
@@ -51,7 +52,8 @@ class ContractGateway {
         }
       }
 
-      this._validateContract(action, context);
+      // 🛡️ [PHASE 2] Enforcement: DTO Contract & State Machine Validation
+      await this._validateContract(action, context, orderId, actor);
 
       // We use require for orchestrator for now if it's not in container
       const orchestrator = require('./orderModificationOrchestrator');
@@ -102,8 +104,47 @@ class ContractGateway {
     throw new Error(`UNSUPPORTED_GATEWAY_ACTION: ${action}`);
   }
 
-  _validateContract(action, context) {
-    if (action !== 'PREVIEW' && !context.idempotencyKey) throw new Error('MISSING_IDEMPOTENCY_KEY');
+  async _validateContract(action, context, orderId = null, actor = null) {
+    // 1. Mandatory Idempotency for Writes
+    if (action !== 'PREVIEW' && !context.idempotencyKey) {
+      throw new Error('MISSING_IDEMPOTENCY_KEY: All write operations must provide a unique key.');
+    }
+
+    const { v1 } = require('../contracts/order.contract.v1');
+
+    // 2. Schema Validation (DTO Enforcement)
+    try {
+      if (action === 'CREATE_ORDER') {
+        v1.CreateOrderSchema.parse(context.orderData);
+      }
+      if (action === 'UPDATE_STATUS') {
+        v1.TransitionStatusSchema.parse({ ...context, orderId });
+      }
+      if (action === 'CANCEL') {
+        v1.CancellationRequestSchema.parse({ ...context, orderId });
+      }
+    } catch (err) {
+      this.logger.error('[Gateway] Contract Violation', { action, errors: err.errors });
+      throw new Error(`CONTRACT_VIOLATION: ${err.errors?.[0]?.message || 'Invalid input schema'}`);
+    }
+
+    // 3. State Machine & Branch Isolation Enforcement
+    if (orderId) {
+      const order = await this.prisma.order.findUnique({ where: { id: orderId }, select: { status: true, branchId: true } });
+      if (order) {
+        // A. State Check
+        if (action === 'UPDATE_STATUS') {
+           this.container.orderStateMachine.validate(order.status, context.status, actor);
+        }
+        
+        // B. [PHASE 3] Branch Consistency Check (Zero Trust)
+        const contextBranchId = require('../utils/context').getBranchId();
+        if (contextBranchId && order.branchId !== contextBranchId) {
+          this.logger.error('[Gateway] Branch Isolation Violation', { orderId, orderBranch: order.branchId, contextBranch: contextBranchId });
+          throw new Error('BRANCH_ISOLATION_VIOLATION: Order does not belong to the authorized branch context.');
+        }
+      }
+    }
   }
 
   _getLockKey(orderId, action, context, actor) {

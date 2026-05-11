@@ -190,8 +190,8 @@ class OrderService {
    * Returns latest state only if version has changed.
    */
   async syncOrders(user, clientVersion) {
-    const SecurityPolicyService = require('./securityPolicyService');
-    const branchId = user.branchId || user.requestedBranchId;
+    const { getBranchId } = require('../utils/context');
+    const branchId = getBranchId() || user.branchId;
     
     if (!branchId) throw new Error('BRANCH_CONTEXT_REQUIRED');
 
@@ -980,22 +980,18 @@ class OrderService {
           }
         });
 
-        await tx.financialLedger.create({
-          data: {
-            customerId: resolvedCustomer.id,
-            orderId: order.id,
-            type: 'DEBIT',
-            category: 'ORDER_PAYMENT',
-            amount: pointsDiscount,
-            balanceBefore: resolvedCustomer.walletBalance,
-            balanceAfter: Number(resolvedCustomer.walletBalance) - pointsDiscount,
-            method: 'POINTS',
-            description: `خصم نقاط: تم تحويل ${pointsToDeduct} نقطة إلى ${pointsDiscount} د.أ كخصم للطلب #${order.orderNumber}`,
-            metadata: { 
-              pointsBefore: resolvedCustomer.points,
-              pointsAfter: resolvedCustomer.points - pointsToDeduct,
-              pointsDeducted: pointsToDeduct 
-            }
+        await this.container.ledgerService.record(tx, {
+          customerId: resolvedCustomer.id,
+          orderId: order.id,
+          type: 'DEBIT',
+          category: 'ORDER_PAYMENT',
+          amount: pointsDiscount,
+          method: 'POINTS',
+          description: `خصم نقاط: تم تحويل ${pointsToDeduct} نقطة إلى ${pointsDiscount} د.أ كخصم للطلب #${order.orderNumber}`,
+          metadata: { 
+            pointsBefore: resolvedCustomer.points,
+            pointsAfter: resolvedCustomer.points - pointsToDeduct,
+            pointsDeducted: pointsToDeduct 
           }
         });
       }

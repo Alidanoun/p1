@@ -4,7 +4,7 @@ const ratingAggregate = require('../services/ratingAggregate');
 const notificationService = require('../services/notificationService');
 
 /**
- * 🛠️ Admin Moderation Controller (Phase 2 Interaction)
+ * 🛠️ Admin Moderation Controller (Fixed V2)
  */
 class AdminModerationController {
   /**
@@ -14,20 +14,29 @@ class AdminModerationController {
     try {
       const { status = 'PENDING', page = 1, limit = 20 } = req.query;
       const skip = (parseInt(page) - 1) * parseInt(limit);
+      const filter = { status };
+      
+      // 🛡️ [SEC-FIX] Branch Manager Isolation
+      if (req.user.role === 'branch_manager' || req.user.role === 'manager') {
+        if (req.user.branchId) {
+          filter.branchId = req.user.branchId;
+        }
+      }
 
-      const reviews = await prisma.review.findMany({
-        where: { status },
-        include: {
-          customer: { select: { name: true, phone: true } },
-          item: { select: { name: true } },
-          order: { select: { orderNumber: true } }
-        },
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: parseInt(limit)
-      });
-
-      const total = await prisma.review.count({ where: { status } });
+      const [reviews, total] = await Promise.all([
+        prisma.review.findMany({
+          where: filter,
+          include: {
+            customer: { select: { name: true, phone: true } },
+            item: { select: { title: true } },
+            order: { select: { orderNumber: true } }
+          },
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take: parseInt(limit)
+        }),
+        prisma.review.count({ where: filter })
+      ]);
 
       res.json({
         success: true,
@@ -35,7 +44,8 @@ class AdminModerationController {
         pagination: { total, page: parseInt(page), limit: parseInt(limit) }
       });
     } catch (err) {
-      res.status(500).json({ success: false, message: err.message });
+      logger.error('Get reviews error', { error: err.message });
+      res.status(500).json({ success: false, message: 'فشل جلب التقييمات' });
     }
   }
 
@@ -54,10 +64,8 @@ class AdminModerationController {
       });
 
       if (status === 'APPROVED') {
-        // 📊 Update aggregates
         await ratingAggregate.updateFromReview(review.id);
         
-        // 🔔 Notify Customer
         await notificationService.sendDirectNotification(
           review.customer.phone,
           'تمت الموافقة على تقييمك! 🌟',
@@ -68,7 +76,7 @@ class AdminModerationController {
 
       res.json({ success: true, message: `تم تحديث حالة التقييم إلى ${status}` });
     } catch (err) {
-      res.status(500).json({ success: false, message: err.message });
+      res.status(500).json({ success: false, message: 'فشل تحديث الحالة' });
     }
   }
 
@@ -79,7 +87,7 @@ class AdminModerationController {
     try {
       const { id } = req.params;
       const { content } = req.body;
-      const authorId = req.user.uuid; // Admin UUID
+      const authorId = req.user.id;
       const authorRole = req.user.role || 'ADMIN';
 
       const reply = await prisma.reply.create({
@@ -92,7 +100,6 @@ class AdminModerationController {
         include: { review: { include: { customer: true } } }
       });
 
-      // 🔔 Notify Customer about reply
       await notificationService.sendDirectNotification(
         reply.review.customer.phone,
         'رد جديد على تقييمك 💬',
@@ -102,7 +109,7 @@ class AdminModerationController {
 
       res.json({ success: true, data: reply });
     } catch (err) {
-      res.status(500).json({ success: false, message: err.message });
+      res.status(500).json({ success: false, message: 'فشل إرسال الرد' });
     }
   }
 }

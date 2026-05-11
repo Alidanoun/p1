@@ -100,9 +100,9 @@ class AuditService {
         status,
         severity,
         metadata: cleanMetadata,
+        branchId: params.branchId || req?.user?.branchId || req?.authoritativeBranchId || null,
         ip: req?.ip || req?.headers['x-forwarded-for'] || null,
-        userAgent: req?.headers['user-agent'] || null,
-        branchId: params.branchId || req?.user?.branchId || null
+        userAgent: req?.headers['user-agent'] || null
       };
 
       // 1. Persist to DB

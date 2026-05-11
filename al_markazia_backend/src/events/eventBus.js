@@ -21,19 +21,27 @@ class EventBus {
    * Publish an event to all subscribers with 🛡️ Deduplication Guard.
    */
   async publish(event) {
-    const { type } = event;
-    // Note: Deduplication is now handled centrally in eventPublisher.js
+    const { type, metadata } = event;
+    const outboxId = metadata?.outboxId;
+
+    // 🛡️ [PHASE 4] Distributed Deduplication
+    if (outboxId) {
+      const redis = require('../lib/redis');
+      const dedupKey = `event_bus_dedup:${outboxId}`;
+      
+      // Atomic SET NX with 1 hour expiry
+      const acquired = await redis.set(dedupKey, 'processed', 'NX', 'EX', 3600);
+      if (!acquired) {
+        logger.reasoning(`Skipping event ${outboxId} (${type}) because it was already processed by another worker (Distributed Deduplication).`, { outboxId });
+        return;
+      }
+    }
 
     const handlers = this.handlers[type] || [];
     const globalHandlers = this.handlers['*'] || [];
-    
     const allHandlers = [...handlers, ...globalHandlers];
     
     logger.debug(`[EventBus] 📤 Publishing ${type} to ${allHandlers.length} handlers`);
-
-    if (allHandlers.length === 0) {
-      logger.warn(`[EventBus] ⚠️ No subscribers found for event: ${type}`);
-    }
 
     const promises = allHandlers.map(async (handler, index) => {
       try {

@@ -37,28 +37,37 @@ exports.getAllItems = async (req, res) => {
 
     if (categoryId) filter.categoryId = parseInt(categoryId);
 
-    const { getContext } = require('../utils/securityContext');
-    const userContext = getContext();
-    let targetBranchId = req.query.branchId || userContext?.branchId || null;
+    let targetBranchId = req.query.branchId || req.user?.branchId || null;
     if (targetBranchId === 'null' || targetBranchId === 'undefined') targetBranchId = null;
+
+    // 🛠️ [FIX] Proper conditional include for Prisma
+    const includeOptions = {
+      category: { select: { id: true, name: true, nameEn: true } },
+      variants: { where: { isAvailable: true } },
+      modifierGroups: {
+        where: { isActive: true },
+        include: {
+          modifiers: { where: { isAvailable: true }, orderBy: { sortOrder: 'asc' } }
+        },
+        orderBy: { sortOrder: 'asc' }
+      }
+    };
+
+    if (targetBranchId) {
+      includeOptions.branchItems = {
+        where: { branchId: targetBranchId },
+        select: { isAvailable: true, branchId: true }
+      };
+      
+      // 🛡️ [SEC-FIX] In branch mode, ONLY show items that are actually linked to this branch
+      filter.branchItems = {
+        some: { branchId: targetBranchId }
+      };
+    }
 
     const items = await prisma.item.findMany({
       where: filter,
-      include: {
-        category: { select: { id: true, name: true, nameEn: true } },
-        variants: { where: { isAvailable: true } },
-        modifierGroups: {
-          where: { isActive: true },
-          include: {
-            modifiers: { where: { isAvailable: true }, orderBy: { sortOrder: 'asc' } }
-          },
-          orderBy: { sortOrder: 'asc' }
-        },
-        branchItems: targetBranchId ? {
-          where: { branchId: targetBranchId },
-          select: { isAvailable: true, branchId: true }
-        } : false
-      },
+      include: includeOptions,
       orderBy: [
         { isFeatured: 'desc' },
         { createdAt: 'desc' }
@@ -235,52 +244,69 @@ exports.createItem = async (req, res) => {
       }
     }
 
-    const item = await prisma.item.create({
-      data: {
-        title,
-        titleEn,
-        description,
-        descriptionEn,
-        basePrice: parsedPrice,
-        categoryId: parseInt(categoryId),
-        isAvailable: isAvailable === 'true' || isAvailable === true,
-        isFeatured: isFeatured === 'true' || isFeatured === true,
-        excludeFromStats: excludeFromStats === 'true' || excludeFromStats === true,
-        preparationTime: preparationTime ? parseInt(preparationTime) : null,
-        image: imageUrl,
-        variants: {
-          create: parsedVariants.map(v => ({
-            name: v.name,
-            nameEn: v.nameEn,
-            priceDiff: parseFloat(v.priceDiff) || 0,
-            isDefault: v.isDefault || false
-          }))
+    const item = await prisma.$transaction(async (tx) => {
+      const newItem = await tx.item.create({
+        data: {
+          title,
+          titleEn,
+          description,
+          descriptionEn,
+          basePrice: parsedPrice,
+          categoryId: parseInt(categoryId),
+          isAvailable: isAvailable === 'true' || isAvailable === true,
+          isFeatured: isFeatured === 'true' || isFeatured === true,
+          excludeFromStats: excludeFromStats === 'true' || excludeFromStats === true,
+          preparationTime: preparationTime ? parseInt(preparationTime) : null,
+          image: imageUrl,
+          variants: {
+            create: parsedVariants.map(v => ({
+              name: v.name,
+              nameEn: v.nameEn,
+              priceDiff: parseFloat(v.priceDiff) || 0,
+              isDefault: v.isDefault || false
+            }))
+          },
+          modifierGroups: {
+            create: parsedGroups.map(group => ({
+              groupName: group.groupName,
+              groupNameEn: group.groupNameEn,
+              type: group.type || 'SINGLE',
+              isRequired: group.isRequired || false,
+              minSelection: parseInt(group.minSelection) || 0,
+              maxSelection: parseInt(group.maxSelection) || 1,
+              modifiers: {
+                create: group.modifiers.map(mod => ({
+                  name: mod.name,
+                  nameEn: mod.nameEn,
+                  price: parseFloat(mod.price) || 0,
+                  isDefault: mod.isDefault || false,
+                  isAvailable: mod.isAvailable !== false
+                }))
+              }
+            }))
+          }
         },
-        modifierGroups: {
-          create: parsedGroups.map(group => ({
-            groupName: group.groupName,
-            groupNameEn: group.groupNameEn,
-            type: group.type || 'SINGLE',
-            isRequired: group.isRequired || false,
-            minSelection: parseInt(group.minSelection) || 0,
-            maxSelection: parseInt(group.maxSelection) || 1,
-            modifiers: {
-              create: group.modifiers.map(mod => ({
-                name: mod.name,
-                nameEn: mod.nameEn,
-                price: parseFloat(mod.price) || 0,
-                isDefault: mod.isDefault || false,
-                isAvailable: mod.isAvailable !== false
-              }))
-            }
-          }))
+        include: {
+          category: { select: { id: true, name: true, nameEn: true } },
+          variants: true,
+          modifierGroups: { include: { modifiers: true } }
         }
-      },
-      include: {
-        category: { select: { id: true, name: true, nameEn: true } },
-        variants: true,
-        modifierGroups: { include: { modifiers: true } }
+      });
+
+      // 🏢 [AUTO-LINK] Automatically make this item available in all branches
+      const branches = await tx.branch.findMany({ select: { id: true } });
+      if (branches.length > 0) {
+        await tx.branchItem.createMany({
+          data: branches.map(b => ({
+            branchId: b.id,
+            itemId: newItem.id,
+            isAvailable: true
+          }))
+        });
+        logger.info(`[AutoLink] Linked new item ${newItem.id} to ${branches.length} branches`);
       }
+
+      return newItem;
     });
 
     await menuCacheService.invalidate();

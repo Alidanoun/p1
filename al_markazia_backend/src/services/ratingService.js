@@ -12,17 +12,30 @@ class RatingService {
   async createReview(data, customerId, fingerprint) {
     const { orderId, itemId, rating, comment, images } = data;
 
+    // 🛡️ Resolve Customer Int ID from UUID
+    const customer = await prisma.customer.findUnique({
+      where: { uuid: customerId },
+      select: { id: true }
+    });
+
+    if (!customer) {
+      throw new Error('CUSTOMER_NOT_FOUND');
+    }
+
     // Fetch branchId and driverId from order
     const order = await prisma.order.findUnique({
-      where: { id: orderId },
-      include: { branch: true }
+      where: { id: orderId }
     });
+
+    if (!order) {
+      throw new Error('ORDER_NOT_FOUND');
+    }
 
     const review = await prisma.review.create({
       data: {
         orderId,
         itemId,
-        customerId,
+        customerId: customer.id,
         rating,
         comment,
         images: images || [],

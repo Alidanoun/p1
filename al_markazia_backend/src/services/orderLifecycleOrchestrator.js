@@ -34,9 +34,8 @@ class OrderLifecycleOrchestrator {
     if (!order) throw new Error('ORDER_NOT_FOUND');
     if (order.status === newStatus) return mapOrderResponse(order);
 
-    // 2. 🛡️ Canonical Guard: State Machine & Permission Check
-    const { validateTransition } = require('../utils/stateMachine');
-    validateTransition(order.status, newStatus, orderId, this.container.auditService, actor);
+    // 2. 🛡️ [PHASE 2] Enforcement: State Machine & Permission Check
+    this.container.orderStateMachine.validate(order.status, newStatus, actor);
 
     // 3. 💎 Atomic Pipeline (DB Transaction)
     const result = await this.prisma.$transaction(async (tx) => {
@@ -62,7 +61,7 @@ class OrderLifecycleOrchestrator {
         previousStatus: order.status,
         newStatus,
         order: { ...mapOrderResponse(updated), pointsEarned }
-      }, tx);
+      }, tx, updated.eventSequence);
 
       return { updated, outboxId: outbox.id };
     }, { timeout: 15000 });

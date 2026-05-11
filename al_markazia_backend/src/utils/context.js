@@ -11,7 +11,19 @@ const getRequestId = () => {
   return context ? context.requestId : null;
 };
 
+const getCorrelationId = () => {
+  const context = traceContext.getStore();
+  return context ? context.correlationId : null;
+};
+
+const getBranchId = () => {
+  const context = traceContext.getStore();
+  return context ? context.branchId : null;
+};
+
 module.exports = {
   traceContext,
-  getRequestId
+  getRequestId,
+  getCorrelationId,
+  getBranchId
 };

@@ -49,6 +49,7 @@ router.use('/customers', customerRoutes);
 // Operations
 router.use('/notifications', notificationRoutes);
 router.use('/ratings', ratingRoutes);
+router.use('/reviews', ratingRoutes);
 router.use('/settings', settingsRoutes);
 router.use('/metrics', metricsRoutes);
 router.use('/dashboard', dashboardRoutes);
