@@ -225,7 +225,8 @@ module.exports = {
       // 🛡️ [SDS 3.0] Smart Emitter with Backpressure Governance
       socket.smartEmit = async (type, payload) => {
         const { getGovernance, INTENTS } = require('./shared/eventGovernance');
-        const pressureService = require('./services/pressureService');
+        const container = require('./lib/container');
+        const pressureService = container.pressureService;
         const gov = getGovernance(type);
 
         // 1. 🩸 Check if event should be dropped (Adaptive Degradation)
