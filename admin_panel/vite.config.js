@@ -36,30 +36,13 @@ export default defineConfig({
   ],
   server: {
     proxy: {
+      // 🛡️ Canonical API: All requests go through versioned path
       '/api/v1':         apiProxy(API_TARGET),
-      '/auth':           apiProxy(API_TARGET),
-      '/admin':          apiProxy(API_TARGET),
-      '/items':          apiProxy(API_TARGET),
-      '/orders':         apiProxy(API_TARGET),
-      '/categories':     apiProxy(API_TARGET),
-      '/notifications':  apiProxy(API_TARGET),
-      '/customers':      apiProxy(API_TARGET),
-      '/reviews':        apiProxy(API_TARGET),
-      '/settings':       apiProxy(API_TARGET),
-      '/metrics':        apiProxy(API_TARGET),
-      '/analytics':      apiProxy(API_TARGET),
-      '/system':         apiProxy(API_TARGET),
-      '/delivery-zones': apiProxy(API_TARGET),
-      '/dashboard':      apiProxy(API_TARGET),
-      '/restaurant':     apiProxy(API_TARGET),
-      '/health':         apiProxy(API_TARGET),
-      '/loyalty':        apiProxy(API_TARGET),
-      '/branch':         apiProxy(API_TARGET),
-      '/api':            apiProxy(API_TARGET),
+      
+      // 🖼️ Static file serving
       '/uploads':        apiProxy(API_TARGET),
-      '/financial':      apiProxy(API_TARGET),
-      '/happyhour':      apiProxy(API_TARGET),
-      '/order-modifications': apiProxy(API_TARGET),
+      
+      // 📡 WebSocket transport
       '/socket.io': { 
         target: API_TARGET, 
         ws: true, 
@@ -69,6 +52,12 @@ export default defineConfig({
           console.error('Socket Proxy Error:', err);
         }
       },
+
+      // 🔒 Health checks (external probes)
+      '/health':         apiProxy(API_TARGET),
+
+      // 📖 API Documentation
+      '/api-docs':       apiProxy(API_TARGET),
     }
   }
 })
