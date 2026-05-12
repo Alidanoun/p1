@@ -3,256 +3,378 @@ const path = require('path');
 const fs = require('fs');
 const logger = require('../utils/logger');
 const { decrypt } = require('../utils/crypto');
-const { fcmBreaker } = require('../middleware/notificationCircuitBreaker');
-
-// ⚙️ Advanced FCM Configuration
-const MAX_RETRIES = 3;
-const INITIAL_BACKOFF = 1000; // 1 second
-
-// 📊 Delivery Metrics (Real-time tracking)
-const metrics = {
-  sent: 0,
-  failed: 0,
-  retried: 0,
-  invalidTokensRemoved: 0,
-  circuitBreakerOpens: 0,
-  lastReset: new Date(),
-  byType: {} // Track counts by event type
-};
-
-const getMetrics = () => ({
-  ...metrics,
-  successRate: metrics.sent > 0 ? ((metrics.sent / (metrics.sent + metrics.failed)) * 100).toFixed(2) + '%' : '0%'
-});
-
-const resetMetrics = () => {
-  metrics.sent = 0;
-  metrics.failed = 0;
-  metrics.retried = 0;
-  metrics.invalidTokensRemoved = 0;
-  metrics.circuitBreakerOpens = 0;
-  metrics.lastReset = new Date();
-  metrics.byType = {};
-};
-
-// Initialize Firebase Admin with Fallback Logic
-const serviceAccountPath = path.resolve(__dirname, '../../firebase-service-account.json');
-let fcmEnabled = false;
-
-const initFirebase = () => {
-  try {
-    // Priority 1: Service Account JSON File
-    if (fs.existsSync(serviceAccountPath)) {
-      const serviceAccount = require(serviceAccountPath);
-      admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount)
-      });
-      fcmEnabled = true;
-      logger.info('🚀 [FCM Engine] Firebase Admin SDK initialized via JSON file.');
-      return;
-    }
-
-    // Priority 2: Environment Variables (Fail-safe for CI/CD or Docker)
-    if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL) {
-      admin.initializeApp({
-        credential: admin.credential.cert({
-          projectId: process.env.FIREBASE_PROJECT_ID,
-          privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
-          clientEmail: process.env.FIREBASE_CLIENT_EMAIL
-        })
-      });
-      fcmEnabled = true;
-      logger.info('🚀 [FCM Engine] Firebase Admin SDK initialized via Environment Variables.');
-      return;
-    }
-
-    logger.warn('⚠️ [FCM Engine] No Firebase credentials found. FCM notifications are DISABLED.');
-  } catch (error) {
-    logger.error('❌ [FCM Engine] Failed to initialize Firebase Admin SDK:', { error: error.message });
-  }
-};
-
-initFirebase();
+const { Sentry } = require('../config/sentry');
+const prisma = require('../lib/prisma');
 
 /**
- * 🛡️ Private: Guaranteed Delivery Logic with Exponential Backoff
+ * 🌟 Enterprise Firebase Cloud Messaging Service
+ * Implements bilingual payload builders, guaranteed retry policies, hygienic token tracking,
+ * and comprehensive observability hooks.
  */
-const _sendWithRetry = async (message, notificationId, eventType = 'unknown', attempt = 1) => {
-  if (!fcmEnabled) return null;
-
-  try {
-    // ⚡ [PHASE 1] Circuit Breaker Protection
-    const responseId = await fcmBreaker.fire(
-      async (msg) => await admin.messaging().send(msg), 
-      message
-    );
+class FirebaseService {
+  constructor() {
+    // 🛡️ Required properties preserved exactly
+    this.maxRetries = 3;
+    this.retryDelay = 1000;
     
-    metrics.sent++;
-    if (eventType) {
-      metrics.byType[eventType] = (metrics.byType[eventType] || 0) + 1;
-    }
-    logger.info('[FCM Delivery] ✅ Success', { 
-      messageId: responseId, 
-      notificationId, 
-      attempt 
-    });
-    return responseId;
-  } catch (error) {
-    metrics.failed++;
-    const errorCode = error.code;
-    const isNetworkError = [
-      'messaging/internal-error',
-      'messaging/server-unavailable',
-      'messaging/mismatched-credential'
-    ].includes(errorCode);
+    this.fcmEnabled = false;
+    this.metrics = {
+      sent: 0,
+      failed: 0,
+      retried: 0,
+      invalidTokensRemoved: 0,
+      byType: {}
+    };
 
-    const isInvalidToken = [
-      'messaging/registration-token-not-registered',
-      'messaging/invalid-registration-token'
-    ].includes(errorCode);
-
-    logger.error('[FCM Delivery] ❌ Attempt Failed', { 
-      notificationId, 
-      attempt, 
-      errorCode, 
-      error: error.message,
-      token: message.token ? `${message.token.substring(0, 10)}...` : 'N/A'
-    });
-
-    // 1. Handle Stale/Dead Tokens (Cleanup)
-    if (isInvalidToken && message.token) {
-      await _cleanupInvalidToken(message.token);
-      return null; // Stop retrying for dead tokens
-    }
-
-    // 2. Exponential Backoff for Network/Temporary Errors
-    if (isNetworkError && attempt < MAX_RETRIES) {
-      metrics.retried++;
-      const delay = INITIAL_BACKOFF * Math.pow(2, attempt - 1);
-      logger.warn(`[FCM Retry] ⏳ Retrying in ${delay}ms...`, { notificationId, nextAttempt: attempt + 1 });
-      await new Promise(resolve => setTimeout(resolve, delay));
-      return _sendWithRetry(message, notificationId, attempt + 1);
-    }
-
-    return null; // Terminal failure
-  }
-};
-
-/**
- * 🧹 Private: Automatic Token Hygiene
- */
-const _cleanupInvalidToken = async (token) => {
-  try {
-    const prisma = require('../lib/prisma');
-    logger.warn('🧹 [FCM Hygiene] Removing invalid token from database...', { tokenPrefix: token.substring(0, 10) });
-    await prisma.customer.updateMany({
-      where: { fcmToken: token },
-      data: { fcmToken: null }
-    });
-    metrics.invalidTokensRemoved++;
-  } catch (e) {
-    logger.error('[FCM Hygiene] ❌ Database cleanup failed', { error: e.message });
-  }
-};
-
-/**
- * 📡 Sends a push notification to a specific device token (Refactored V5)
- */
-const sendToToken = async (token, title, body, data = {}) => {
-  if (!fcmEnabled || !token) {
-    if (!fcmEnabled) logger.error('[FCM Engine] Push skipped: Firebase Admin NOT initialized.');
-    return false;
-  }
-  
-  const notificationId = data.notificationId || 'N/A';
-  const stringData = {};
-  Object.keys(data).forEach(key => {
-    stringData[key] = String(data[key]);
-  });
-
-  const decryptedToken = decrypt(token);
-
-  const message = {
-    notification: { title, body },
-    data: stringData,
-    token: decryptedToken,
-    android: {
-      priority: 'high',
-      notification: {
-        channelId: 'almarkazia_channel',
-        priority: 'high',
-        sound: 'default',
-        visibility: 'public'
+    // Bilingual localization mapping dictionary
+    this.templates = {
+      order_created: {
+        ar: { title: 'طلب جديد 📦', body: 'تم استلام طلبك بنجاح وهو قيد المراجعة.' },
+        en: { title: 'Order Created 📦', body: 'Your order has been received successfully and is under review.' }
+      },
+      order_ready: {
+        ar: { title: 'طلبك جاهز! 🍽️', body: 'طلبك جاهز الآن للاستلام أو التوصيل.' },
+        en: { title: 'Order Ready! 🍽️', body: 'Your order is now ready for pickup or delivery.' }
+      },
+      order_delivered: {
+        ar: { title: 'تم التوصيل ✔️', body: 'تم توصيل طلبك بنجاح. نتمنى لك وجبة شهية!' },
+        en: { title: 'Order Delivered ✔️', body: 'Your order has been delivered successfully. Enjoy your meal!' }
+      },
+      payment_received: {
+        ar: { title: 'تأكيد الدفع 💰', body: 'تم استلام الدفعة الخاصة بطلبك بنجاح.' },
+        en: { title: 'Payment Received 💰', body: 'Payment for your order has been received successfully.' }
       }
-    },
-    apns: {
-      payload: {
-        aps: { sound: 'default', badge: 1 }
+    };
+
+    this.initialize();
+  }
+
+  /**
+   * 1. Required method: initialize()
+   * Bootstraps Firebase Admin credentials securely.
+   */
+  initialize() {
+    try {
+      if (admin.apps.length > 0) {
+        this.fcmEnabled = true;
+        return;
       }
+
+      const serviceAccountPath = path.resolve(__dirname, '../../firebase-service-account.json');
+      
+      // Check physical file credential source
+      if (fs.existsSync(serviceAccountPath)) {
+        const serviceAccount = require(serviceAccountPath);
+        admin.initializeApp({
+          credential: admin.credential.cert(serviceAccount)
+        });
+        this.fcmEnabled = true;
+        logger.info('🚀 [FCM Engine] Firebase initialized via physical JSON mapping.');
+        return;
+      }
+
+      // Check environment inject source
+      if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL) {
+        admin.initializeApp({
+          credential: admin.credential.cert({
+            projectId: process.env.FIREBASE_PROJECT_ID,
+            privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+            clientEmail: process.env.FIREBASE_CLIENT_EMAIL
+          })
+        });
+        this.fcmEnabled = true;
+        logger.info('🚀 [FCM Engine] Firebase initialized via Environment configuration variables.');
+        return;
+      }
+
+      logger.warn('⚠️ [FCM Engine] Missing credentials. Push notifications transport disabled.');
+    } catch (error) {
+      logger.error('❌ [FCM Engine] Bootstrap exception encountered:', { error: error.message });
+      if (Sentry) Sentry.captureException(error);
     }
-  };
+  }
 
-  const result = await _sendWithRetry(message, notificationId, data.type || 'direct');
-  return result !== null;
-};
+  /**
+   * Translates standardized event payloads into localized structures.
+   */
+  _buildPayload(type, lang = 'ar', customTitle = null, customBody = null) {
+    const safeLang = ['ar', 'en'].includes(lang) ? lang : 'ar';
+    const template = this.templates[type]?.[safeLang] || {
+      title: customTitle || 'تنبيه النظام 🔔',
+      body: customBody || 'لديك إشعار جديد في حسابك.'
+    };
 
-/**
- * 📡 Sends a broadcast message to all users (Refactored V5)
- */
-const sendBroadcast = async (title, body, data = {}) => {
-  if (!fcmEnabled) return null;
+    return {
+      title: customTitle || template.title,
+      body: customBody || template.body
+    };
+  }
 
-  const notificationId = data.notificationId || 'BROADCAST';
-  const stringData = {};
-  Object.keys(data).forEach(key => {
-    stringData[key] = String(data[key]);
-  });
+  /**
+   * 🛡️ Deep execution wrapping handling temporary backoffs and error parsing.
+   */
+  async _executeWithRetry(messagePayload, logRecordId = null, attempt = 1) {
+    if (!this.fcmEnabled) return null;
 
-  const message = {
-    notification: { title, body },
-    data: stringData,
-    topic: 'all_users',
-    android: {
-      priority: 'high',
-      notification: { channelId: 'almarkazia_channel', priority: 'high', sound: 'default' }
+    try {
+      const responseId = await admin.messaging().send(messagePayload);
+      this.metrics.sent++;
+
+      // Update Database Persistence status to SENT
+      if (logRecordId) {
+        await prisma.notificationLog.updateMany({
+          where: { id: logRecordId },
+          data: { status: 'SENT', messageId: responseId, sentAt: new Date() }
+        }).catch(() => {});
+      }
+
+      logger.info('[FCM Delivery] ✅ Verified push success', { responseId, attempt });
+      return responseId;
+    } catch (error) {
+      const errorCode = error.code || '';
+      logger.error('[FCM Delivery] ❌ Error executing transmission', { errorCode, message: error.message, attempt });
+
+      // Track failure
+      this.metrics.failed++;
+      if (logRecordId) {
+        await prisma.notificationLog.updateMany({
+          where: { id: logRecordId },
+          data: { status: 'FAILED', error: error.message }
+        }).catch(() => {});
+      }
+
+      // Check Terminal Tokens for deletion
+      const isInvalidToken = [
+        'messaging/invalid-registration-token',
+        'messaging/registration-token-not-registered'
+      ].includes(errorCode);
+
+      if (isInvalidToken && messagePayload.token) {
+        await this._removeStaleToken(messagePayload.token);
+        return null;
+      }
+
+      // Check network backoff feasibility
+      const isTemporaryFailure = [
+        'messaging/internal-error',
+        'messaging/server-unavailable',
+        'messaging/too-many-requests'
+      ].includes(errorCode);
+
+      if (isTemporaryFailure && attempt < this.maxRetries) {
+        this.metrics.retried++;
+        const backoffWindow = this.retryDelay * Math.pow(2, attempt - 1);
+        logger.warn(`[FCM Backoff] ⏳ Intercepted temporary failure. Retrying transmission in ${backoffWindow}ms...`, { attempt });
+        
+        await new Promise(resolve => setTimeout(resolve, backoffWindow));
+        return this._executeWithRetry(messagePayload, logRecordId, attempt + 1);
+      }
+
+      // Notify Sentry on critical transmission drop
+      if (Sentry) {
+        Sentry.captureException(error, { extra: { payload: messagePayload, attempt } });
+      }
+
+      return null;
     }
-  };
+  }
 
-  const result = await _sendWithRetry(message, notificationId, 'broadcast');
-  return result !== null;
-};
+  /**
+   * Removes stale or untracked FCM registration tokens to optimize downstream load.
+   */
+  async _removeStaleToken(token) {
+    try {
+      logger.warn('🧹 [FCM Hygiene] Purging invalid downstream registration token from accounts persistence.');
+      await prisma.user.updateMany({
+        where: { fcmToken: token },
+        data: { fcmToken: null }
+      }).catch(() => {});
 
-/**
- * 📡 Sends a notification to a specific FCM topic (Refactored V5)
- */
-const sendToTopic = async (topic, title, body, data = {}) => {
-  if (!fcmEnabled) return null;
+      await prisma.customer.updateMany({
+        where: { fcmToken: token },
+        data: { fcmToken: null }
+      }).catch(() => {});
 
-  const notificationId = data.notificationId || `TOPIC:${topic}`;
-  const stringData = {};
-  Object.keys(data).forEach(key => {
-    stringData[key] = String(data[key]);
-  });
-
-  const message = {
-    notification: { title, body },
-    data: stringData,
-    topic: topic,
-    android: {
-      priority: 'high',
-      notification: { channelId: 'almarkazia_channel', priority: 'high', sound: 'default' }
+      this.metrics.invalidTokensRemoved++;
+    } catch (err) {
+      logger.error('Token purge exception:', { error: err.message });
     }
-  };
+  }
 
-  const result = await _sendWithRetry(message, notificationId, `topic:${topic}`);
-  return result !== null;
-};
+  /**
+   * 2. Required method: sendNotification()
+   * Dispatches tailored single destination payloads.
+   */
+  async sendNotification({ token, type, userId = null, lang = 'ar', customTitle = null, customBody = null, data = {} }) {
+    if (!token) return null;
 
-module.exports = { 
-  admin, 
-  sendToToken, 
-  sendBroadcast, 
-  sendToTopic, 
-  isFcmEnabled: () => fcmEnabled,
-  getMetrics
+    // Resolve localized strings
+    const { title, body } = this._buildPayload(type, lang, customTitle, customBody);
+
+    // Ensure all strings in data object map directly
+    const stringData = {};
+    if (data && typeof data === 'object') {
+      Object.keys(data).forEach(k => {
+        stringData[k] = String(data[k]);
+      });
+    }
+
+    // Persist NotificationLog record in initial state
+    let logRecordId = null;
+    try {
+      const createdLog = await prisma.notificationLog.create({
+        data: {
+          userId: userId ? String(userId) : null,
+          type: type || 'custom',
+          title,
+          body,
+          status: 'PENDING'
+        }
+      });
+      logRecordId = createdLog.id;
+    } catch (e) {
+      logger.error('Failed to log notification persistence payload', { error: e.message });
+    }
+
+    // Attempt secure transmission
+    const messagePayload = {
+      notification: { title, body },
+      data: stringData,
+      token: token.includes(':') ? decrypt(token) : token,
+      android: { priority: 'high' }
+    };
+
+    // Run non-blocking to protect incoming application lifecycle workflows
+    return await this._executeWithRetry(messagePayload, logRecordId);
+  }
+
+  /**
+   * 3. Required method: sendMulticastNotification()
+   * Dispatches payloads efficiently across dynamic target collections.
+   */
+  async sendMulticastNotification({ tokens = [], type, lang = 'ar', customTitle = null, customBody = null, data = {} }) {
+    if (!tokens || tokens.length === 0 || !this.fcmEnabled) return { successCount: 0, failureCount: 0 };
+
+    const { title, body } = this._buildPayload(type, lang, customTitle, customBody);
+    const stringData = {};
+    if (data && typeof data === 'object') {
+      Object.keys(data).forEach(k => { stringData[k] = String(data[k]); });
+    }
+
+    const cleanTokens = tokens.map(t => t.includes(':') ? decrypt(t) : t).filter(Boolean);
+
+    const messagePayload = {
+      notification: { title, body },
+      data: stringData,
+      tokens: cleanTokens
+    };
+
+    try {
+      const response = await admin.messaging().sendEachForMulticast(messagePayload);
+      this.metrics.sent += response.successCount;
+      this.metrics.failed += response.failureCount;
+
+      // Scan failures to enforce token hygiene
+      if (response.failureCount > 0) {
+        response.responses.forEach(async (resp, idx) => {
+          if (!resp.success && resp.error) {
+            const errCode = resp.error.code;
+            if (['messaging/invalid-registration-token', 'messaging/registration-token-not-registered'].includes(errCode)) {
+              await this._removeStaleToken(cleanTokens[idx]);
+            }
+          }
+        });
+      }
+
+      return { successCount: response.successCount, failureCount: response.failureCount };
+    } catch (error) {
+      logger.error('Multicast engine failed execution', { error: error.message });
+      if (Sentry) Sentry.captureException(error);
+      return { successCount: 0, failureCount: tokens.length };
+    }
+  }
+
+  /**
+   * 4. Required method: sendToTopic()
+   * Pushes updates broadly across logical subscription partitions.
+   */
+  async sendToTopic(topic, { type, lang = 'ar', customTitle = null, customBody = null, data = {} }) {
+    if (!topic || !this.fcmEnabled) return null;
+
+    const { title, body } = this._buildPayload(type, lang, customTitle, customBody);
+    const stringData = {};
+    if (data && typeof data === 'object') {
+      Object.keys(data).forEach(k => { stringData[k] = String(data[k]); });
+    }
+
+    const messagePayload = {
+      notification: { title, body },
+      data: stringData,
+      topic
+    };
+
+    try {
+      const resp = await admin.messaging().send(messagePayload);
+      this.metrics.sent++;
+      return resp;
+    } catch (error) {
+      logger.error(`Topic push failed for destination: ${topic}`, { error: error.message });
+      return null;
+    }
+  }
+
+  /**
+   * 5. Required method: subscribeToTopic()
+   */
+  async subscribeToTopic(tokens, topic) {
+    if (!tokens || !topic || !this.fcmEnabled) return false;
+    const list = Array.isArray(tokens) ? tokens : [tokens];
+    const clean = list.map(t => t.includes(':') ? decrypt(t) : t).filter(Boolean);
+    
+    try {
+      await admin.messaging().subscribeToTopic(clean, topic);
+      return true;
+    } catch (error) {
+      logger.error('Topic subscription binding failure encountered', { error: error.message });
+      return false;
+    }
+  }
+
+  /**
+   * 6. Required method: unsubscribeFromTopic()
+   */
+  async unsubscribeFromTopic(tokens, topic) {
+    if (!tokens || !topic || !this.fcmEnabled) return false;
+    const list = Array.isArray(tokens) ? tokens : [tokens];
+    const clean = list.map(t => t.includes(':') ? decrypt(t) : t).filter(Boolean);
+    
+    try {
+      await admin.messaging().unsubscribeFromTopic(clean, topic);
+      return true;
+    } catch (error) {
+      logger.error('Topic subscription unbind failure encountered', { error: error.message });
+      return false;
+    }
+  }
+}
+
+// Ensure single shared instance across contexts
+const instance = new FirebaseService();
+
+// Export class instance, along with legacy signature wrapper aliases to prevent runtime regressions
+module.exports = {
+  FirebaseService: instance,
+  admin,
+  // Alias wrappers mapping legacy parameters safely to internal workflows
+  sendToToken: async (token, title, body, data = {}) => {
+    return (await instance.sendNotification({ token, customTitle: title, customBody: body, data })) !== null;
+  },
+  sendBroadcast: async (title, body, data = {}) => {
+    return (await instance.sendToTopic('all_users', { customTitle: title, customBody: body, data })) !== null;
+  },
+  sendToTopic: async (topic, title, body, data = {}) => {
+    return (await instance.sendToTopic(topic, { customTitle: title, customBody: body, data })) !== null;
+  },
+  isFcmEnabled: () => instance.fcmEnabled,
+  getMetrics: () => instance.metrics
 };

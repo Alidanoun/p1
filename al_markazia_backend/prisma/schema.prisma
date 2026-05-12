@@ -513,17 +513,35 @@ model IdempotencyRecord {
   @@index([expiresAt])
 }
 
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  DELIVERED
+  READ
+}
+
 model NotificationLog {
-  id          Int       @id @default(autoincrement())
-  orderId     Int
+  id          Int                @id @default(autoincrement())
+  userId      String?            // Supports generic string User/Customer UUID
   customerId  Int?
+  orderId     Int?
   type        String
-  status      String    @default("pending")
+  title       String?
+  body        String?
+  messageId   String?
+  status      NotificationStatus @default(PENDING)
   error       String?
-  retries     Int       @default(0)
-  maxRetries  Int       @default(3)
+  retries     Int                @default(0)
+  maxRetries  Int                @default(3)
   nextRetryAt DateTime?
-  createdAt   DateTime  @default(now())
+  sentAt      DateTime?
+  deliveredAt DateTime?
+  readAt      DateTime?
+  createdAt   DateTime           @default(now())
+
+  @@index([userId, status])
+  @@index([createdAt(sort: Desc)])
 }
 
 model CustomerAuditLog {
