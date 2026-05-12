@@ -135,11 +135,14 @@ exports.createOrder = async (req, res) => {
     if (error.message === 'BRANCH_ACCESS_DENIED') {
       return res.status(403).json({ success: false, error: 'غير مصرح لك بإنشاء طلبات في هذا الفرع' });
     }
-    if (error.message.startsWith('BRANCH_CLOSED')) {
+    if (error.message.startsWith('BRANCH_CLOSED') || error.message.startsWith('BRANCH_NOT_OPERATIONAL')) {
       return res.status(400).json({ success: false, error: 'الفرع مغلق حالياً، يرجى اختيار فرع آخر' });
     }
-    if (error.message === 'INVALID_BRANCH: The specified branch does not exist.') {
-      return res.status(400).json({ success: false, error: 'الفرع المحدد غير موجود' });
+    if (error.message.includes('INVALID_BRANCH') || error.message.startsWith('BRANCH_NOT_FOUND') || error.message.startsWith('BRANCH_ID_REQUIRED')) {
+      return res.status(400).json({ success: false, error: 'الفرع المحدد غير موجود أو غير متاح' });
+    }
+    if (error.message.startsWith('CONTRACT_VIOLATION')) {
+      return res.status(400).json({ success: false, error: 'بيانات الطلب غير مكتملة أو غير صالحة' });
     }
     if (error.message === 'CUSTOMER_BLACKLISTED') {
       return res.status(403).json({ success: false, error: 'تم حظر حسابك مؤقتاً بسبب نشاط مشبوه' });
