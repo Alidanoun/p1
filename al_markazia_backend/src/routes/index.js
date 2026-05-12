@@ -40,6 +40,8 @@ const syncRoutes = require('./sync');
 
 // ─── Route Mounting ─────────────────────────────────────────
 // Core Business
+const authBiometricRoutes = require('./authBiometric');
+router.use('/auth/biometric', governorGuard('MISSION_CRITICAL'), authBiometricRoutes);
 router.use('/auth', governorGuard('MISSION_CRITICAL'), authRoutes);
 router.use('/orders', governorGuard('MISSION_CRITICAL'), IdempotencyService.guard(), orderRoutes);
 router.use('/order-modifications', governorGuard('MISSION_CRITICAL'), IdempotencyService.guard(), orderModificationRoutes);

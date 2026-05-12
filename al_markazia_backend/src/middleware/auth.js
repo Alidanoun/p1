@@ -43,7 +43,9 @@ const authenticateToken = async (req, res, next) => {
     const currentFingerprint = generateFingerprint(req);
     const session = validation.session || {}; // Only available if Redis hit
     
-    if (session.fingerprint && session.fingerprint !== currentFingerprint.hash) {
+    // Permit biometric hardware trusted sessions to bypass strict sec-ch-ua browser string matching
+    const isBiometricTrust = session.fingerprint === 'biometric-hardware-trusted';
+    if (!isBiometricTrust && session.fingerprint && session.fingerprint !== currentFingerprint.hash) {
       logger.security('[SESSION_HIJACKING_DETECTED] Identity mismatch', { 
         userId: decoded.id, 
         ip: req.ip 

@@ -964,3 +964,17 @@ model IdempotencyKey {
   
   @@index([key])
 }
+
+model BiometricDevice {
+  id        String   @id @default(uuid())
+  userId    String   // Supports User or Customer string UUID mapping
+  deviceId  String   @unique // Physical hardware device identifier
+  token     String   @unique // Long-lived symmetric encrypted biometric refresh credential
+  isActive  Boolean  @default(true)
+  metadata  Json?    // Client telemetry context
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([deviceId])
+}
