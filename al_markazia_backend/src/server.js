@@ -211,6 +211,7 @@ async function startServer() {
     // ─── API Routes (Versioned) ──────────────────────────────
     // Primary: All new clients should use /api/v1/
     app.use('/api/v1', apiV1Router);
+    app.use('/api', apiV1Router);
 
     // 📖 API Documentation (Swagger)
     const { swaggerUi, specs } = require('./config/swagger');

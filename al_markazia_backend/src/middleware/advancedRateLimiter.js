@@ -110,6 +110,10 @@ const apiLimiter = rateLimit({
     const identifier = req.user?.id ? `user:${req.user.id}` : `ip:${req.ip}`;
     return `api:${identifier}`;
   },
+  skip: (req) => {
+    // 🧪 Allow localhost to bypass rate limiting for load testing
+    return req.ip === '127.0.0.1' || req.ip === '::1' || req.ip === '::ffff:127.0.0.1';
+  },
   handler: (req, res) => {
     logger.warn('API_RATE_LIMIT_EXCEEDED', {
       userId: req.user?.id,

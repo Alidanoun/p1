@@ -221,6 +221,13 @@ class StorageService extends ChangeNotifier {
     notifyListeners();
   }
 
+  // --- Generic Accessors ---
+  String? getString(String key) => _prefs.getString(key);
+  Future<void> setString(String key, String value) async {
+    await _prefs.setString(key, value);
+    notifyListeners();
+  }
+
   // --- Secure Storage (Encrypted) ---
   Future<void> setSecureString(String key, String value) async {
     await _secureStorage.write(key: key, value: value);

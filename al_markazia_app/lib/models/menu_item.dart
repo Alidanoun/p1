@@ -228,6 +228,7 @@ class Review {
   final int rating;
   final String comment;
   final String createdAt;
+  final bool isVerifiedPurchase;
 
   Review({
     required this.id,
@@ -235,6 +236,7 @@ class Review {
     required this.rating,
     required this.comment,
     required this.createdAt,
+    this.isVerifiedPurchase = false,
   });
 
   factory Review.fromJson(Map<String, dynamic> json) {
@@ -244,6 +246,7 @@ class Review {
       rating: json['rating'] ?? 5,
       comment: json['comment'] ?? '',
       createdAt: json['createdAt'] ?? '',
+      isVerifiedPurchase: json['isVerifiedPurchase'] ?? false,
     );
   }
 }

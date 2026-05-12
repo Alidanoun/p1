@@ -159,7 +159,7 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onC
               <div className="grid grid-cols-2 gap-2 mt-2">
                 {order.status === 'pending' && (
                   <button
-                    onClick={() => onUpdateStatus(order.id, 'preparing', order.version)}
+                    onClick={() => onUpdateStatus(order.id, 'preparing', order.version, order.eventSequence)}
                     className="col-span-2 py-2.5 bg-emerald-500 hover:bg-emerald-600 rounded-xl text-white font-black text-xs shadow-lg shadow-emerald-500/20 transition-all active:scale-95 flex items-center justify-center gap-2"
                   >
                     <CheckCircle className="w-4 h-4" />
@@ -169,7 +169,7 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onC
                 
                 {order.status === 'preparing' && (
                   <button
-                    onClick={() => onUpdateStatus(order.id, 'ready', order.version)}
+                    onClick={() => onUpdateStatus(order.id, 'ready', order.version, order.eventSequence)}
                     className="col-span-2 py-2.5 bg-indigo-500 hover:bg-indigo-600 rounded-xl text-white font-black text-xs shadow-lg shadow-indigo-500/20 transition-all active:scale-95 flex items-center justify-center gap-2"
                   >
                     <Package className="w-4 h-4" />
@@ -179,7 +179,7 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onC
 
                 {order.status === 'ready' && (
                   <button
-                    onClick={() => onUpdateStatus(order.id, 'delivered', order.version)}
+                    onClick={() => onUpdateStatus(order.id, 'delivered', order.version, order.eventSequence)}
                     className="col-span-2 py-2.5 bg-emerald-500 hover:bg-emerald-600 rounded-xl text-white font-black text-xs shadow-lg shadow-emerald-500/20 transition-all active:scale-95 flex items-center justify-center gap-2"
                   >
                     <Truck className="w-4 h-4" />
@@ -221,6 +221,7 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onC
 const LiveOrders = () => {
   const { user, selectedBranchId } = useAuth();
   const [orders, setOrders] = useState([]);
+  const pendingOperations = useRef(new Map()); // Map<orderId, {status, version, eventSequence}>
   const [loading, setLoading] = useState(true);
   const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -340,15 +341,31 @@ const LiveOrders = () => {
 
         const currentOrder = prev[index];
 
-        // 🛡️ [CSS-LAYER] Strict Version Ordering
-        if ((canonicalOrder.version || 0) < (currentOrder.version || 0)) {
-          console.warn(`[CSS] Ignored stale update for #${canonicalOrder.orderNumber}: Incoming v${canonicalOrder.version} < Current v${currentOrder.version}`);
+        // 🛡️ [CSS-LAYER] Reconciliation & Authority Guard
+        if (pendingOperations.current.has(orderId)) {
+           // If we have a pending operation, and the socket confirms it (or newer version)
+           // we clear the pending state and accept the socket update.
+           if (canonicalOrder.version >= (currentOrder.version || 0)) {
+             pendingOperations.current.delete(orderId);
+           }
+        }
+
+        // 🛡️ [PROBLEM-10] Strict Sequence Authority
+        const incomingSeq = canonicalOrder.eventSequence || 0;
+        const localSeq = currentOrder.eventSequence || 0;
+
+        if (incomingSeq < localSeq) {
+          console.warn(`[P10] 🛑 Out-of-order event ignored: Seq ${incomingSeq} < Local ${localSeq}`);
           return prev;
         }
 
         // 🧠 Canonical Overwrite (Source of Truth)
         const newOrders = [...prev];
-        newOrders[index] = canonicalOrder; // Absolute Overwrite
+        newOrders[index] = {
+          ...canonicalOrder,
+          // Sync timestamp for Server Driven State
+          updatedAt: canonicalOrder.updatedAt || new Date().toISOString()
+        }; 
         return newOrders;
       });
 
@@ -461,15 +478,14 @@ const LiveOrders = () => {
     }
   };
 
-  const onUpdateStatus = async (id, status, version) => {
-    // 1. 🚀 Optimistic UI Update: Move the order immediately
+  const onUpdateStatus = async (id, status, version, eventSequence) => {
+    // 1. 🚀 Optimistic UI Update + Register Pending Operation
     const previousOrders = [...orders];
     const orderToUpdate = orders.find(o => o.id === id);
-    const oldStatus = orderToUpdate?.status;
-
-    setOrders(prev => prev.map(o => 
-      o.id === id ? { ...o, status } : o
-    ));
+    if (!orderToUpdate) return;
+ 
+    pendingOperations.current.set(id, { status, version, eventSequence });
+    setOrders(prev => prev.map(o => o.id === id ? { ...o, status, eventSequence: (eventSequence || 0) + 1 } : o));
 
     try {
       const idempotencyKey = `manual_upd_${id}_${status}_${Date.now()}`;
@@ -478,12 +494,27 @@ const LiveOrders = () => {
         { headers: { 'idempotency-key': idempotencyKey } }
       );
       
-      // 2. ✅ Final Sync: Update with actual server data (for versioning)
-      setOrders(prev => prev.map(o => o.id === id ? { ...o, status: data.status, version: data.version } : o));
+      // 2. ✅ Authority Reconciliation: Only apply if version is still relevant
+      setOrders(prev => {
+        const current = prev.find(o => o.id === id);
+        // [P10] Respect Event Sequence Authority
+        if (current && (data.eventSequence || 0) >= (current.eventSequence || 0)) {
+          return prev.map(o => o.id === id ? { 
+            ...o, 
+            status: data.status, 
+            version: data.version, 
+            eventSequence: data.eventSequence 
+          } : o);
+        }
+        return prev;
+      });
+      
+      pendingOperations.current.delete(id);
       toast.success('تم تحديث الحالة');
     } catch (err) {
       // 3. 🔄 Rollback on error
       setOrders(previousOrders);
+      pendingOperations.current.delete(id);
       
       if (err.response?.status === 409) {
         toast.error('⚠️ تضارب في البيانات: تم تحديث هذا الطلب مسبقاً من قبل موظف آخر. جاري التحديث...');
@@ -576,7 +607,14 @@ const LiveOrders = () => {
         { status: newStatus, version: orderToUpdate.version },
         { headers: { 'idempotency-key': idempotencyKey } }
       );
-      setOrders(prev => prev.map(o => o.id === draggableId ? { ...o, status: data.status, version: data.version } : o));
+      
+      // 🛡️ [P10] Server-Driven State Update
+      setOrders(prev => prev.map(o => o.id === draggableId ? { 
+        ...o, 
+        status: data.status, 
+        version: data.version, 
+        eventSequence: data.eventSequence 
+      } : o));
       toast.info(`تم تحديث حالة الطلب إلى: ${COLUMNS.find(c => c.id === destination.droppableId).title}`);
     } catch (err) {
       if (err.response?.status === 409) {

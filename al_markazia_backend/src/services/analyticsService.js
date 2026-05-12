@@ -1,4 +1,5 @@
 const { DateTime } = require('luxon');
+const { toNumber } = require('../utils/number');
 
 /**
  * 📊 Analytics & Reporting Service
@@ -56,14 +57,18 @@ class AnalyticsService {
     const branchMetric = await this.prisma.branchMetric.upsert({
       where: { branchId: branchId || 'SYSTEM_GLOBAL' },
       update: {
-        ...metrics,
+        totalOrders: metrics.totalOrders,
+        activeOrders: metrics.activeOrders,
+        cancellations: metrics.cancellations,
         revenue: metrics.revenue,
         version: { increment: 1 },
         eventSequence: { increment: 1 }
       },
       create: {
         branchId: branchId || 'SYSTEM_GLOBAL',
-        ...metrics,
+        totalOrders: metrics.totalOrders,
+        activeOrders: metrics.activeOrders,
+        cancellations: metrics.cancellations,
         revenue: metrics.revenue
       }
     });

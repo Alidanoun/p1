@@ -589,4 +589,10 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get restaurantClosed => 'المطعم مغلق حالياً';
+
+  @override
+  String get verifiedPurchase => 'شراء مؤكد';
+
+  @override
+  String get trackOrder => 'تتبع الطلب';
 }

@@ -1231,6 +1231,18 @@ abstract class AppLocalizations {
   /// In ar, this message translates to:
   /// **'المطعم مغلق حالياً'**
   String get restaurantClosed;
+
+  /// No description provided for @verifiedPurchase.
+  ///
+  /// In ar, this message translates to:
+  /// **'شراء مؤكد'**
+  String get verifiedPurchase;
+
+  /// No description provided for @trackOrder.
+  ///
+  /// In ar, this message translates to:
+  /// **'تتبع الطلب'**
+  String get trackOrder;
 }
 
 class _AppLocalizationsDelegate

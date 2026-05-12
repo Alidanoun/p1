@@ -594,4 +594,10 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get restaurantClosed => 'Restaurant is Closed';
+
+  @override
+  String get verifiedPurchase => 'Verified Purchase';
+
+  @override
+  String get trackOrder => 'Track Order';
 }
