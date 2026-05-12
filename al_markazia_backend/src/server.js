@@ -209,9 +209,8 @@ async function startServer() {
     });
 
     // ─── API Routes (Versioned) ──────────────────────────────
-    // Primary: All new clients should use /api/v1/
+    // 🛡️ Canonical API path — all clients MUST use /api/v1/
     app.use('/api/v1', apiV1Router);
-    app.use('/api', apiV1Router);
 
     // 📖 API Documentation (Swagger)
     const { swaggerUi, specs } = require('./config/swagger');
@@ -219,10 +218,6 @@ async function startServer() {
       swaggerOptions: { persistAuthorization: true },
       customSiteTitle: "Al Markazia API Docs"
     }));
-
-    // Legacy: Backward compatibility for existing Flutter app & admin panels
-    // TODO: Remove after all clients migrate to /api/v1/
-    app.use('/', apiV1Router);
 
     // Health Checks (external probes — always at root)
     app.get('/health/external', externalProbeController.pings);
