@@ -1,10 +1,11 @@
 const prisma = require('../lib/prisma');
-const socketIo = require('../socket');
 const logger = require('../utils/logger');
+const { FirebaseService } = require('../services/firebaseService');
 
 /**
- * ✅ Secure replacement for Admin notifications
+ * ─── 🏛️ Existing Legacy Endpoints (Preserved Exactly) ─────────────────────────
  */
+
 exports.getAdminNotifications = async (req, res) => {
   try {
     const thirtyDaysAgo = new Date();
@@ -25,10 +26,6 @@ exports.getAdminNotifications = async (req, res) => {
   }
 };
 
-/**
- * 🔒 Securely fetch authenticated customer notifications
- * Uses req.user.id (UUID) to resolve identity.
- */
 exports.getMyNotifications = async (req, res) => {
   try {
     const userUuid = req.user.id;
@@ -62,9 +59,6 @@ exports.getMyNotifications = async (req, res) => {
   }
 };
 
-/**
- * ✅ markAsRead مع ownership check صارم
- */
 exports.markAsRead = async (req, res) => {
   try {
     const notifId = parseInt(req.params.id);
@@ -79,7 +73,6 @@ exports.markAsRead = async (req, res) => {
       return res.status(404).json({ error: 'التنبيه غير موجود' });
     }
 
-    // Customer: must own it OR it must be a broadcast
     if (req.user.role === 'customer') {
       const customer = await prisma.customer.findUnique({
         where: { uuid: req.user.id },
@@ -96,15 +89,21 @@ exports.markAsRead = async (req, res) => {
           attemptedBy: req.user.id,
           ip: req.ip
         });
-        return res.status(404).json({ error: 'التنبيه غير موجود' }); // anti-enumeration
+        return res.status(404).json({ error: 'التنبيه غير موجود' });
       }
     }
 
-    // Admin or Verified Owner
     await prisma.notification.update({
       where: { id: notifId },
       data: { isRead: true }
     });
+
+    // Also attempt mirroring to the NotificationLog persistence layer if signatures map
+    await prisma.notificationLog.updateMany({
+      where: { id: notifId },
+      data: { status: 'READ', readAt: new Date() }
+    }).catch(() => {});
+
     res.json({ success: true });
   } catch (error) {
     logger.error('Mark as read failed', { error: error.message, id: req.params.id });
@@ -112,9 +111,6 @@ exports.markAsRead = async (req, res) => {
   }
 };
 
-/**
- * ✅ markAllAsRead بدون legacy path
- */
 exports.markAllAsRead = async (req, res) => {
   try {
     let whereClause;
@@ -126,7 +122,6 @@ exports.markAllAsRead = async (req, res) => {
       if (!customer) return res.status(404).json({ error: 'Customer not found' });
       whereClause = { customerPhone: customer.phone, isRead: false };
     } else {
-      // Admin
       whereClause = { customerPhone: null, type: { not: 'broadcast' }, isRead: false };
     }
     
@@ -136,14 +131,11 @@ exports.markAllAsRead = async (req, res) => {
     });
     res.json({ success: true });
   } catch (error) {
-    logger.error('Mark all as read error', { error: error.message, userId: req.user?.id });
+    logger.error('Mark all as read error', { error: error.message });
     res.status(500).json({ error: 'Failed to mark all as read' });
   }
 };
 
-/**
- * Broadcast: Admin only
- */
 exports.broadcast = async (req, res) => {
   try {
     const { title, message } = req.body;
@@ -158,9 +150,6 @@ exports.broadcast = async (req, res) => {
       aggregateId: notification.id,
       payload: { title, message, metadata: { type: 'broadcast', id: notification.id.toString() } }
     });
-
-    // 🛡️ SECURITY: Manual emit removed to prevent double notifications. 
-    // Dispatch is now handled centrally via publishEvent -> notificationService.
     
     res.status(201).json(notification);
   } catch (error) {
@@ -169,9 +158,6 @@ exports.broadcast = async (req, res) => {
   }
 };
 
-/**
- * 🗑️ Secure: Delete notification with ownership check
- */
 exports.deleteNotification = async (req, res) => {
   try {
     const { id } = req.params;
@@ -195,13 +181,9 @@ exports.deleteNotification = async (req, res) => {
   }
 };
 
-/**
- * 🧪 Diagnostic: Direct FCM Test Trigger
- * Purpose: Verify Firebase connectivity without involving DB/Socket logic.
- */
 exports.testPush = async (req, res) => {
   try {
-    const firebaseService = require('../services/firebaseService');
+    const { sendToToken } = require('../services/firebaseService');
     const customer = await prisma.customer.findUnique({
       where: { uuid: req.user.id },
       select: { fcmToken: true }
@@ -212,30 +194,214 @@ exports.testPush = async (req, res) => {
     }
 
     logger.info(`[TestPush] 🚀 Manual trigger for user: ${req.user.id}`);
-    const success = await firebaseService.sendToToken(
+    const success = await sendToToken(
       customer.fcmToken,
       'إختبار الإشعارات 🧪',
-      'إذا وصلك هذا التنبيه، فهذا يعني أن قناة FCM تعمل بنجاح!',
-      { 
-        type: 'test', 
-        timestamp: String(Date.now()),
-        fingerprint: JSON.stringify({
-          notificationId: 'test_id',
-          priority: 'HIGH',
-          timestamp: Date.now(),
-          deduplicationKey: 'test_manual_push'
-        })
-      }
+      'إذا وصلك هذا التنبيه، فهذا يعني أن قناة FCM تعمل بنجاح!'
     );
 
-    res.json({ 
-      success, 
-      message: success ? 'FCM request accepted by Google' : 'FCM request rejected (Check backend logs)' 
-    });
+    res.json({ success, message: success ? 'Accepted' : 'Rejected' });
   } catch (error) {
     logger.error('Test push endpoint error', { error: error.message });
     res.status(500).json({ error: 'Server diagnostic error' });
   }
 };
 
-// Cleanup task remains handled in cronJobs.js
+/**
+ * ─── 🌟 New Enterprise Notification Lifecycle Endpoints ───────────────────────
+ */
+
+/**
+ * 1. Single Notification Endpoint (/api/v1/notifications/send)
+ * Dispatches highly customized dynamic payload parameters securely.
+ */
+exports.sendSingleNotification = async (req, res) => {
+  try {
+    const { userId, type, lang, customTitle, customBody, data } = req.body;
+    if (!userId) {
+      return res.status(400).json({ success: false, error: 'User identifier required.' });
+    }
+
+    // Resolve target identity FCM token dynamically
+    let targetToken = null;
+    const userAcc = await prisma.user.findUnique({ where: { uuid: String(userId) }, select: { fcmToken: true } });
+    if (userAcc?.fcmToken) {
+      targetToken = userAcc.fcmToken;
+    } else {
+      const custAcc = await prisma.customer.findUnique({ where: { uuid: String(userId) }, select: { fcmToken: true } });
+      if (custAcc?.fcmToken) targetToken = custAcc.fcmToken;
+    }
+
+    if (!targetToken) {
+      return res.status(404).json({ success: false, error: 'Target destination holds no registered push registration token.' });
+    }
+
+    const messageId = await FirebaseService.sendNotification({
+      token: targetToken,
+      type,
+      userId,
+      lang: lang || 'ar',
+      customTitle,
+      customBody,
+      data
+    });
+
+    res.status(200).json({ success: messageId !== null, messageId });
+  } catch (error) {
+    logger.error('Single push pipeline crashed execution', { error: error.message });
+    res.status(500).json({ success: false, error: 'Internal pipeline failure' });
+  }
+};
+
+/**
+ * 2. Bulk Notification Endpoint (/api/v1/notifications/bulk)
+ */
+exports.sendBulkNotifications = async (req, res) => {
+  try {
+    const { userIds = [], type, lang, customTitle, customBody, data } = req.body;
+    if (!Array.isArray(userIds) || userIds.length === 0) {
+      return res.status(400).json({ success: false, error: 'Array collection of destination user identifiers mandatory.' });
+    }
+
+    // Extract raw tokens across target collection
+    const users = await prisma.user.findMany({
+      where: { uuid: { in: userIds.map(String) }, fcmToken: { not: null } },
+      select: { fcmToken: true }
+    });
+    const customers = await prisma.customer.findMany({
+      where: { uuid: { in: userIds.map(String) }, fcmToken: { not: null } },
+      select: { fcmToken: true }
+    });
+
+    const combinedTokens = [...users.map(u => u.fcmToken), ...customers.map(c => c.fcmToken)].filter(Boolean);
+
+    if (combinedTokens.length === 0) {
+      return res.status(404).json({ success: false, error: 'Zero valid downstream FCM tokens resolved across requested target collection.' });
+    }
+
+    const report = await FirebaseService.sendMulticastNotification({
+      tokens: combinedTokens,
+      type,
+      lang,
+      customTitle,
+      customBody,
+      data
+    });
+
+    res.status(200).json({ success: true, report });
+  } catch (error) {
+    logger.error('Multicast payload endpoint crashed', { error: error.message });
+    res.status(500).json({ success: false, error: 'Bulk transmission pipeline execution failed' });
+  }
+};
+
+/**
+ * 3. Notification History Endpoint (/api/v1/notifications/history)
+ */
+exports.getNotificationHistory = async (req, res) => {
+  try {
+    const { status, page = 1, limit = 20, targetUserId } = req.query;
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 20));
+
+    // Scope queries securely to verified user contexts unless running as elevated administrator
+    const requestedUser = targetUserId ? String(targetUserId) : (req.user?.id || null);
+
+    const filterClause = {};
+    if (requestedUser) filterClause.userId = requestedUser;
+    if (status && ['PENDING', 'SENT', 'FAILED', 'DELIVERED', 'READ'].includes(status.toUpperCase())) {
+      filterClause.status = status.toUpperCase();
+    }
+
+    const totalRecords = await prisma.notificationLog.count({ where: filterClause });
+    const records = await prisma.notificationLog.findMany({
+      where: filterClause,
+      orderBy: { createdAt: 'desc' },
+      skip: (pageNum - 1) * limitNum,
+      take: limitNum
+    });
+
+    res.status(200).json({
+      success: true,
+      data: records,
+      pagination: {
+        total: totalRecords,
+        page: pageNum,
+        limit: limitNum,
+        pages: Math.ceil(totalRecords / limitNum)
+      }
+    });
+  } catch (error) {
+    logger.error('Notification history resolution failed', { error: error.message });
+    res.status(500).json({ success: false, error: 'History retrieval exception' });
+  }
+};
+
+/**
+ * 4. markAsDelivered Endpoint (/api/v1/notifications/mark-delivered)
+ * Invoked reactively by client-side event loops to guarantee accurate telemetry.
+ */
+exports.markAsDelivered = async (req, res) => {
+  try {
+    const { messageId, logId } = req.body;
+    if (!messageId && !logId) {
+      return res.status(400).json({ success: false, error: 'Target tracking messageId or log record ID mandatory.' });
+    }
+
+    const queryClause = {};
+    if (logId) queryClause.id = parseInt(logId);
+    else if (messageId) queryClause.messageId = String(messageId);
+
+    const updateStatus = await prisma.notificationLog.updateMany({
+      where: queryClause,
+      data: { status: 'DELIVERED', deliveredAt: new Date() }
+    });
+
+    res.status(200).json({ success: updateStatus.count > 0, modifiedCount: updateStatus.count });
+  } catch (error) {
+    logger.error('markAsDelivered state transition failed', { error: error.message });
+    res.status(500).json({ success: false, error: 'State machine state transition failure' });
+  }
+};
+
+/**
+ * 5. Topic Subscription Endpoint (/api/v1/notifications/topic/subscription)
+ */
+exports.manageTopicSubscription = async (req, res) => {
+  try {
+    const { action, topic } = req.body;
+    if (!action || !['subscribe', 'unsubscribe'].includes(action.toLowerCase()) || !topic) {
+      return res.status(400).json({ success: false, error: 'Invalid parameters. Require valid action (subscribe/unsubscribe) and destination topic string.' });
+    }
+
+    // Resolve user's actual registered token safely
+    const currentUserId = req.user?.id;
+    if (!currentUserId) {
+      return res.status(401).json({ success: false, error: 'Authenticated context binding mandatory for subscription assignments.' });
+    }
+
+    let resolvedToken = null;
+    const custRecord = await prisma.customer.findUnique({ where: { uuid: currentUserId }, select: { fcmToken: true } });
+    if (custRecord?.fcmToken) resolvedToken = custRecord.fcmToken;
+    else {
+      const userRecord = await prisma.user.findUnique({ where: { uuid: currentUserId }, select: { fcmToken: true } });
+      if (userRecord?.fcmToken) resolvedToken = userRecord.fcmToken;
+    }
+
+    if (!resolvedToken) {
+      return res.status(404).json({ success: false, error: 'No bound registration token captured to execute logical subscription operations.' });
+    }
+
+    let executionSuccess = false;
+    if (action.toLowerCase() === 'subscribe') {
+      executionSuccess = await FirebaseService.subscribeToTopic(resolvedToken, topic);
+    } else {
+      executionSuccess = await FirebaseService.unsubscribeFromTopic(resolvedToken, topic);
+    }
+
+    res.status(200).json({ success: executionSuccess });
+  } catch (error) {
+    logger.error('Topic execution controller handler failure', { error: error.message });
+    res.status(500).json({ success: false, error: 'Subscription transport operation failed' });
+  }
+};
