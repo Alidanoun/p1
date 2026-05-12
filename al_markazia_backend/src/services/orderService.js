@@ -911,14 +911,11 @@ class OrderService {
         where: { id: targetBranchId },
         select: { 
           isActive: true, 
-          operationalStatus: true, 
-          acceptingOrders: true, 
-          name: true,
-          operationalVersion: true 
+          name: true 
         }
       });
 
-      if (!branchStatus || !branchStatus.isActive || branchStatus.operationalStatus !== 'OPEN' || !branchStatus.acceptingOrders) {
+      if (!branchStatus || !branchStatus.isActive) {
         throw new Error(`BRANCH_NOT_OPERATIONAL: ${branchStatus?.name || 'Unknown'}`);
       }
 
@@ -1162,13 +1159,13 @@ class OrderService {
 
     // 2. 🛡️ Registry Validation: Check existence in Canonical Registry
     const branch = await this.prisma.branch.findUnique({ 
-      where: { id: input, isDeleted: false }, 
-      select: { id: true } 
+      where: { id: input }, 
+      select: { id: true, isActive: true } 
     });
 
-    if (!branch) {
+    if (!branch || !branch.isActive) {
       await this._logInvalidBranchAttempt(userId, input, 'NOT_FOUND');
-      throw new Error('BRANCH_NOT_FOUND: The targeted identity does not exist in the registry.');
+      throw new Error('BRANCH_NOT_FOUND: The targeted identity does not exist or is inactive.');
     }
 
     return branch.id;

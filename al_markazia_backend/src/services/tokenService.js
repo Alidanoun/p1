@@ -103,9 +103,17 @@ class TokenService {
 
     // Resolve User for fresh versions
     let user = await prisma.user.findUnique({ where: { uuid: userId } });
-    if (!user) user = await prisma.customer.findUnique({ where: { uuid: userId } });
+    let isUserEntity = true;
+    if (!user) {
+      user = await prisma.customer.findUnique({ where: { uuid: userId } });
+      isUserEntity = false;
+    }
 
-    if (!user || !user.isActive) throw new Error('USER_INACTIVE');
+    const isInactive = isUserEntity 
+      ? (!user || !user.isActive) 
+      : (!user || user.isDeleted || user.isBlacklisted);
+
+    if (isInactive) throw new Error('USER_INACTIVE');
 
     // Atomic Rotation
     const { token: newRefreshToken, jti: newJti } = await this.generateAndSaveRefreshToken(user, {
@@ -134,12 +142,23 @@ class TokenService {
 
     // Authority Fallback
     let user = await prisma.user.findUnique({ where: { uuid: userId }, select: { authVersion: true, permissionVersion: true, isActive: true, role: true, branchId: true } });
-    if (!user) user = await prisma.customer.findUnique({ where: { uuid: userId }, select: { authVersion: true, permissionVersion: true, isActive: true, role: true } });
+    let isUserEntity = true;
+    if (!user) {
+      user = await prisma.customer.findUnique({ where: { uuid: userId }, select: { authVersion: true, permissionVersion: true, isBlacklisted: true, isDeleted: true } });
+      isUserEntity = false;
+    }
 
-    if (!user || !user.isActive) return { valid: false, reason: 'USER_INACTIVE' };
+    const isInactive = isUserEntity 
+      ? (!user || !user.isActive) 
+      : (!user || user.isDeleted || user.isBlacklisted);
+
+    if (isInactive) return { valid: false, reason: 'USER_INACTIVE' };
     if (user.authVersion !== tokenAv || user.permissionVersion !== tokenPv) return { valid: false, reason: 'STATE_INVALIDATED' };
 
-    await redis.set(sessionKey, JSON.stringify({ sid: jti, uid: userId, role: user.role, branchId: user.branchId, av: user.authVersion, pv: user.permissionVersion }), 'EX', 3600);
+    const role = isUserEntity ? user.role : 'customer';
+    const branchId = isUserEntity ? user.branchId : null;
+
+    await redis.set(sessionKey, JSON.stringify({ sid: jti, uid: userId, role, branchId, av: user.authVersion, pv: user.permissionVersion }), 'EX', 3600);
     return { valid: true };
   }
 

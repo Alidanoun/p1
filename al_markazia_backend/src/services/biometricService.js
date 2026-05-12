@@ -27,8 +27,8 @@ class BiometricService {
       if (!userAcc.isActive) throw new Error('USER_INACTIVE');
       role = userAcc.role;
     } else {
-      const custAcc = await prisma.customer.findUnique({ where: { uuid: userUuid }, select: { isActive: true } });
-      if (!custAcc) throw new Error('USER_NOT_FOUND');
+      const custAcc = await prisma.customer.findUnique({ where: { uuid: userUuid }, select: { isBlacklisted: true, isDeleted: true } });
+      if (!custAcc || custAcc.isDeleted || custAcc.isBlacklisted) throw new Error('USER_NOT_FOUND');
       role = 'customer';
     }
 
@@ -140,7 +140,11 @@ class BiometricService {
       isUserEntity = false;
     }
 
-    if (!account || (account.isActive !== undefined && !account.isActive)) {
+    const isAccountDisabled = isUserEntity 
+      ? (!account || !account.isActive) 
+      : (!account || account.isDeleted || account.isBlacklisted);
+
+    if (isAccountDisabled) {
       throw new Error('ACCOUNT_DISABLED_OR_BLOCKED');
     }
 
