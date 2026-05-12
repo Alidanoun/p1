@@ -55,7 +55,10 @@ const FinancialApprovalWidget = () => {
 
     setProcessingId(id);
     try {
-      await api.post(`/financial/approvals/${id}/${action}`, { reason });
+      await api.post(`/financial/approvals/${id}/${action}`, { 
+        reason,
+        version: approval.version 
+      });
       toast.success(action === 'approve' ? 'تمت الموافقة المالية بنجاح' : 'تم رفض العملية المالية');
       fetchApprovals();
     } catch (error) {

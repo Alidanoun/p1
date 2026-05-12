@@ -15,7 +15,15 @@ const BranchStats = () => {
     try {
       const url = 'analytics/branch/report/today';
       const response = await api.get(url);
-      setStats(unwrap(response));
+      const data = unwrap(response);
+      
+      setStats(prev => {
+        if (prev && (data.eventSequence || 0) < (prev.eventSequence || 0)) {
+           console.warn(`[P10] Stale metrics ignored: Seq ${data.eventSequence} < Local ${prev.eventSequence}`);
+           return prev;
+        }
+        return data;
+      });
     } catch (err) {
       console.error('Failed to fetch stats', err);
     } finally {

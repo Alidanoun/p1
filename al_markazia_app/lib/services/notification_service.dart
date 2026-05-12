@@ -348,7 +348,7 @@ class NotificationService extends ChangeNotifier {
       final proceed = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-          shape: RoundedRectangleBorder(radius: BorderRadius.circular(20)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           title: const Text('تنبيهات المركزية 🔔', textAlign: TextAlign.center),
           content: const Text(
             'اسمح لنا بتنبيهك عند جاهزية وجبتك وتحديثات طلبك لحظة بلحظة لتصلك ساخنة!',
@@ -363,7 +363,7 @@ class NotificationService extends ChangeNotifier {
               onPressed: () => Navigator.pop(context, true),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Theme.of(context).primaryColor,
-                shape: RoundedRectangleBorder(radius: BorderRadius.circular(10)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
               child: const Text('تفعيل التنبيهات', style: TextStyle(color: Colors.white)),
             ),

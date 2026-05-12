@@ -152,5 +152,7 @@
   "loginWithFingerprint": "Login with Fingerprint",
   "biometricEnabled": "Fingerprint login enabled successfully ✅",
   "forgotPassword": "Forgot Password?",
-  "restaurantClosed": "Restaurant is Closed"
+  "restaurantClosed": "Restaurant is Closed",
+  "verifiedPurchase": "Verified Purchase",
+  "trackOrder": "Track Order"
 }

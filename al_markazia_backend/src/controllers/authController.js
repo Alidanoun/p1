@@ -151,6 +151,7 @@ const login = async (req, res) => {
   const start = Date.now();
   try {
     const cleanEmail = email.toLowerCase().trim();
+    const cleanPassword = typeof password === 'string' ? password.trim() : password;
     logger.debug('Login attempt initiated', { email: cleanEmail });
     
     // 🛡️ [SEC-FIX] Lockout Key: IP + Email to prevent global user DoS
@@ -184,7 +185,7 @@ const login = async (req, res) => {
       return response.error(res, 'بيانات الدخول غير صحيحة', 'INVALID_CREDENTIALS', 401);
     }
 
-    const match = account ? await bcrypt.compare(password, account.password) : false;
+    const match = account ? await bcrypt.compare(cleanPassword, account.password) : false;
     
     if (!match) {
       if (account) {
