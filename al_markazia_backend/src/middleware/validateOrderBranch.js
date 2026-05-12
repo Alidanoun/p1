@@ -90,18 +90,38 @@ module.exports = async (req, res, next) => {
       // UUID lookup
       branch = activeBranches.find(b => b.id === branchId);
     } else {
-      // Code lookup (case-insensitive)
-      branch = activeBranches.find(b => b.code.toUpperCase() === branchId.toUpperCase());
+      // Code or Name lookup (case-insensitive and substring tolerant)
+      const cleanTarget = branchId.toUpperCase().trim();
+      branch = activeBranches.find(b => {
+        const codeMatch = b.code && b.code.toUpperCase().trim() === cleanTarget;
+        const nameMatch = b.name && (
+          b.name.toUpperCase().trim() === cleanTarget ||
+          b.name.includes(branchId.trim()) ||
+          branchId.includes(b.name.trim())
+        );
+        return codeMatch || nameMatch;
+      });
     }
 
     // Fallback to direct DB query if cache miss (safety net)
     if (!branch) {
-      branch = await prisma.branch.findUnique({
-        where: {
-          ...(branchId.length > 30 ? { id: branchId } : { code: branchId.toUpperCase() })
-        },
-        select: { id: true, isActive: true, name: true }
-      });
+      if (branchId.length > 30) {
+        branch = await prisma.branch.findUnique({
+          where: { id: branchId },
+          select: { id: true, isActive: true, name: true, code: true }
+        });
+      } else {
+        // Search DB by code or name using findFirst to avoid unique constraint requirements on name filters
+        branch = await prisma.branch.findFirst({
+          where: {
+            OR: [
+              { code: { equals: branchId.toUpperCase() } },
+              { name: { contains: branchId.trim() } }
+            ]
+          },
+          select: { id: true, isActive: true, name: true, code: true }
+        });
+      }
     }
 
     if (!branch) {
