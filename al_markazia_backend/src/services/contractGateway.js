@@ -64,6 +64,7 @@ class ContractGateway {
           case 'SYSTEM_CANCEL': return await this.container.cancellationOrchestrator.execute(orderId, actor, { ...context, source: 'SYSTEM_CANCEL', skipPasswordCheck: true });
           case 'UPDATE_STATUS': return await this.container.orderLifecycleOrchestrator.transitionStatus(orderId, context.status, actor, context);
           case 'CREATE_ORDER': return await this.container.orderService.createOrder(context.orderData, actor);
+          case 'REQUEST_PARTIAL_CANCEL': return await this.container.orderService.requestPartialCancel(orderId, context.items, context.reason, actor, context);
           case 'APPROVE_PARTIAL_CANCEL': return await this.container.orderService.applyPartialCancellation(orderId, context.itemsToCancel, actor, context.notificationId, context.managerPassword);
           // ... add other cases as needed or use a generic router
           default:

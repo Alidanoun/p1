@@ -12,7 +12,8 @@ const {
   REFRESH_TOKEN_EXPIRY,
   REFRESH_TOKEN_EXPIRY_MS,
   JWT_PRIVATE_KEY,
-  JWT_PUBLIC_KEY
+  JWT_PUBLIC_KEY,
+  LEGACY_JWT_PUBLIC_KEY
 } = require('../config/secrets');
 
 const PRIVATE_KEY = JWT_PRIVATE_KEY;
@@ -166,6 +167,13 @@ class TokenService {
     try {
       return jwt.verify(token, PUBLIC_KEY, { algorithms: ['RS256'] });
     } catch (error) {
+      if (error.message && error.message.includes('signature') && LEGACY_JWT_PUBLIC_KEY) {
+        try {
+          const decoded = jwt.verify(token, LEGACY_JWT_PUBLIC_KEY, { algorithms: ['RS256'] });
+          logger.debug('[TokenService] Access token validated gracefully via legacy rotation key');
+          return decoded;
+        } catch (legacyErr) {}
+      }
       throw new Error(error.name === 'TokenExpiredError' ? 'TOKEN_EXPIRED' : 'INVALID_TOKEN');
     }
   }

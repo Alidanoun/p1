@@ -9,7 +9,7 @@ const { mapOrderResponse } = require('../mappers/order.mapper');
 const { publishEvent } = require('../events/eventPublisher');
 const eventTypes = require('../events/eventTypes');
 const queryOptimizer = require('../utils/queryOptimizer');
-const { toNumber } = require('../utils/number');
+const { toNumber, toMoney } = require('../utils/number');
 const { validateTransition } = require('../validators/orderStateMachine');
 const configService = require('./configService');
 const liveCacheService = require('./liveCacheService');
@@ -276,13 +276,16 @@ class OrderService {
   /**
    * ⚠️ Request Partial Cancellation/Modification
    */
-  async requestPartialCancel(orderId, items, reason, metadata = {}) {
+  async requestPartialCancel(orderId, items, reason, actor = null, metadata = {}) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: { customer: true }
     });
 
     if (!order) throw new Error('ORDER_NOT_FOUND');
+
+    // 🔒 Enforce Centralized Ownership Guard to prevent IDOR
+    await this.validateOwnership(order, actor);
 
     await this.prisma.notification.create({
       data: {
@@ -295,8 +298,8 @@ class OrderService {
           items: items.map(i => (typeof i === 'number' ? i : i.id)),
           reason,
           refundAmount: metadata.refundAmount,
-          requestedBy: metadata.requestedBy,
-          requestedAt: metadata.requestedAt
+          requestedBy: actor?.id || metadata.requestedBy,
+          requestedAt: metadata.requestedAt || new Date().toISOString()
         })
       }
     });
@@ -316,7 +319,7 @@ class OrderService {
     // 🛡️ [SEC-FIX] Enforce Re-auth for Administrative Action
     await this._verifyManagerPassword(actor.id, managerPassword);
 
-    const { toNumber } = require('../utils/number');
+    const { toNumber, toMoneyString } = require('../utils/number');
     
     return await this.prisma.$transaction(async (tx) => {
       // 1. Fetch order with items
@@ -345,13 +348,13 @@ class OrderService {
 
       const refundAmount = pricingService.calculateImpact(order.total, financials.total).difference;
 
-      // 4. Update Database
+      // 4. Update Database using precise Decimal strings to guarantee strict alignment with Prisma schema
       const updatedOrder = await tx.order.update({
         where: { id: orderId, version: order.version },
         data: {
-          total: financials.total,
-          subtotal: financials.subtotal,
-          tax: financials.tax,
+          total: toMoneyString(financials.total),
+          subtotal: toMoneyString(financials.subtotal),
+          tax: toMoneyString(financials.tax),
           version: { increment: 1 },
           orderItems: {
             deleteMany: {
@@ -607,6 +610,53 @@ class OrderService {
   }
 
   /**
+   * 🛡️ Centralized Ownership Guard (validateOwnership)
+   * Validates granular order ownership against authenticated user tokens.
+   * Handles automatic resolution between Token UUIDs and DB Integer IDs.
+   * @param {Object} order - Order object retrieved from DB
+   * @param {Object} user - Current user object from JWT
+   * @throws {Error} if access is forbidden
+   */
+  async validateOwnership(order, user) {
+    if (!order) throw new Error('ORDER_NOT_FOUND');
+    if (!user) throw new Error('UNAUTHORIZED_ORDER_ACCESS');
+
+    const role = user.role?.toLowerCase() || 'customer';
+
+    // 1. Admins and Branch Managers have administrative clearance
+    if (['admin', 'branch_manager'].includes(role)) {
+      return true;
+    }
+
+    // 2. Registered Customers: must strictly match customerId
+    if (role === 'customer') {
+      if (!order.customerId) {
+        throw new Error('ORDER_FORBIDDEN: This order does not belong to any registered account.');
+      }
+
+      // Check populated relation UUID if available
+      if (order.customer && order.customer.uuid === user.id) {
+        return true;
+      }
+
+      // Resolve via DB query to map string UUID to integer ID
+      const customer = await this.prisma.customer.findUnique({
+        where: { uuid: user.id },
+        select: { id: true }
+      });
+
+      if (!customer || order.customerId !== customer.id) {
+        this.logger.error('[Security Guard] IDOR access blocked: Customer ownership mismatch', { requestedOrderId: order.id, authenticatedUserUuid: user.id });
+        throw new Error('ORDER_FORBIDDEN: You do not own this order.');
+      }
+
+      return true;
+    }
+
+    throw new Error('ORDER_FORBIDDEN: Insufficient permissions.');
+  }
+
+  /**
    * 🎯 Fetch Unique Order with Details
    */
   async getOrderById(orderId, user = null) {
@@ -614,24 +664,21 @@ class OrderService {
       where: { id: orderId },
       include: {
         ...ORDER_INCLUDE_FULL,
-        auditLogs: { orderBy: { createdAt: 'desc' }, take: 10 }
+        auditLogs: { orderBy: { createdAt: 'desc' }, take: 10 },
+        customer: true // Ensure customer object is loaded for ownership validation
       }
     });
 
     if (!order) return null;
 
-    // 🛡️ [SECURITY-UNIFICATION] Use Central Policy
-    const SecurityPolicyService = require('./securityPolicyService');
-    const hasAccess = await this.container.securityPolicyService.canAccessBranch(user, order.branchId);
-    
-    if (!hasAccess) {
-      // For customers, specifically check if they own the order
-      if (user.role === 'customer') {
-        const customer = await this.prisma.customer.findUnique({ where: { uuid: user.id }, select: { id: true } });
-        if (!customer || order.customerId !== customer.id) {
-          throw new Error('ORDER_FORBIDDEN');
-        }
-      } else {
+    // 🔒 Enforce Centralized Ownership Guard to prevent IDOR completely
+    await this.validateOwnership(order, user);
+
+    // If actor is staff/admin/manager, enforce branch-level access control boundaries
+    if (user && user.role?.toLowerCase() !== 'customer') {
+      const SecurityPolicyService = require('./securityPolicyService');
+      const hasAccess = await this.container.securityPolicyService.canAccessBranch(user, order.branchId);
+      if (!hasAccess) {
         throw new Error('ORDER_FORBIDDEN');
       }
     }
@@ -783,18 +830,9 @@ class OrderService {
       throw new Error('EMPTY_ORDER_NOT_ALLOWED');
     }
 
-    // 0.1 🛡️ [GUEST-HARDENING] Guest Order Type Restriction
-    // Guests can only place standard consumer orders (takeaway/delivery)
-    if (!authUser) {
-      const allowedGuestTypes = ['takeaway', 'delivery'];
-      const requestedType = (orderType || 'takeaway').toLowerCase();
-      if (!allowedGuestTypes.includes(requestedType)) {
-        logger.security('UNAUTHORIZED_GUEST_ORDER_TYPE', {
-          orderType: requestedType,
-          phone: data.phone || customerPhone
-        });
-        throw new Error('UNAUTHORIZED_GUEST_ORDER_TYPE');
-      }
+    // 🔴 الحظر الصارم للضيوف: فرض تسجيل الدخول الإلزامي للطلبات
+    if (!authUser || !authUser.id) {
+      throw new Error('AUTH_REQUIRED: Guests are not allowed to place orders. Please login.');
     }
 
     const phoneInput = data.phone || customerPhone;
@@ -1202,9 +1240,18 @@ class OrderService {
     let subtotal = 0;
     const validatedItems = [];
 
-    for (const item of cartItems) {
-      const dbItem = await this.prisma.item.findUnique({
-        where: { id: parseInt(item.productId || item.id) },
+    if (!cartItems || cartItems.length === 0) {
+      return { validatedItems, subtotal };
+    }
+
+    // 1. Batch extract unique item IDs and option IDs
+    const itemIds = [...new Set(cartItems.map(item => parseInt(item.productId || item.id)).filter(id => !isNaN(id)))];
+    const allOptionIds = [...new Set(cartItems.flatMap(item => (item.optionIds || []).map(id => parseInt(id))).filter(id => !isNaN(id)))];
+
+    // 2. Execute parallel/batch fetching to eliminate N+1 queries
+    const [dbItemsArray, dbOptionsArray] = await Promise.all([
+      this.prisma.item.findMany({
+        where: { id: { in: itemIds } },
         include: { 
           optionGroups: { 
             where: { isActive: true },
@@ -1215,7 +1262,23 @@ class OrderService {
             select: { isAvailable: true }
           } : false
         }
-      });
+      }),
+      allOptionIds.length > 0 
+        ? this.prisma.itemOption.findMany({
+            where: { id: { in: allOptionIds } },
+            include: { group: true }
+          })
+        : Promise.resolve([])
+    ]);
+
+    // 3. Create O(1) in-memory lookup maps
+    const dbItemsMap = new Map(dbItemsArray.map(item => [item.id, item]));
+    const dbOptionsMap = new Map(dbOptionsArray.map(opt => [opt.id, opt]));
+
+    // 4. Validate items sequentially in memory
+    for (const item of cartItems) {
+      const targetId = parseInt(item.productId || item.id);
+      const dbItem = dbItemsMap.get(targetId);
 
       if (!dbItem) throw new Error(`ITEM_NOT_FOUND:${item.id}`);
 
@@ -1242,15 +1305,11 @@ class OrderService {
       const validatedOptionNames = [];
       const validatedOptionNamesEn = [];
 
-      // 1. Process client-provided options
+      // 1. Process client-provided options from pre-fetched map
       if (incomingOptionIds.length > 0) {
-        const dbOptions = await this.prisma.itemOption.findMany({
-          where: { id: { in: incomingOptionIds } },
-          include: { group: true }
-        });
-
-        for (const opt of dbOptions) {
-          if (opt.group.itemId !== dbItem.id) continue; // Security: Ensure option belongs to item
+        for (const optId of incomingOptionIds) {
+          const opt = dbOptionsMap.get(optId);
+          if (!opt || opt.group?.itemId !== dbItem.id) continue; // Security: Ensure option belongs to item
           unitPrice += toNumber(opt.price);
           coveredGroupIds.add(opt.groupId);
           validatedOptionIds.push(opt.id);
@@ -1424,7 +1483,7 @@ class OrderService {
         validateTransition(previousStatus, newStatus, orderId, this.container.auditService, user);
 
         const { updatedOrder, _outboxId } = await this.prisma.$transaction(async (tx) => {
-          const updated = await tx.order.update({
+          const { count } = await tx.order.updateMany({
             where: { id: order.id, version: currentVersion },
             data: { 
               status: newStatus, 
@@ -1432,9 +1491,22 @@ class OrderService {
               eventSequence: { increment: 1 },
               previousVersion: currentVersion,
               causedByEventId: user?.eventId || null 
-            },
+            }
+          });
+
+          if (count === 0) {
+            throw new Error('CONCURRENCY_CONFLICT');
+          }
+
+          // Fetch authoritative updated state inside the same tx
+          const updated = await tx.order.findUnique({
+            where: { id: order.id },
             include: ORDER_INCLUDE_FULL
           });
+
+          if (!updated) {
+            throw new Error('ORDER_NOT_FOUND');
+          }
 
           // 🎁 Loyalty Reward Hook
           let pointsEarned = 0;
@@ -1488,8 +1560,8 @@ class OrderService {
         return { ...mappedOrder, _outboxId };
 
       } catch (error) {
-        // 🔄 [RETRY-LOGIC] Handle Prisma concurrency errors (P2025)
-        if (error.code === 'P2025' && attempts < maxRetries - 1) {
+        // 🔄 [RETRY-LOGIC] Handle Prisma concurrency errors and custom conflicts
+        if ((error.code === 'P2025' || error.message === 'CONCURRENCY_CONFLICT') && attempts < maxRetries - 1) {
           attempts++;
           const delay = 100 * attempts;
           logger.warn(`[OrderService] Concurrency conflict detected for Order ${orderId}. Retry ${attempts}/${maxRetries} after ${delay}ms...`);
@@ -1509,7 +1581,7 @@ class OrderService {
             return {
               ...mapOrderResponse(finalOrder),
               _conflict: true,
-              _message: 'تداخل في العمليات: الطلب محدث بالفعل ببيانات أخرى'
+              _message: 'حالة الطلب تغيرت أثناء محاولتك للتحديث، يرجى المحاولة مرة أخرى'
             };
           }
         }
