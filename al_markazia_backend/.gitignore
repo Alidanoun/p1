@@ -7,3 +7,7 @@ prisma/*.db
 prisma/*.db-journal
 firebase-service-account.json
 uploads/
+scratch/
+src/scratch/
+temp/
+debug/
