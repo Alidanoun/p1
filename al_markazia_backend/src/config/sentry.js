@@ -19,6 +19,10 @@ const initSentry = () => {
     environment: process.env.NODE_ENV || 'development',
     release: `al-markazia@${process.env.npm_package_version || 'dev'}`,
     
+    // 🛡️ Requested properties preserved exactly
+    attachStacktrace: true,
+    maxBreadcrumbs: 50,
+
     // معدل أخذ العينات للتتبع (أقل في الإنتاج لتقليل التكلفة)
     tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
     
@@ -36,6 +40,10 @@ const initSentry = () => {
       'ECONNRESET',             // إعادة تعيين الاتصال
       'TokenExpiredError',      // يتم التعامل معها محلياً في TokenService
       'JsonWebTokenError',      // أخطاء توكن غير صالحة (متوقعة)
+      'UNAUTHORIZED',           // محاولات وصول مرفوضة متوقعة
+      'FORBIDDEN',              // صلاحيات غير كافية
+      'HTTP_400',               // طلبات غير صالحة من العميل
+      'HTTP_404',               // موارد غير موجودة
     ],
     
     // معالجة الحدث قبل الإرسال لإضافة سياق أمني
