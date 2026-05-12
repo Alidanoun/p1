@@ -10,11 +10,22 @@ const redis = require('../lib/redis');
  */
 const authenticateToken = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+  const token = (authHeader && authHeader.split(' ')[1]) || req.cookies?.accessToken;
 
   if (!token) {
     logger.security('Access denied: No token provided', { ip: req.ip, endpoint: req.originalUrl });
     return responseError(res, 'يجب تسجيل الدخول للوصول لهذه الخدمة', 'UNAUTHORIZED', 401);
+  }
+
+  // 🛡️ Token Binding: Double-layer CSRF validation for cookie-based state-changing operations
+  const isStateChanging = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method?.toUpperCase());
+  if (isStateChanging && req.cookies?.accessToken && !authHeader) {
+    const xsrfHeader = req.headers['x-xsrf-token'];
+    const xsrfCookie = req.cookies['XSRF-TOKEN'];
+    if (!xsrfHeader || !xsrfCookie || xsrfHeader !== xsrfCookie) {
+      logger.security('[CSRF_BLOCKED] Missing or mismatched X-XSRF-TOKEN header during cookie-authenticated operation', { ip: req.ip, endpoint: req.originalUrl });
+      return responseError(res, 'فشل التحقق الأمني من مصدر الطلب (CSRF)', 'SECURITY_BREACH', 403);
+    }
   }
 
   try {
@@ -116,7 +127,7 @@ const isManager = requireRoles(['admin', 'branch_manager', 'manager']);
  */
 const optionalAuth = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+  const token = (authHeader && authHeader.split(' ')[1]) || req.cookies?.accessToken;
   if (!token) return next(); // Proceed as guest
   return authenticateToken(req, res, next);
 };

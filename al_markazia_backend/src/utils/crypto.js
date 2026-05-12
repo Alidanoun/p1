@@ -1,18 +1,27 @@
 const crypto = require('crypto');
 const logger = require('./logger');
+const secretProvider = require('../config/secretProvider');
 
 /**
  * 🔒 Enterprise Encryption Utility (AES-256-CBC)
  * Used to protect PII (Personally Identifiable Information) in the database.
  */
 
-// Load and harden key using scryptSync
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY ? crypto.scryptSync(process.env.ENCRYPTION_KEY, 'salt-pepper', 32) : null;
-const IV_LENGTH = 16; 
-
-if (!ENCRYPTION_KEY) {
-  logger.error('❌ [Crypto] ENCRYPTION_KEY is missing. Sensitive data protection is compromised.');
+const isDevOrTest = process.env.NODE_ENV !== 'production';
+if (isDevOrTest && !process.env.ENCRYPTION_KEY) {
+  process.env.ENCRYPTION_KEY = crypto.randomBytes(32).toString('hex');
 }
+
+const rawKey = secretProvider.getSecretSync('ENCRYPTION_KEY');
+
+if (!rawKey || rawKey.length < 32) {
+  logger.error('❌ CRITICAL: ENCRYPTION_KEY is missing or too weak (must be at least 32 characters long).');
+  process.exit(1);
+}
+
+// Load and harden key using scryptSync
+const ENCRYPTION_KEY = crypto.scryptSync(rawKey, 'salt-pepper', 32);
+const IV_LENGTH = 16;
 
 /**
  * 🔐 Encrypts a string using AES-256-CBC with a random IV.

@@ -5,7 +5,7 @@ const { generateFingerprint, validatePasswordStrength } = require('../utils/secu
 const { encrypt, decrypt, hashBlind } = require('../utils/crypto');
 const TokenService = require('../services/tokenService');
 const auditService = require('../services/auditService');
-const { REFRESH_TOKEN_EXPIRY_MS, BCRYPT_ROUNDS } = require('../config/secrets');
+const { REFRESH_TOKEN_EXPIRY_MS, ACCESS_TOKEN_EXPIRY_MS, BCRYPT_ROUNDS } = require('../config/secrets');
 const { OTP_EXPIRY } = require('../config/constants');
 const response = require('../utils/response');
 
@@ -34,23 +34,46 @@ const sanitizeToken = (token) => {
 };
 
 // ── Helper: Secure Cookie Config ──────────────────────
+const getCookiePolicy = (req) => {
+  const isProd = process.env.NODE_ENV === 'production';
+  // Use 'none' for cross-subdomain/multi-site Admin access in production, otherwise 'lax'
+  const sameSite = isProd ? 'none' : 'lax';
+  // If sameSite is 'none', secure attribute MUST be true by browser spec
+  const secure = isProd || req.secure || req.headers['x-forwarded-proto'] === 'https';
+  return { sameSite, secure };
+};
+
 const refreshCookieOptions = (req) => {
-  const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https';
-  
+  const policy = getCookiePolicy(req);
   return {
     httpOnly: true,
-    secure: isSecure,                                // Auto-detect HTTPS
-    sameSite: 'strict',                              // 🔒 Hardened for Enterprise
+    secure: policy.secure,
+    sameSite: policy.sameSite,
     path: '/',
     maxAge: REFRESH_TOKEN_EXPIRY_MS
   };
 };
 
-// ── Helper: Clear Cookie with same options ──
-const clearRefreshCookie = (req, res) => {
-  const options = refreshCookieOptions(req);
-  delete options.maxAge; // Not needed for clear
-  res.clearCookie('refreshToken', options);
+const accessCookieOptions = (req) => {
+  const policy = getCookiePolicy(req);
+  return {
+    httpOnly: true,
+    secure: policy.secure,
+    sameSite: policy.sameSite,
+    path: '/',
+    maxAge: ACCESS_TOKEN_EXPIRY_MS
+  };
+};
+
+// ── Helper: Clear Auth Cookies ──
+const clearAuthCookies = (req, res) => {
+  const refOpts = refreshCookieOptions(req);
+  delete refOpts.maxAge;
+  res.clearCookie('refreshToken', refOpts);
+
+  const accOpts = accessCookieOptions(req);
+  delete accOpts.maxAge;
+  res.clearCookie('accessToken', accOpts);
 };
 
 
@@ -69,7 +92,7 @@ const refreshToken = async (req, res) => {
       length: rawToken?.length || 0,
       preview: typeof rawToken === 'string' ? rawToken.substring(0, 10) : 'N/A'
     });
-    clearRefreshCookie(req, res);
+    clearAuthCookies(req, res);
     return response.error(res, 'جلسة غير صالحة، يرجى تسجيل الدخول مجدداً', 'INVALID_SESSION', 401);
   }
 
@@ -85,8 +108,9 @@ const refreshToken = async (req, res) => {
     
     const { accessToken, newRefreshToken, user } = await TokenService.validateAndRotate(token, clientIp, currentFingerprint);
 
-    // 🛡️ Cookie Hardening
+    // 🛡️ Cookie Hardening (Dual HttpOnly Cookies)
     res.cookie('refreshToken', newRefreshToken.token, refreshCookieOptions(req));
+    res.cookie('accessToken', accessToken, accessCookieOptions(req));
 
     await auditService.log({
       userId: user.uuid,
@@ -100,7 +124,7 @@ const refreshToken = async (req, res) => {
       refreshToken: newRefreshToken.token
     });
   } catch (error) {
-    clearRefreshCookie(req, res);
+    clearAuthCookies(req, res);
 
     if (error.message === 'TOKEN_REUSE_DETECTED' || error.message === 'SECURITY_BREACH') {
       return response.error(res, 'تنبيه أمني: تم اكتشاف محاولة اختراق الجلسة. تم تسجيل الخروج من كافة الأجهزة.', 'SECURITY_BREACH', 401);
@@ -262,8 +286,9 @@ const login = async (req, res) => {
     });
     const accessToken = TokenService.generateAccessToken(account, jti);
 
-    // 🛡️ Cookie Hardening (Level 5 Security)
+    // 🛡️ Cookie Hardening (Level 5 Security - Dual HttpOnly Cookies)
     res.cookie('refreshToken', refreshToken, refreshCookieOptions(req));
+    res.cookie('accessToken', accessToken, accessCookieOptions(req));
 
     await auditService.log({
       userId: account.uuid,
@@ -302,7 +327,7 @@ const logout = async (req, res) => {
     await TokenService.revokeToken(token);
   }
 
-  clearRefreshCookie(req, res);
+  clearAuthCookies(req, res);
   return res.json({ success: true, message: 'Logged out successfully' });
 };
 
@@ -462,6 +487,7 @@ const verifyRegistration = async (req, res) => {
     }
     
     res.cookie('refreshToken', token, refreshCookieOptions(req));
+    res.cookie('accessToken', accessToken, accessCookieOptions(req));
 
     response.success(res, { 
       accessToken, 
@@ -631,6 +657,7 @@ const resetPassword = async (req, res) => {
     }
 
     res.cookie('refreshToken', token, refreshCookieOptions(req));
+    res.cookie('accessToken', accessToken, accessCookieOptions(req));
 
     response.success(res, {
       accessToken,

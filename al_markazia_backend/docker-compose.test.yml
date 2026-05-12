@@ -1,0 +1,21 @@
+services:
+  test-db:
+    image: postgres:15-alpine
+    container_name: al-markazia-test-db
+    restart: always
+    command: ["postgres", "-c", "max_connections=200"]
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password123
+      POSTGRES_DB: al_markazia_test_db
+    ports:
+      - "5433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+
+  test-redis:
+    image: redis:7-alpine
+    container_name: al-markazia-test-redis
+    restart: always
+    ports:
+      - "6380:6379"
