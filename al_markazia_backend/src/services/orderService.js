@@ -1136,13 +1136,13 @@ class OrderService {
       });
       if (customer) {
         resolvedPhone = decrypt(customer.phone);
-        logger.debug(`[OrderService] Found customer by UUID ${authUser.id}: ID ${customer.id}`);
+        this.logger.debug(`[OrderService] Found customer by UUID ${authUser.id}: ID ${customer.id}`);
       } else {
-        logger.debug(`[OrderService] No customer found for UUID ${authUser.id}. User role: ${authUser.role}`);
+        this.logger.debug(`[OrderService] No customer found for UUID ${authUser.id}. User role: ${authUser.role}`);
         // If it's an admin, we allow fallback to phone (for manual orders)
         // If it's a customer but UUID not found (stale token), we should NOT fallback to another customer's phone
         if (authUser.role !== 'admin') {
-          logger.warn(`[OrderService] Authenticated customer UUID not found. Blocking fallback to prevent misattribution.`);
+          this.logger.warn(`[OrderService] Authenticated customer UUID not found. Blocking fallback to prevent misattribution.`);
           return { id: null, phone: phone, points: 0, walletBalance: 0 }; // Treat as Guest instead of linking to wrong ID
         }
       }
@@ -1154,9 +1154,9 @@ class OrderService {
         select: { id: true, phone: true, points: true, walletBalance: true, isBlacklisted: true, blacklistExpiresAt: true }
       });
       if (customer) {
-        logger.debug(`[OrderService] Found customer by Phone ${resolvedPhone}: ID ${customer.id}`);
+        this.logger.debug(`[OrderService] Found customer by Phone ${resolvedPhone}: ID ${customer.id}`);
       } else {
-        logger.debug(`[OrderService] No customer found for Phone ${resolvedPhone}`);
+        this.logger.debug(`[OrderService] No customer found for Phone ${resolvedPhone}`);
       }
     }
 
