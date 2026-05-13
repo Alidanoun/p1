@@ -53,31 +53,41 @@ class AnalyticsService {
       revenue: orders.reduce((sum, o) => sum + toNumber(o.total), 0)
     };
 
-    // 🛡️ [P10] Upsert to Server Driven State
-    const branchMetric = await this.prisma.branchMetric.upsert({
-      where: { branchId: branchId || 'SYSTEM_GLOBAL' },
-      update: {
-        totalOrders: metrics.totalOrders,
-        activeOrders: metrics.activeOrders,
-        cancellations: metrics.cancellations,
-        revenue: metrics.revenue,
-        version: { increment: 1 },
-        eventSequence: { increment: 1 }
-      },
-      create: {
-        branchId: branchId || 'SYSTEM_GLOBAL',
-        totalOrders: metrics.totalOrders,
-        activeOrders: metrics.activeOrders,
-        cancellations: metrics.cancellations,
-        revenue: metrics.revenue
-      }
-    });
+    // 🛡️ [P10] Upsert to Server Driven State (Conditional for physical branch only)
+    let version = 1;
+    let eventSequence = 1;
+    let updatedAt = new Date();
+
+    if (branchId) {
+      const branchMetric = await this.prisma.branchMetric.upsert({
+        where: { branchId },
+        update: {
+          totalOrders: metrics.totalOrders,
+          activeOrders: metrics.activeOrders,
+          cancellations: metrics.cancellations,
+          revenue: metrics.revenue,
+          version: { increment: 1 },
+          eventSequence: { increment: 1 }
+        },
+        create: {
+          branchId,
+          totalOrders: metrics.totalOrders,
+          activeOrders: metrics.activeOrders,
+          cancellations: metrics.cancellations,
+          revenue: metrics.revenue
+        }
+      });
+
+      version = branchMetric.version;
+      eventSequence = branchMetric.eventSequence;
+      updatedAt = branchMetric.updatedAt;
+    }
 
     return {
       ...metrics,
-      version: branchMetric.version,
-      eventSequence: branchMetric.eventSequence,
-      updatedAt: branchMetric.updatedAt
+      version,
+      eventSequence,
+      updatedAt
     };
   }
 
