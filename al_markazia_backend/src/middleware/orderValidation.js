@@ -21,7 +21,8 @@ exports.validateOrderCreate = (req, res, next) => {
 
   // 3. Cart Item Hardening
   for (const item of cartItems) {
-    if (!item.itemId || !item.quantity || item.quantity <= 0) {
+    const targetId = item.itemId || item.productId || item.id;
+    if (!targetId || !item.quantity || item.quantity <= 0) {
       return res.status(400).json({ success: false, error: 'بيانات المنتجات غير صالحة' });
     }
     // 🛡️ Price Hijack Prevention: Force recalculation in service layer
