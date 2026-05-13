@@ -41,8 +41,8 @@ function runAccountingTests() {
 
   // 3. Logic Locking Check
   try {
-    accountingService.TAX_RATE = 0.20; // Try to mutate
-    if (accountingService.TAX_RATE === 0.16) {
+    accountingService.TAX_RATE = 0.20; // Try to mutate (Fails due to freeze)
+    if (accountingService.TAX_RATE.equals && accountingService.TAX_RATE.equals(0.16)) {
       logger.info('✅ Logic Locking: Immutable Service Verified');
     } else {
       throw new Error('Logic Locking Fail: Object mutated!');
