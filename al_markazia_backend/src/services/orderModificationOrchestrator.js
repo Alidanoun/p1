@@ -13,6 +13,11 @@ class OrderModificationOrchestrator {
     const policyEngine = require('./orderModificationPolicyEngine');
     
     const order = await this._getOrderSnapshot(orderId);
+    
+    // 🛡️ [SECURITY] Guard Ownership & Item Scope
+    this._verifyOrderOwnership(order, user);
+    this._validateModificationItems(order, modifications);
+
     const policy = policyEngine.evaluate(order, modifications, user);
     if (!policy.allowed) throw new Error(`POLICY_REJECTED:${policy.reason}`);
 
@@ -36,6 +41,11 @@ class OrderModificationOrchestrator {
     const modificationService = require('./orderModificationService');
     
     const order = await this._getOrderSnapshot(orderId);
+    
+    // 🛡️ [SECURITY] Guard Ownership & Item Scope
+    this._verifyOrderOwnership(order, user);
+    this._validateModificationItems(order, modifications);
+
     const policy = policyEngine.evaluate(order, modifications, user);
     if (!policy.allowed) throw new Error(`POLICY_REJECTED:${policy.reason}`);
 
@@ -63,13 +73,70 @@ class OrderModificationOrchestrator {
     return order;
   }
 
+  _verifyOrderOwnership(order, user) {
+    if (!user) throw new Error('UNAUTHORIZED_ORDER_ACCESS');
+    const role = (user.role || '').toLowerCase();
+    const isCustomer = role === 'customer';
+    const isAdminRoles = ['admin', 'branch_manager', 'manager'].includes(role);
+
+    if (isCustomer && order.customerId !== user.id) {
+      if (this.logger && typeof this.logger.security === 'function') {
+        this.logger.security('UNAUTHORIZED_ORDER_ACCESS_ATTEMPT', {
+          userId: user.id,
+          targetOrderId: order.id,
+          targetCustomerId: order.customerId
+        });
+      }
+      throw new Error('UNAUTHORIZED_ORDER_ACCESS');
+    }
+
+    if (isAdminRoles && role !== 'admin' && order.branchId !== user.branchId) {
+      if (this.logger && typeof this.logger.security === 'function') {
+        this.logger.security('UNAUTHORIZED_BRANCH_ACCESS_ATTEMPT', {
+          userId: user.id,
+          targetOrderId: order.id,
+          targetBranchId: order.branchId,
+          actualBranchId: user.branchId
+        });
+      }
+      throw new Error('UNAUTHORIZED_BRANCH_ACCESS');
+    }
+
+    return true;
+  }
+
+  _validateModificationItems(order, modifications) {
+    if (!modifications.removeIds || modifications.removeIds.length === 0) {
+      return;
+    }
+
+    const validItemIds = new Set((order.orderItems || []).map(item => String(item.id)));
+
+    for (const itemId of modifications.removeIds) {
+      if (!validItemIds.has(String(itemId))) {
+        if (this.logger && typeof this.logger.warn === 'function') {
+          this.logger.warn('INVALID_MODIFICATION_ITEM_ATTEMPT', {
+            orderId: order.id,
+            invalidItemId: itemId
+          });
+        }
+        throw new Error('INVALID_ITEM_ID');
+      }
+    }
+
+    const remainingCount = (order.orderItems || []).length - modifications.removeIds.length;
+    if (remainingCount === 0 && modifications.type !== 'FULL_CANCEL') {
+      throw new Error('CANNOT_REMOVE_ALL_ITEMS_WITHOUT_FULL_CANCEL');
+    }
+  }
+
   async _simulateChanges(currentItems, modifications) {
     if (modifications.type === 'FULL_CANCEL') return [];
-    let items = [...currentItems];
-    if (modifications.removeIds) {
-      items = items.filter(i => !modifications.removeIds.includes(i.id));
+    if (!modifications.removeIds || modifications.removeIds.length === 0) {
+      return [...currentItems];
     }
-    return items;
+    const removeSet = new Set(modifications.removeIds.map(id => String(id)));
+    return currentItems.filter(item => !removeSet.has(String(item.id)));
   }
 }
 
