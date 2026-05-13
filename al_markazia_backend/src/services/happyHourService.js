@@ -87,7 +87,7 @@ class HappyHourService {
     }
     
     this.redis = defaultRedis?.cache || defaultRedis;
-    this.pubSub = defaultRedis?.subscriber || defaultRedis;
+    this.pubSub = defaultRedis?.createSubscriber ? defaultRedis.createSubscriber() : (defaultRedis?.subscriber || defaultRedis);
     this.logger = deps.logger || require('../utils/logger');
     
     this.cronJobs = new Map(); // Legacy tracking support

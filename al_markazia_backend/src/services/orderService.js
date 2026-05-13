@@ -1244,15 +1244,20 @@ class OrderService {
       return { validatedItems, subtotal };
     }
 
-    // 1. Batch extract unique item IDs and option IDs
+    // 1. Batch extract unique item IDs and option IDs flexibly supporting multiple client format standards
     const itemIds = [...new Set(cartItems.map(item => parseInt(item.productId || item.id)).filter(id => !isNaN(id)))];
-    const allOptionIds = [...new Set(cartItems.flatMap(item => (item.optionIds || []).map(id => parseInt(id))).filter(id => !isNaN(id)))];
+    const extractOptIds = (itm) => {
+      const arr = itm.optionIds || itm.modifierIds || itm.options || itm.modifiers || [];
+      return arr.map(o => parseInt(typeof o === 'object' && o !== null ? o.id : o)).filter(id => !isNaN(id));
+    };
+    const allOptionIds = [...new Set(cartItems.flatMap(extractOptIds))];
 
     // 2. Execute parallel/batch fetching to eliminate N+1 queries
     const [dbItemsArray, dbOptionsArray] = await Promise.all([
       this.prisma.item.findMany({
         where: { id: { in: itemIds } },
         include: { 
+          variants: true, // 🛡️ Fully support sizes/variants integration
           modifierGroups: { 
             where: { isActive: true },
             include: { modifiers: { where: { isAvailable: true } } } 
@@ -1297,13 +1302,30 @@ class OrderService {
       }
 
       let unitPrice = toNumber(dbItem.basePrice);
-      const incomingOptionIds = (item.optionIds || []).map(id => parseInt(id)).filter(id => !isNaN(id));
+      const incomingOptionIds = extractOptIds(item);
       
       // Track which groups are already covered by incoming options
       const coveredGroupIds = new Set();
       const validatedOptionIds = [];
       const validatedOptionNames = [];
       const validatedOptionNamesEn = [];
+
+      // 0. Process Variant/Size Selection if present
+      const targetVariantId = parseInt(item.variantId || item.selectedVariantId || item.variant?.id || item.variant);
+      let selectedVariant = null;
+      if (!isNaN(targetVariantId)) {
+        selectedVariant = dbItem.variants?.find(v => v.id === targetVariantId);
+      } else if (item.variant && typeof item.variant === 'string') {
+        selectedVariant = dbItem.variants?.find(v => v.name.toLowerCase() === item.variant.toLowerCase());
+      } else if (item.size && typeof item.size === 'string') {
+        selectedVariant = dbItem.variants?.find(v => v.name.toLowerCase() === item.size.toLowerCase());
+      }
+
+      if (selectedVariant) {
+        unitPrice += toNumber(selectedVariant.priceDiff);
+        validatedOptionNames.push(selectedVariant.name);
+        if (selectedVariant.nameEn) validatedOptionNamesEn.push(selectedVariant.nameEn);
+      }
 
       // 1. Process client-provided options from pre-fetched map
       if (incomingOptionIds.length > 0) {
@@ -1341,11 +1363,9 @@ class OrderService {
       const lineTotal = toMoney(unitPrice * qty);
       subtotal += lineTotal;
 
-      // Construct final options text if missing or incomplete
-      let finalOptionsText = item.optionsText || null;
-      if (!finalOptionsText && validatedOptionNames.length > 0) {
-        finalOptionsText = validatedOptionNames.join(', ');
-      }
+      // Construct final options text dynamically ensuring variant/size and modifiers are properly visible
+      const finalOptionsText = validatedOptionNames.length > 0 ? validatedOptionNames.join(', ') : (item.optionsText || null);
+      const finalOptionsTextEn = validatedOptionNamesEn.length > 0 ? validatedOptionNamesEn.join(', ') : (item.optionsTextEn || null);
 
       validatedItems.push({
         itemId: dbItem.id,
@@ -1355,7 +1375,7 @@ class OrderService {
         unitPrice,
         lineTotal,
         selectedOptions: finalOptionsText,
-        selectedOptionsEn: validatedOptionNamesEn.length > 0 ? validatedOptionNamesEn.join(', ') : (item.optionsTextEn || null)
+        selectedOptionsEn: finalOptionsTextEn
       });
     }
 

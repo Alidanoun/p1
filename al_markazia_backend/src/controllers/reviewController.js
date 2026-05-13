@@ -83,21 +83,26 @@ exports.submitReview = async (req, res) => {
         rating: ratingInt,
         comment: cleanComment,
         isVerifiedPurchase: true,
-        isApproved: false, // 🛡️ [SEC-FIX] No auto-approval to prevent bias/spam
+        status: 'PENDING', // 🛡️ [SEC-FIX] Set enum status to PENDING schema format
         ipAddress: req.ip,
         userAgent: req.get('User-Agent')?.substring(0, 200)
       },
       include: { item: { select: { title: true } } }
     });
 
+    const responseData = {
+      ...review,
+      isApproved: review.status === 'APPROVED'
+    };
+
     const io = req.app.get('io');
     if (io) {
-      io.to(SOCKET_ROOMS.ADMIN).emit(SOCKET_EVENTS.NEW_REVIEW, { review });
+      io.to(SOCKET_ROOMS.ADMIN).emit(SOCKET_EVENTS.NEW_REVIEW, { review: responseData });
     }
 
     res.status(201).json({
       success: true,
-      data: review
+      data: responseData
     });
   } catch (error) {
     logger.error('Submit review error', { error: error.message });
@@ -119,7 +124,7 @@ exports.getItemReviews = async (req, res) => {
 
     const [reviews, total] = await Promise.all([
       prisma.review.findMany({
-        where: { itemId, isApproved: true },
+        where: { itemId, status: 'APPROVED' },
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
@@ -127,17 +132,23 @@ exports.getItemReviews = async (req, res) => {
           id: true,
           rating: true,
           comment: true,
+          status: true,
           isVerifiedPurchase: true,
           createdAt: true,
           customer: { select: { name: true } }
         }
       }),
-      prisma.review.count({ where: { itemId, isApproved: true } })
+      prisma.review.count({ where: { itemId, status: 'APPROVED' } })
     ]);
+
+    const mappedReviews = reviews.map(r => ({
+      ...r,
+      isApproved: true
+    }));
 
     res.json({
       success: true,
-      data: reviews,
+      data: mappedReviews,
       pagination: { total, page, limit, pages: Math.ceil(total / limit) }
     });
   } catch (error) {
@@ -182,6 +193,7 @@ exports.getAllReviews = async (req, res) => {
     const mappedItemReviews = itemReviews.map(r => ({
       ...r,
       type: 'item_review',
+      isApproved: r.status === 'APPROVED',
       customerName: r.customer?.name || 'مجهول',
       customerPhone: r.customer?.phone
     }));
@@ -245,13 +257,16 @@ exports.toggleApproval = async (req, res) => {
 
     const review = await prisma.review.update({
       where: { id: reviewId },
-      data: { isApproved: Boolean(isApproved), isFlagged: false }
+      data: { status: Boolean(isApproved) ? 'APPROVED' : 'REJECTED', isFlagged: false }
     });
 
     // 🚀 Update Item Cache (Background)
     await updateItemStats(review.itemId);
 
-    res.json(review);
+    res.json({
+      ...review,
+      isApproved: review.status === 'APPROVED'
+    });
   } catch (error) {
     res.status(500).json({ error: 'Failed to update status' });
   }
@@ -319,7 +334,7 @@ exports.updateReview = async (req, res) => {
       data: {
         rating: ratingInt || review.rating,
         comment: cleanComment,
-        isApproved: false, // 🛡️ Re-review required after update
+        status: 'PENDING', // 🛡️ Re-review required after update
         updatedAt: new Date()
       }
     });
@@ -327,7 +342,13 @@ exports.updateReview = async (req, res) => {
     // 🚀 Update Item Cache (Background)
     await updateItemStats(updated.itemId);
 
-    res.json({ success: true, data: updated });
+    res.json({ 
+      success: true, 
+      data: {
+        ...updated,
+        isApproved: updated.status === 'APPROVED'
+      } 
+    });
   } catch (error) {
     logger.error('Update review error', { error: error.message });
     res.status(500).json({ success: false, error: 'فشل تحديث التقييم' });
@@ -403,7 +424,7 @@ async function updateItemStats(itemId) {
   // 🛡️ [FIX] Use transaction for atomic aggregation and update
   await prisma.$transaction(async (tx) => {
     const stats = await tx.review.aggregate({
-      where: { itemId, isApproved: true },
+      where: { itemId, status: 'APPROVED' },
       _avg: { rating: true },
       _count: { id: true }
     });
