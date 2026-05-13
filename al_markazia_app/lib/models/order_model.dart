@@ -169,6 +169,7 @@ class OrderModel {
     'ratingText': ratingText,
     'ratingComment': ratingComment,
     'branch': branch,
+    'branchId': branch,
     'deliveryZoneId': deliveryZoneId,
     'version': version,
     'usePoints': usePoints,

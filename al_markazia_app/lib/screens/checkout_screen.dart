@@ -339,9 +339,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               const SizedBox(height: 8),
               Row(
                 children: [
-                  _buildBranchChip(l10n.branchMadina, l10n.branchMadina, checkout),
+                  _buildBranchChip(l10n.branchMadina, 'MADINA', checkout),
                   const SizedBox(width: 8),
-                  _buildBranchChip(l10n.branchKhalda, l10n.branchKhalda, checkout),
+                  _buildBranchChip(l10n.branchKhalda, 'KHALDA', checkout),
                 ],
               ),
 
