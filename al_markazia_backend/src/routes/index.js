@@ -20,6 +20,7 @@ const categoryRoutes = require('./categories');
 const notificationRoutes = require('./notifications');
 const customerRoutes = require('./customers');
 const ratingRoutes = require('./ratings');
+const reviewsRoutes = require('./reviews');
 const settingsRoutes = require('./settings');
 const metricsRoutes = require('./metrics');
 const analyticsRoutes = require('./analytics');
@@ -52,7 +53,7 @@ router.use('/customers', customerRoutes);
 // Operations
 router.use('/notifications', notificationRoutes);
 router.use('/ratings', ratingRoutes);
-router.use('/reviews', ratingRoutes);
+router.use('/reviews', reviewsRoutes);
 router.use('/settings', settingsRoutes);
 router.use('/metrics', metricsRoutes);
 router.use('/dashboard', dashboardRoutes);

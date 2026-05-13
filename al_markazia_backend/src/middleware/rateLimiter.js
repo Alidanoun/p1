@@ -1,131 +1,104 @@
-const rateLimit = require('express-rate-limit');
-const logger = require('../utils/logger');
+const { createLimiter } = require('./advancedRateLimiter');
 
-// التقييد العام للنظام (Global Limiter)
-const globalLimiter = rateLimit({
+// 🌐 التقييد العام للنظام (Global Limiter)
+const globalLimiter = createLimiter({
+  scope: 'global',
   windowMs: 60 * 1000,
-  max: 300,
-  validate: false,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { success: false, message: 'Too many requests' },
-  handler: (req, res, next, options) => {
-    logger.warn(`Global Rate Limit Exceeded: IP ${req.ip} | Route ${req.originalUrl}`);
-    res.status(options.statusCode).json(options.message);
-  }
+  maxRequests: 300,
+  errorMessage: 'Too many requests'
 });
 
-// تقييد المصادقة (Auth Limiter) - Hardened: 8 attempts per 10 mins
-const authLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 5,
-  keyGenerator: (req) => `${req.ip}_${req.body?.email || req.body?.phone || 'guest'}`,
-  validate: false,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    message: 'تجاوزت الحد المسموح من المحاولات. يرجى المحاولة بعد 10 دقائق.',
-    code: 'AUTH_RATE_LIMIT'
-  },
-  handler: (req, res, next, options) => {
-    logger.warn(`Auth Rate Limit Exceeded: IP ${req.ip} | Identifier ${req.body?.email || req.body?.phone}`);
-    res.status(429).json(options.message);
-  }
+// 🔐 تقييد المصادقة (Auth Limiter) - Hardened: 5 attempts per 10 mins
+const authLimiter = createLimiter({
+  scope: 'auth',
+  windowMs: 10 * 60 * 1000,
+  maxRequests: 5,
+  errorMessage: 'تجاوزت الحد المسموح من المحاولات. يرجى المحاولة بعد 10 دقائق.',
+  keyBuilder: (req) => `${req.ip}_${req.body?.email || req.body?.phone || 'guest'}`
 });
 
-// تقييد إنشاء الطلبات (Order Creation Limiter)
-const orderLimiter = rateLimit({
+// 📦 تقييد إنشاء الطلبات (Order Creation Limiter) - يدعم الاستدعاء المباشر والهرمي
+const baseOrderLimiter = createLimiter({
+  scope: 'orders',
   windowMs: 60 * 1000,
-  max: 3,
-  keyGenerator: (req) => req.user?.id || req.ip,
-  validate: false,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { success: false, message: 'Too many orders placed in a short period. Please slow down.' },
-  handler: (req, res, next, options) => {
-    logger.warn(`Order Rate Limit Exceeded: IP ${req.ip}`);
-    res.status(options.statusCode).json(options.message);
-  }
+  maxRequests: 3,
+  errorMessage: 'Too many orders placed in a short period. Please slow down.'
 });
 
-// 🛡️ تقييد صارم لطلبات الضيوف (Guest Order Limiter)
-// ضيوف بدون مصادقة = أعلى مستوى خطر → حدود صارمة جداً
-// ⚠️ تحذير: القيمة 0 تعني حظر جميع طلبات الضيوف — لا تستخدمها في الإنتاج أبداً!
-const guestOrderLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 دقيقة
-  max: 15, // 15 طلب كل 15 دقيقة لكل IP — قيمة إنتاجية متوازنة
-  keyGenerator: (req) => req.ip,
-  skip: (req) => !!req.user, // تخطي إذا كان المستخدم مسجل دخول
-  validate: false,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    message: 'تجاوزت الحد المسموح من الطلبات كضيف. يرجى تسجيل الدخول أو المحاولة لاحقاً.',
-    code: 'GUEST_RATE_LIMIT'
-  },
-  handler: (req, res, next, options) => {
-    logger.security(`🚨 [GUEST_RATE_LIMIT] IP ${req.ip} exceeded guest order limit | UA: ${req.headers['user-agent']}`);
-    res.status(429).json(options.message);
-  }
-});
+const orderLimiter = async (req, res, next) => {
+  return baseOrderLimiter(req, res, next);
+};
 
-// تقييد البحث (Search Limiter)
-const searchLimiter = rateLimit({
+// ✅ إضافة المستويات الهرمية كخصائص لدعم الحماية المتعددة (Hierarchical Limiting)
+orderLimiter.perUser = createLimiter({
+  scope: 'orders',
   windowMs: 60 * 1000,
-  max: 50,
-  keyGenerator: (req) => req.user?.id || req.ip,
-  validate: false,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { success: false, message: 'Too many search requests. Please slow down.' },
-  handler: (req, res, next, options) => {
-    logger.warn(`Search Rate Limit Exceeded: IP ${req.ip}`);
-    res.status(options.statusCode).json(options.message);
-  }
+  maxRequests: 10,
+  keyBuilder: (req) => `user:${req.user?.id || req.ip}`
 });
 
-// تقييد التقييمات (Review Limiter)
-const reviewLimiter = rateLimit({
+orderLimiter.perBranch = createLimiter({
+  scope: 'orders',
+  windowMs: 60 * 1000,
+  maxRequests: 100,
+  keyBuilder: (req) => `branch:${req.headers?.['x-branch-id'] || 'default'}`
+});
+
+orderLimiter.global = createLimiter({
+  scope: 'orders',
+  windowMs: 60 * 1000,
+  maxRequests: 1000
+});
+
+// 🛡️ منع بات لإنشاء الطلبات من قبل الضيوف (Guest Order Creation Guard)
+// يسمح للضيوف بالاطلاع فقط على محتوى التطبيق ويمنعهم تماماً من تنفيذ مسارات الحجز/الطلبات
+const guestOrderLimiter = async (req, res, next) => {
+  const authHeader = req.headers?.authorization || req.headers?.Authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    const logger = require('../utils/logger');
+    if (logger && typeof logger.security === 'function') {
+      logger.security('[GUEST_ORDERS_FORBIDDEN] Unauthenticated guest attempted order creation restricted', { ip: req.ip, path: req.path });
+    }
+    return res.status(401).json({
+      success: false,
+      error: 'UNAUTHORIZED_GUEST',
+      message: 'عذراً، لا يمكن للضيوف إنشاء طلبات. يرجى تسجيل الدخول أولاً لإتمام الطلب.',
+      code: 'GUEST_ORDERS_FORBIDDEN'
+    });
+  }
+  next();
+};
+
+// 🔍 تقييد البحث (Search Limiter)
+const searchLimiter = createLimiter({
+  scope: 'search',
+  windowMs: 60 * 1000,
+  maxRequests: 50,
+  errorMessage: 'Too many search requests. Please slow down.'
+});
+
+// ⭐ تقييد التقييمات (Review Limiter)
+const reviewLimiter = createLimiter({
+  scope: 'reviews',
   windowMs: 60 * 60 * 1000,
-  max: 5,
-  keyGenerator: (req) => req.user?.id || req.ip,
-  validate: false,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    error: 'لقد تجاوزت الحد المسموح من التقييمات، حاول لاحقاً',
-    code: 'REVIEW_RATE_LIMIT'
-  },
-  handler: (req, res, next, options) => {
-    logger.warn(`Review Rate Limit Exceeded: User ${req.user?.id || req.ip}`);
-    res.status(options.statusCode).json(options.message);
-  }
+  maxRequests: 5,
+  errorMessage: 'لقد تجاوزت الحد المسموح من التقييمات، حاول لاحقاً'
 });
 
-// تقييد الإبلاغ (Flag Limiter)
-const flagLimiter = rateLimit({
+// 🚩 تقييد الإبلاغ (Flag Limiter)
+const flagLimiter = createLimiter({
+  scope: 'global',
   windowMs: 60 * 60 * 1000,
-  max: 20,
-  keyGenerator: (req) => req.user?.id || req.ip,
-  validate: false,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many flag requests' }
+  maxRequests: 20,
+  errorMessage: 'Too many flag requests'
 });
 
-// تقييد استعادة كلمة المرور (Forgot Password Limiter)
-const forgotPasswordLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 5, // 5 requests per hour
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'تم تجاوز الحد المسموح. حاول بعد ساعة.' },
-  handler: (req, res, next, options) => {
-    logger.warn(`Forgot Password Rate Limit Exceeded: IP ${req.ip}`);
-    res.status(options.statusCode).json(options.message);
-  }
+// 🔑 تقييد استعادة كلمة المرور (Forgot Password Limiter)
+const forgotPasswordLimiter = createLimiter({
+  scope: 'auth',
+  windowMs: 60 * 60 * 1000,
+  maxRequests: 5,
+  errorMessage: 'تم تجاوز الحد المسموح. حاول بعد ساعة.'
 });
 
 module.exports = {

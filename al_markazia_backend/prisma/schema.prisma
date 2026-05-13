@@ -76,6 +76,8 @@ model Branch {
   address   String?
   phone     String?
   isActive  Boolean  @default(true)
+  country   String?  @default("JO")
+  timezone  String?  @default("Africa/Cairo")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -248,6 +250,9 @@ model Order {
   payment          Payment?
   reviews          Review[]
   awardedPoints    AwardedLoyaltyPoints?
+  happyHourId      String?
+  happyHourDiscount Decimal?          @default(0) @db.Decimal(10, 2)
+  happyHourMultiplier Decimal?        @default(1.0) @db.Decimal(3, 2)
 
   @@index([status, createdAt(sort: Desc)])
   @@index([createdAt, status])
@@ -349,6 +354,7 @@ model Customer {
   orders              Order[]
   reviews             Review[]
   customerRewards     CustomerReward[]
+  timezone            String?            @default("Africa/Cairo")
 
   @@index([isBlacklisted])
 }
@@ -897,20 +903,30 @@ model DailyFinancialSnapshot {
 }
 
 model HappyHour {
-  id               String   @id @default(uuid())
-  branchId         String
-  branch           Branch   @relation(fields: [branchId], references: [id])
-  dayOfWeek        Int      // 0-6
-  startTime        String   // HH:MM
-  endTime          String   // HH:MM
-  discount         Int      // percentage
-  description      String?
-  status           String   @default("active") // active/inactive
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-  logs             HappyHourLog[]
+  id                    String         @id @default(uuid())
+  branchId              String
+  branch                Branch         @relation(fields: [branchId], references: [id])
+  dayOfWeek             Int            // 0-6
+  startTime             String         // HH:MM
+  endTime               String         // HH:MM
+  discount              Int            // percentage
+  description           String?
+  status                String         @default("active") // active/inactive
+  timezone              String?        @default("Africa/Cairo")
+  eligibilityCriteria   String?        @default("ALL") // ALL, LOYALTY_TIER, TARGETED
+  loyaltyTierRequired   String?        // SILVER, GOLD, PLATINUM
+  targetCustomerIds     String[]       @default([])
+  discountType          String?        @default("PERCENTAGE") // PERCENTAGE, FIXED
+  discountValue         Decimal?       @default(0) @db.Decimal(5, 2)
+  rewardMultiplier      Decimal?       @default(1.0) @db.Decimal(3, 2)
+  daysOfWeek            Int[]          @default([])
+  isActive              Boolean        @default(true)
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+  logs                  HappyHourLog[]
 
-  @@index([branchId])
+  @@index([branchId, isActive])
+  @@index([timezone])
   @@index([status])
 }
 
