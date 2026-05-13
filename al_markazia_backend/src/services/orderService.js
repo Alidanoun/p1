@@ -4,7 +4,7 @@
  * Features: Atomic transactions, multi-factor validation, and idempotency support.
  */
 const { ORDER_INCLUDE_FULL } = require('../shared/prismaConstants');
-const { hashBlind, decrypt } = require('../utils/crypto');
+const { hashBlind, decrypt, encrypt } = require('../utils/crypto');
 const { mapOrderResponse } = require('../mappers/order.mapper');
 const { publishEvent } = require('../events/eventPublisher');
 const eventTypes = require('../events/eventTypes');
@@ -14,6 +14,13 @@ const { validateTransition } = require('../validators/orderStateMachine');
 const configService = require('./configService');
 const liveCacheService = require('./liveCacheService');
 const { orderQueue } = require('../queues/orderQueue');
+const xss = require('xss');
+const NodeCache = require('node-cache');
+const memoryCache = new NodeCache({ stdTTL: 300 });
+
+const safeJsonParse = (str) => {
+  try { return JSON.parse(str); } catch (e) { return null; }
+};
 
 class OrderService {
   constructor(container) {
@@ -840,7 +847,7 @@ class OrderService {
     // 1. 🆔 Identity & Blacklist Resolution
     const resolvedCustomer = await this._resolveAndValidateCustomer(phoneInput, authUser);
 
-    logger.info(`[OrderService] Creating Order. AuthUser: ${authUser?.id}, InputPhone: ${phoneInput}, ResolvedCustomer: ${resolvedCustomer.id}`);
+    this.logger.info(`[OrderService] Creating Order. AuthUser: ${authUser?.id}, InputPhone: ${phoneInput}, ResolvedCustomer: ${resolvedCustomer.id}`);
 
     // 0. Fetch Dynamic Business Policies
     const config = await configService.getFullConfig();
@@ -916,7 +923,7 @@ class OrderService {
 
       // 🛡️ [SAFETY GUARD] Verify expected discount from client
       if (data.expectedDiscount && Math.abs(pointsDiscount - data.expectedDiscount) > 0.01) {
-        logger.warn(`[OrderService] Discount mismatch for order ${orderNumber}: App expected ${data.expectedDiscount}, Server calculated ${pointsDiscount}`);
+        this.logger.warn(`[OrderService] Discount mismatch for order ${orderNumber}: App expected ${data.expectedDiscount}, Server calculated ${pointsDiscount}`);
       }
     }
 
@@ -932,7 +939,7 @@ class OrderService {
     // 🚀 Auto Accept Orders Logic
     let sysSettings = memoryCache.get('system:settings');
     if (!sysSettings) {
-      const redisSettings = await redis.get('system:settings');
+      const redisSettings = await this.redis.get('system:settings');
       if (redisSettings) sysSettings = safeJsonParse(redisSettings);
       else {
         const dbSetting = await this.prisma.systemSettings.findUnique({ where: { key: 'autoAcceptOrders' } });
@@ -1084,14 +1091,14 @@ class OrderService {
     let settings = memoryCache.get('system:settings');
 
     if (!settings) {
-      const redisSettings = await redis.get('system:settings');
+      const redisSettings = await this.redis.get('system:settings');
       if (redisSettings) {
         settings = safeJsonParse(redisSettings);
         memoryCache.set('system:settings', settings, 300); // 5 mins
       } else {
         settings = await this.prisma.systemSettings.findFirst();
         if (settings) {
-          await redis.set('system:settings', JSON.stringify(settings), 'EX', 3600);
+          await this.redis.set('system:settings', JSON.stringify(settings), 'EX', 3600);
           memoryCache.set('system:settings', settings, 300);
         }
       }
@@ -1188,21 +1195,37 @@ class OrderService {
       throw new Error('BRANCH_ID_REQUIRED');
     }
 
-    // 1. 🛡️ Syntax Check: Must be a valid UUID format
+    let targetId = input.trim();
+
+    // 1. 🛡️ Check if input is a valid UUID format
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(input)) {
-      await this._logInvalidBranchAttempt(userId, input, 'INVALID_FORMAT');
-      throw new Error('INVALID_BRANCH_IDENTIFIER: Only UUID is allowed for routing.');
+    if (!uuidRegex.test(targetId)) {
+      // Intelligently lookup branch by code or name to provide absolute client compatibility
+      const resolved = await this.prisma.branch.findFirst({
+        where: {
+          OR: [
+            { code: { equals: targetId.toUpperCase() } },
+            { name: { contains: targetId } }
+          ]
+        },
+        select: { id: true }
+      });
+
+      if (!resolved) {
+        await this._logInvalidBranchAttempt(userId, targetId, 'INVALID_FORMAT_OR_CODE');
+        throw new Error('INVALID_BRANCH_IDENTIFIER: Target branch code or name not found.');
+      }
+      targetId = resolved.id;
     }
 
     // 2. 🛡️ Registry Validation: Check existence in Canonical Registry
     const branch = await this.prisma.branch.findUnique({ 
-      where: { id: input }, 
+      where: { id: targetId }, 
       select: { id: true, isActive: true } 
     });
 
     if (!branch || !branch.isActive) {
-      await this._logInvalidBranchAttempt(userId, input, 'NOT_FOUND');
+      await this._logInvalidBranchAttempt(userId, targetId, 'NOT_FOUND');
       throw new Error('BRANCH_NOT_FOUND: The targeted identity does not exist or is inactive.');
     }
 
@@ -1213,22 +1236,26 @@ class OrderService {
    * 🕵️ Security Audit: Log and Detect Branch Enumeration Attacks
    */
   async _logInvalidBranchAttempt(userId, providedId, reason) {
-    const redis = require('../lib/redis').cache;
+    const redisCache = require('../lib/redis').cache;
     const key = `sec:branch_enum:${userId}`;
     
-    // Increment anomaly counter
-    const count = await redis.incr(key);
-    if (count === 1) await redis.expire(key, 3600); // 1-hour window
+    try {
+      // Increment anomaly counter
+      const count = await redisCache.incr(key);
+      if (count === 1) await redisCache.expire(key, 3600); // 1-hour window
 
-    logger.security('INVALID_BRANCH_TARGET_ATTEMPT', { 
-      userId, 
-      providedId, 
-      reason, 
-      anomalyScore: count 
-    });
+      this.logger.warn('INVALID_BRANCH_TARGET_ATTEMPT', { 
+        userId, 
+        providedId, 
+        reason, 
+        anomalyScore: count 
+      });
 
-    if (count > 10) {
-      logger.critical('BRANCH_ENUMERATION_DETECTED', { userId, count });
+      if (count > 10) {
+        this.logger.error('BRANCH_ENUMERATION_DETECTED', { userId, count });
+      }
+    } catch (err) {
+      this.logger.error('[BranchEnumAudit] Failed to log anomaly', { error: err.message });
     }
   }
 
@@ -1236,7 +1263,7 @@ class OrderService {
    * 💰 Calculation Engine: Re-verifies all prices from DB to prevent client-side manipulation.
    */
   async _calculateAndValidatePricing(cartItems, branchId = null) {
-    logger.info(`[Pricing] Validating ${cartItems?.length} items for branch: ${branchId}`);
+    this.logger.info(`[Pricing] Validating ${cartItems?.length} items for branch: ${branchId}`);
     let subtotal = 0;
     const validatedItems = [];
 
@@ -1348,7 +1375,7 @@ class OrderService {
           const options = group.modifiers || group.options || [];
           const fallbackOpt = options.find(o => o.isDefault) || options[0];
           if (fallbackOpt) {
-            logger.warn(`[Pricing] Auto-applying default option ${fallbackOpt.name} for required group ${group.groupName} on item ${dbItem.title}`);
+            this.logger.warn(`[Pricing] Auto-applying default option ${fallbackOpt.name} for required group ${group.groupName} on item ${dbItem.title}`);
             unitPrice += toNumber(fallbackOpt.price);
             validatedOptionIds.push(fallbackOpt.id);
             validatedOptionNames.push(fallbackOpt.name);
@@ -1420,9 +1447,9 @@ class OrderService {
   async _generateOrderNumber() {
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const counterKey = `order_counter:${dateStr}`;
-    const serialNumber = await redis.incr(counterKey);
+    const serialNumber = await this.redis.incr(counterKey);
 
-    if (serialNumber === 1) await redis.expire(counterKey, 172800);
+    if (serialNumber === 1) await this.redis.expire(counterKey, 172800);
 
     const serial = serialNumber.toString().padStart(4, '0');
     const randomSuffix = Math.random().toString(36).substring(2, 5).toUpperCase();
@@ -1446,7 +1473,7 @@ class OrderService {
         attempts: 3,
         backoff: { type: 'exponential', delay: 2000 }
       }).catch((err) => {
-        logger.error('[OrderService] Failed to enqueue autoAccept job', { orderId: order.id, error: err.message });
+        this.logger.error('[OrderService] Failed to enqueue autoAccept job', { orderId: order.id, error: err.message });
       });
 
       // 3. Analytics Pulse
@@ -1461,7 +1488,7 @@ class OrderService {
       // 4. 💎 Loyalty Hook moved to delivered status
 
     } catch (err) {
-      logger.error('Post-order effects error', { orderId: order.id, error: err.message });
+      this.logger.error('Post-order effects error', { orderId: order.id, error: err.message });
     }
   }
 
@@ -1471,7 +1498,7 @@ class OrderService {
    */
   _onOrderCompleted(orderId) {
     this.container.loyaltyService.awardPointsForOrder(orderId).catch(err => {
-      logger.error('[Loyalty] Failed to award points on completion', { orderId, error: err.message });
+      this.logger.error('[Loyalty] Failed to award points on completion', { orderId, error: err.message });
     });
   }
 
@@ -1536,7 +1563,7 @@ class OrderService {
             try {
               pointsEarned = await this.container.loyaltyService.awardPointsForOrder(updated, tx);
             } catch (err) {
-              logger.error('[Loyalty] Failed to award points on status update', { orderId: updated.id, error: err.message });
+              this.logger.error('[Loyalty] Failed to award points on status update', { orderId: updated.id, error: err.message });
             }
           }
 
@@ -1586,7 +1613,7 @@ class OrderService {
         if ((error.code === 'P2025' || error.message === 'CONCURRENCY_CONFLICT') && attempts < maxRetries - 1) {
           attempts++;
           const delay = 100 * attempts;
-          logger.warn(`[OrderService] Concurrency conflict detected for Order ${orderId}. Retry ${attempts}/${maxRetries} after ${delay}ms...`);
+          this.logger.warn(`[OrderService] Concurrency conflict detected for Order ${orderId}. Retry ${attempts}/${maxRetries} after ${delay}ms...`);
           await new Promise(r => setTimeout(r, delay));
           continue;
         }
@@ -1599,7 +1626,7 @@ class OrderService {
           });
           
           if (finalOrder) {
-            logger.info(`[OrderService] Conflict resolved by returning latest state for Order ${orderId}`);
+            this.logger.info(`[OrderService] Conflict resolved by returning latest state for Order ${orderId}`);
             return {
               ...mapOrderResponse(finalOrder),
               _conflict: true,
