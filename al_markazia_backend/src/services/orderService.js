@@ -4,7 +4,7 @@
  * Features: Atomic transactions, multi-factor validation, and idempotency support.
  */
 const { ORDER_INCLUDE_FULL } = require('../shared/prismaConstants');
-const { hashBlind } = require('../utils/crypto');
+const { hashBlind, decrypt } = require('../utils/crypto');
 const { mapOrderResponse } = require('../mappers/order.mapper');
 const { publishEvent } = require('../events/eventPublisher');
 const eventTypes = require('../events/eventTypes');
