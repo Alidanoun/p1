@@ -1,5 +1,7 @@
 const { DateTime } = require('luxon');
-
+const Decimal = require('decimal.js');
+const financialConfig = require('../config/financial');
+const { trackLoyaltyCalculation, trackNegativeBalancePrevented } = require('../utils/metrics');
 /**
  * 🎁 Loyalty Service
  * Handles point accrual, tier management, and rewards.
@@ -82,13 +84,22 @@ class LoyaltyService {
   }
 
   /**
-   * 🛡️ Core Time Guard
+   * 🛡️ Core Time Guard (Timezone Safe Integration)
    */
-  _isWithinHappyHour(config, timestamp) {
+  _isWithinHappyHour(config, timestamp, appliedTimezone = null) {
     if (!config || !config.isHappyHourEnabled) return false;
     
-    const { DEFAULT_TIMEZONE } = require('../config/constants');
-    const timeToCheck = DateTime.fromJSDate(new Date(timestamp)).setZone(DEFAULT_TIMEZONE);
+    let targetTz = appliedTimezone;
+    if (!targetTz) {
+      try {
+        const branchId = require('../utils/context').getBranchId();
+        targetTz = branchId ? 'Africa/Cairo' : require('../config/constants').DEFAULT_TIMEZONE;
+      } catch (e) {
+        targetTz = require('../config/constants').DEFAULT_TIMEZONE;
+      }
+    }
+    
+    const timeToCheck = DateTime.fromJSDate(new Date(timestamp)).setZone(targetTz || 'Africa/Cairo');
     
     const nowMinutes = this.container.financialService.getMinutesSinceMidnight(timeToCheck);
     const startMinutes = this.container.financialService.parseTimeToMinutes(config.happyHourStart);
@@ -237,6 +248,100 @@ class LoyaltyService {
   }
 
   /**
+   * ✅ حساب النقاط المكتسبة بدقة مصرفية عالية وتجنب انحراف الفاصلة العائمة
+   */
+  calculateEarnedPoints(orderTotal, multiplier = 1.0, baseRate = 1.0) {
+    const total = new Decimal(orderTotal || 0);
+    const mult = new Decimal(multiplier || 1.0);
+    const rate = new Decimal(baseRate || 1.0);
+
+    const earned = total.times(mult).times(rate);
+    const mode = financialConfig?.LOYALTY?.ROUNDING_MODE || Decimal.ROUND_HALF_UP;
+    const dp = financialConfig?.LOYALTY?.POINT_PRECISION !== undefined ? financialConfig.LOYALTY.POINT_PRECISION : 0;
+    const result = earned.toDecimalPlaces(dp, mode).toNumber();
+
+    if (typeof trackLoyaltyCalculation === 'function') {
+      trackLoyaltyCalculation(earned.toDecimalPlaces(0, mode).minus(earned).abs().gt(0));
+    }
+
+    return result;
+  }
+
+  /**
+   * ✅ حساب القيمة النقدية المستهلكة/المخصومة بدقة
+   */
+  calculateRedemption(pointsToRedeem, redemptionRate = 0.01) {
+    const points = new Decimal(pointsToRedeem || 0);
+    const rate = new Decimal(redemptionRate || 0.01);
+    
+    const cashValue = points.times(rate);
+    const mode = financialConfig?.WALLET?.ROUNDING_MODE || Decimal.ROUND_HALF_UP;
+    const dp = financialConfig?.WALLET?.CURRENCY_PRECISION !== undefined ? financialConfig.WALLET.CURRENCY_PRECISION : 2;
+    return cashValue.toDecimalPlaces(dp, mode).toNumber();
+  }
+
+  /**
+   * ✅ تسوية النقاط مع حماية محصنة ضد ظهور الأرصدة السالبة
+   */
+  async adjustPoints(customerId, amount, reason) {
+    const isNumericId = typeof customerId === 'number' || !isNaN(parseInt(customerId, 10));
+    const queryWhere = isNumericId ? { id: parseInt(customerId, 10) } : { uuid: String(customerId) };
+
+    return await this.prisma.$transaction(async (tx) => {
+      const customer = await tx.customer.findUnique({
+        where: queryWhere,
+        select: { id: true, points: true, uuid: true }
+      });
+
+      if (!customer) throw new Error('العميل غير موجود');
+
+      const current = new Decimal(customer.points || 0);
+      const adjustment = new Decimal(amount || 0);
+      const newTotal = current.plus(adjustment);
+
+      // منع الرصيد السالب بدقة
+      if (newTotal.lt(financialConfig?.LOYALTY?.MIN_POINTS || 0)) {
+        if (typeof trackNegativeBalancePrevented === 'function') {
+          trackNegativeBalancePrevented();
+        }
+
+        if (this.logger && typeof this.logger.warn === 'function') {
+          this.logger.warn('[Loyalty] Negative balance prevented', {
+            customerId,
+            attemptedAdjustment: amount,
+            currentBalance: current.toNumber()
+          });
+        }
+
+        throw new Error('INSUFFICIENT_POINTS');
+      }
+
+      const updated = await tx.customer.update({
+        where: { id: customer.id },
+        data: { points: newTotal.toNumber() }
+      });
+
+      await tx.customerAuditLog.create({
+        data: {
+          customerId: customer.id,
+          eventType: 'LOYALTY_ADJUSTMENT',
+          eventAction: 'MANUAL_ADJUSTMENT',
+          changedBy: customer.uuid,
+          changedByRole: 'system',
+          reason: reason || 'تسوية حسابية دقيقة',
+          previousData: JSON.stringify({ points: current.toNumber() }),
+          newData: JSON.stringify({ points: newTotal.toNumber() }),
+          diff: adjustment.gte(0) ? `+${adjustment.toNumber()} points` : `${adjustment.toNumber()} points`,
+          actionCategory: 'LOYALTY',
+          requestSource: 'SYSTEM_AUDIT'
+        }
+      });
+
+      return updated;
+    });
+  }
+
+  /**
    * Award Points for Order Completion
    */
   async awardPointsForOrder(orderIdOrOrder, tx = null) {
@@ -248,7 +353,7 @@ class LoyaltyService {
       } else {
         order = await db.order.findUnique({
           where: { id: orderIdOrOrder },
-          include: { customer: true }
+          include: { customer: true, branch: { select: { timezone: true } } }
         });
       }
 
@@ -276,13 +381,31 @@ class LoyaltyService {
       if (customer.tier === 'GOLD') multiplier = config.pointsMultiplierGold;
       if (customer.tier === 'PLATINUM') multiplier = config.pointsMultiplierPlatinum;
 
-      if (this._isWithinHappyHour(config, order.createdAt)) {
+      const orderTz = order.branch?.timezone || 'Africa/Cairo';
+      if (this._isWithinHappyHour(config, order.createdAt, orderTz)) {
         multiplier *= config.happyHourMultiplier;
         this.logger.info(`[Loyalty] Happy Hour active for order #${order.orderNumber}! Applying ${config.happyHourMultiplier}x multiplier`);
       }
 
-      const netSubtotal = Number(order.subtotal) - Number(order.discount || 0);
-      const pointsEarned = Math.floor(Math.max(0, netSubtotal) * config.pointsPerJod * multiplier);
+      const subDec = new Decimal(order.subtotal || 0);
+      const discDec = new Decimal(order.discount || 0);
+      const netSubtotal = subDec.minus(discDec).isNegative() ? 0 : subDec.minus(discDec).toNumber();
+      
+      const pointsEarned = this.calculateEarnedPoints(netSubtotal, multiplier, config.pointsPerJod);
+
+      if (this.logger && typeof this.logger.debug === 'function') {
+        this.logger.debug('[Loyalty] Points calculation audit', {
+          orderId: order.id,
+          subtotal: order.subtotal,
+          discount: order.discount,
+          netSubtotal: subDec.minus(discDec).toString(),
+          multiplier: multiplier.toString(),
+          pointsPerJod: config.pointsPerJod,
+          calculatedPoints: pointsEarned,
+          roundingMode: 'ROUND_HALF_UP',
+          timestamp: new Date().toISOString()
+        });
+      }
 
       if (pointsEarned <= 0) return 0;
 
@@ -426,7 +549,8 @@ class LoyaltyService {
       });
       if (!order || !order.customerId) return null;
       const config = await this.getConfig();
-      const amount = Math.max(config.minCompensationPoints || 50, Math.floor(Number(order.total) * (config.cancellationCompensationRate || 0.05) * config.pointsPerJod));
+      const baseCalc = this.calculateEarnedPoints(order.total, config.cancellationCompensationRate || 0.05, config.pointsPerJod);
+      const amount = Math.max(config.minCompensationPoints || 50, baseCalc);
       await this.prisma.customer.update({
         where: { id: order.customerId },
         data: { points: { increment: amount } }

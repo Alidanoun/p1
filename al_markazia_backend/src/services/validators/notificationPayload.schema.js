@@ -1,4 +1,5 @@
 const { z } = require('zod');
+const xss = require('xss');
 
 /**
  * 🛡️ Notification Payload Schema
@@ -12,8 +13,8 @@ const notificationPayloadSchema = z.object({
     'PROMOTION',
     'SYSTEM_ALERT'
   ]),
-  title: z.string().min(1).max(100),
-  body: z.string().min(1).max(500),
+  title: z.string().min(1).max(100).transform(val => xss(val, { whiteList: {} })),
+  body: z.string().min(1).max(500).transform(val => xss(val, { whiteList: {} })),
   priority: z.enum(['low', 'normal', 'high', 'critical']).default('normal'),
   deepLink: z.string().url().optional(),
   data: z.record(z.any()).optional(), // Custom metadata

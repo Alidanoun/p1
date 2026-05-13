@@ -155,17 +155,26 @@ exports.getAllReviews = async (req, res) => {
     const limit = Math.min(100, parseInt(req.query.limit) || 50);
     const skip = (page - 1) * limit;
 
-    // 🚀 [PERF-FIX] Fetch both types without per-type pagination to avoid data loss in merge
-    // For small-medium scale (current), in-memory merge is more accurate than independent skips
+    const reviewFilter = {};
+    const orderFilter = { rating: { not: null } };
+
+    if (req.user && (req.user.role === 'branch_manager' || req.user.role === 'manager')) {
+      if (req.user.branchId) {
+        reviewFilter.branchId = req.user.branchId;
+        orderFilter.branchId = req.user.branchId;
+      }
+    }
+
     const [itemReviews, orderRatings] = await Promise.all([
       prisma.review.findMany({
+        where: reviewFilter,
         include: {
           item: { select: { title: true, id: true, image: true } },
           customer: { select: { name: true, phone: true } }
         }
       }),
       prisma.order.findMany({
-        where: { rating: { not: null } },
+        where: orderFilter,
         include: ORDER_INCLUDE_FULL
       })
     ]);
@@ -352,14 +361,25 @@ exports.deleteReview = async (req, res) => {
  */
 exports.getReviewStats = async (req, res) => {
   try {
+    const reviewWhere = {};
+    const orderWhere = { rating: { not: null } };
+
+    if (req.user && (req.user.role === 'branch_manager' || req.user.role === 'manager')) {
+      if (req.user.branchId) {
+        reviewWhere.branchId = req.user.branchId;
+        orderWhere.branchId = req.user.branchId;
+      }
+    }
+
     const [itemStats, orderStats] = await Promise.all([
       prisma.review.groupBy({
         by: ['rating'],
+        where: reviewWhere,
         _count: { id: true }
       }),
       prisma.order.groupBy({
         by: ['rating'],
-        where: { rating: { not: null } },
+        where: orderWhere,
         _count: { id: true }
       })
     ]);

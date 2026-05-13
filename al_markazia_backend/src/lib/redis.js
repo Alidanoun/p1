@@ -12,7 +12,7 @@ const cache = new Redis({ ...baseConfig, db: 0 });
 
 // 📡 DB 1: Distributed Event Bus (Pub/Sub)
 const publisher = new Redis({ ...baseConfig, db: 1 });
-const subscriber = new Redis({ ...baseConfig, db: 1 });
+const subscriber = new Redis({ ...baseConfig, db: 1, enableReadyCheck: false });
 
 const clients = [cache, publisher, subscriber];
 

@@ -21,7 +21,7 @@ class ApiService {
   Timer? _silentRefreshTimer;
 
   static String get baseUrl {
-    const ip = String.fromEnvironment('SERVER_IP', defaultValue: '192.168.3.181');
+    const ip = String.fromEnvironment('SERVER_IP', defaultValue: '192.168.3.32');
     const port = String.fromEnvironment('SERVER_PORT', defaultValue: '5000');
     final scheme = const bool.fromEnvironment('dart.vm.product') ? 'https' : 'http';
     return '$scheme://$ip:$port/api/v1';
@@ -29,7 +29,7 @@ class ApiService {
 
   /// 🔌 Socket Base URL (without /api/v1 prefix — Socket.IO connects to root)
   static String get socketUrl {
-    const ip = String.fromEnvironment('SERVER_IP', defaultValue: '192.168.3.181');
+    const ip = String.fromEnvironment('SERVER_IP', defaultValue: '192.168.3.32');
     const port = String.fromEnvironment('SERVER_PORT', defaultValue: '5000');
     final scheme = const bool.fromEnvironment('dart.vm.product') ? 'https' : 'http';
     return '$scheme://$ip:$port';
@@ -619,5 +619,37 @@ class ApiService {
   void _triggerLogout() {
     debugPrint('🚨 [Auth] Session unrecoverable. Emitting Expiry Event.');
     AppEvents.emit(SessionExpiredEvent());
+  }
+
+  /// 🛠️ Flexible HTTP Method Hook supporting distributed concurrency headers
+  Future<http.Response> rawRequest(
+    String endpoint, 
+    String method, {
+    Map<String, dynamic>? body,
+    Map<String, String>? additionalHeaders,
+  }) async {
+    return _withRetry(() async {
+      final baseHeads = await _headers;
+      final finalHeaders = {
+        ...baseHeads,
+        if (additionalHeaders != null) ...additionalHeaders,
+      };
+
+      final uri = Uri.parse(endpoint.startsWith('http') ? endpoint : '$baseUrl$endpoint');
+      final encodedBody = body != null ? json.encode(body) : null;
+
+      switch (method.toUpperCase()) {
+        case 'POST':
+          return await http.post(uri, headers: finalHeaders, body: encodedBody).timeout(const Duration(seconds: 12));
+        case 'PUT':
+          return await http.put(uri, headers: finalHeaders, body: encodedBody).timeout(const Duration(seconds: 12));
+        case 'PATCH':
+          return await http.patch(uri, headers: finalHeaders, body: encodedBody).timeout(const Duration(seconds: 12));
+        case 'DELETE':
+          return await http.delete(uri, headers: finalHeaders, body: encodedBody).timeout(const Duration(seconds: 12));
+        default:
+          return await http.get(uri, headers: finalHeaders).timeout(const Duration(seconds: 12));
+      }
+    });
   }
 }

@@ -5,6 +5,7 @@ const logger = require('../utils/logger');
 const { decrypt } = require('../utils/crypto');
 const { Sentry } = require('../config/sentry');
 const prisma = require('../lib/prisma');
+const xss = require('xss');
 
 /**
  * 🌟 Enterprise Firebase Cloud Messaging Service
@@ -99,14 +100,17 @@ class FirebaseService {
    */
   _buildPayload(type, lang = 'ar', customTitle = null, customBody = null) {
     const safeLang = ['ar', 'en'].includes(lang) ? lang : 'ar';
+    const cleanTitle = customTitle ? xss(String(customTitle), { whiteList: {} }) : null;
+    const cleanBody = customBody ? xss(String(customBody), { whiteList: {} }) : null;
+
     const template = this.templates[type]?.[safeLang] || {
-      title: customTitle || 'تنبيه النظام 🔔',
-      body: customBody || 'لديك إشعار جديد في حسابك.'
+      title: cleanTitle || 'تنبيه النظام 🔔',
+      body: cleanBody || 'لديك إشعار جديد في حسابك.'
     };
 
     return {
-      title: customTitle || template.title,
-      body: customBody || template.body
+      title: cleanTitle || template.title,
+      body: cleanBody || template.body
     };
   }
 
@@ -211,11 +215,11 @@ class FirebaseService {
     // Resolve localized strings
     const { title, body } = this._buildPayload(type, lang, customTitle, customBody);
 
-    // Ensure all strings in data object map directly
+    // Ensure all strings in data object map directly and are safely sanitized
     const stringData = {};
     if (data && typeof data === 'object') {
       Object.keys(data).forEach(k => {
-        stringData[k] = String(data[k]);
+        stringData[k] = xss(String(data[k]), { whiteList: {} });
       });
     }
 
@@ -258,7 +262,7 @@ class FirebaseService {
     const { title, body } = this._buildPayload(type, lang, customTitle, customBody);
     const stringData = {};
     if (data && typeof data === 'object') {
-      Object.keys(data).forEach(k => { stringData[k] = String(data[k]); });
+      Object.keys(data).forEach(k => { stringData[k] = xss(String(data[k]), { whiteList: {} }); });
     }
 
     const cleanTokens = tokens.map(t => t.includes(':') ? decrypt(t) : t).filter(Boolean);
@@ -304,7 +308,7 @@ class FirebaseService {
     const { title, body } = this._buildPayload(type, lang, customTitle, customBody);
     const stringData = {};
     if (data && typeof data === 'object') {
-      Object.keys(data).forEach(k => { stringData[k] = String(data[k]); });
+      Object.keys(data).forEach(k => { stringData[k] = xss(String(data[k]), { whiteList: {} }); });
     }
 
     const messagePayload = {

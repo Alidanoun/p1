@@ -1,6 +1,7 @@
 const { v4: uuidv4 } = require('uuid');
 const notificationPolicyService = require('./notificationPolicyService');
 const { notificationPayloadSchema } = require('./validators/notificationPayload.schema');
+const xss = require('xss');
 
 /**
  * 🛰️ Production-Grade Guaranteed Notification Engine (GNE)
@@ -249,11 +250,14 @@ class NotificationService {
    */
   async sendDirectNotification(phone, title, message, metadata = {}) {
     try {
+      const safeTitle = title ? xss(String(title), { whiteList: {} }) : '';
+      const safeMessage = message ? xss(String(message), { whiteList: {} }) : '';
+
       const notification = await this.prisma.notification.create({
         data: {
           customerPhone: phone,
-          title,
-          message,
+          title: safeTitle,
+          message: safeMessage,
           type: metadata.type || 'SYSTEM_ALERT',
           status: 'PENDING',
           metadata
@@ -265,7 +269,7 @@ class NotificationService {
       const customer = await this.prisma.customer.findFirst({ where: { phone } });
       
       if (customer?.fcmToken) {
-        await firebaseService.sendToToken(customer.fcmToken, title, message, metadata);
+        await firebaseService.sendToToken(customer.fcmToken, safeTitle, safeMessage, metadata);
         await this.prisma.notification.update({ where: { id: notification.id }, data: { status: 'SENT', fcmSent: true } });
       }
 
@@ -277,9 +281,11 @@ class NotificationService {
 
   async _createNotificationRecord(order, content, type) {
     const phone = order.customerPhone || order.customer?.phone || null;
+    const safeTitle = content.title ? xss(String(content.title), { whiteList: {} }) : '';
+    const safeMessage = content.message ? xss(String(content.message), { whiteList: {} }) : '';
     return await this.prisma.notification.create({
       data: {
-        title: content.title, message: content.message, type: type,
+        title: safeTitle, message: safeMessage, type: type,
         orderId: order.id ? parseInt(order.id) : null, customerPhone: phone, status: 'PENDING'
       }
     });
