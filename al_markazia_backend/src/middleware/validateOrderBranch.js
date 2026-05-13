@@ -64,8 +64,10 @@ module.exports = async (req, res, next) => {
   try {
     req.body = req.body || {};
     
-    // 🛡️ Support both 'branchId' and 'branch' keys for flexibility
-    const rawBranchId = req.body.branchId || req.body.branch;
+    // 🛡️ Support 'branchId' and 'branch' keys across body, headers, and query params for complete flexibility
+    const rawBranchId = req.body.branchId || req.body.branch || 
+                        req.headers['x-branch-id'] || req.headers['branch-id'] || 
+                        req.query?.branchId || req.query?.branch;
 
     // 1️⃣ Input Validation & Sanitization
     if (!rawBranchId) {

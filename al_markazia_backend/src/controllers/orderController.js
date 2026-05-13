@@ -110,7 +110,7 @@ exports.createOrder = async (req, res) => {
       return res.status(400).json({ success: false, error: 'رقم الهاتف مطلوب لإتمام الطلب كضيف' });
     }
 
-    const validatedBranchId = req.validatedBranch?.id;
+    const validatedBranchId = req.validatedBranch?.id || req.body?.branchId || req.body?.branch;
 
     const contractGateway = require('../services/contractGateway');
     const newOrder = await contractGateway.execute(

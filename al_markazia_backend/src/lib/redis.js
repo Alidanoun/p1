@@ -13,12 +13,13 @@ const cache = new Redis({ ...baseConfig, db: 0 });
 // 📡 DB 1: Distributed Event Bus (Pub/Sub)
 const publisher = new Redis({ ...baseConfig, db: 1 });
 const subscriber = new Redis({ ...baseConfig, db: 1, enableReadyCheck: false });
+const socketSubscriber = new Redis({ ...baseConfig, db: 1, enableReadyCheck: false });
 
-const clients = [cache, publisher, subscriber];
+const clients = [cache, publisher, subscriber, socketSubscriber];
 
 clients.forEach((client, index) => {
   client.on('connect', () => {
-    const labels = ['Cache', 'Publisher', 'Subscriber'];
+    const labels = ['Cache', 'Publisher', 'Subscriber', 'SocketSubscriber'];
     logger.info(`Redis [${labels[index]}] connected successfully to DB ${client.options.db}`);
   });
 
@@ -27,14 +28,18 @@ clients.forEach((client, index) => {
   });
 });
 
+const createSubscriber = () => new Redis({ ...baseConfig, db: 1, enableReadyCheck: false });
+
 /**
  * 🛰️ Hybrid Redis Export
  * Exports the Primary Cache client directly to preserve backward compatibility,
- * while attaching Publisher and Subscriber as properties for Distributed State (SDS).
+ * while attaching Publisher, Subscriber, and createSubscriber factory for Distributed State (SDS).
  */
 cache.cache = cache;
 cache.publisher = publisher;
 cache.subscriber = subscriber;
+cache.socketSubscriber = socketSubscriber;
+cache.createSubscriber = createSubscriber;
 cache.getRedis = () => cache;
 
 module.exports = cache;

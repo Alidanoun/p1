@@ -23,7 +23,7 @@ module.exports = {
     });
 
     const { createAdapter } = require('@socket.io/redis-adapter');
-    const { publisher, subscriber } = require('./lib/redis');
+    const { publisher, socketSubscriber } = require('./lib/redis');
 
     io = new Server(httpServer, {
       cors: {
@@ -46,7 +46,7 @@ module.exports = {
 
     // 📡 [CLUSTER-SYNC] Initialize Redis Adapter BEFORE any connections
     // 📡 [CLUSTER-SYNC] Initialize Redis Adapter BEFORE any connections
-    io.adapter(createAdapter(publisher, subscriber));
+    io.adapter(createAdapter(publisher, socketSubscriber));
     logger.info('📡 Socket.io Redis Adapter enabled (Distributed Sockets Active)');
     
     // --- 🛡️ SDS 3.0: Global Smart Broadcast Helper ---

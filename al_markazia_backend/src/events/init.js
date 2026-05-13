@@ -1,7 +1,7 @@
 const logger = require('../utils/logger');
 const distributedBus = require('./distributedEventBus');
 const container = require('../lib/container');
-const { subscriber } = require('../lib/redis');
+const { createSubscriber } = require('../lib/redis');
 
 /**
  * 🛰️ Global Event System Initializer (SDS 2.0)
@@ -21,8 +21,9 @@ async function init() {
 
     // 2. 💓 Initialize Transactional Wake-up Listener (Outbox Pulse)
     // This instance will wake up and process pending outbox events when it hears a pulse
-    await subscriber.subscribe('outbox:pulse');
-    subscriber.on('message', async (channel) => {
+    const outboxSubscriber = createSubscriber();
+    await outboxSubscriber.subscribe('outbox:pulse');
+    outboxSubscriber.on('message', async (channel) => {
       if (channel === 'outbox:pulse') {
         logger.debug('[SDS-Backbone] Outbox Pulse received. Dispatching pending events...');
         await container.outboxService.dispatchPending();
