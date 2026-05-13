@@ -1253,9 +1253,9 @@ class OrderService {
       this.prisma.item.findMany({
         where: { id: { in: itemIds } },
         include: { 
-          optionGroups: { 
+          modifierGroups: { 
             where: { isActive: true },
-            include: { options: { where: { isAvailable: true } } } 
+            include: { modifiers: { where: { isAvailable: true } } } 
           },
           branchItems: branchId ? {
             where: { branchId: branchId },
@@ -1264,7 +1264,7 @@ class OrderService {
         }
       }),
       allOptionIds.length > 0 
-        ? this.prisma.itemOption.findMany({
+        ? this.prisma.itemModifier.findMany({
             where: { id: { in: allOptionIds } },
             include: { group: true }
           })
@@ -1319,10 +1319,12 @@ class OrderService {
       }
 
       // 2. 🛡️ Self-Healing: Fill gaps for REQUIRED groups that were NOT provided
-      for (const group of dbItem.optionGroups) {
+      const optionGroups = dbItem.modifierGroups || dbItem.optionGroups || [];
+      for (const group of optionGroups) {
         if (group.isRequired && !coveredGroupIds.has(group.id)) {
           // Find default option, or fallback to first available
-          const fallbackOpt = group.options.find(o => o.isDefault) || group.options[0];
+          const options = group.modifiers || group.options || [];
+          const fallbackOpt = options.find(o => o.isDefault) || options[0];
           if (fallbackOpt) {
             logger.warn(`[Pricing] Auto-applying default option ${fallbackOpt.name} for required group ${group.groupName} on item ${dbItem.title}`);
             unitPrice += toNumber(fallbackOpt.price);

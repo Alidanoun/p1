@@ -80,11 +80,20 @@ exports.getAllItems = async (req, res) => {
         finalAvailability = item.branchItems[0].isAvailable;
       }
 
+      const optionGroups = (item.modifierGroups || []).map(g => ({
+        ...g,
+        options: (g.modifiers || []).map(m => ({
+          ...m,
+          price: toNumber(m.price)
+        }))
+      }));
+
       return {
         ...item,
         isAvailable: finalAvailability,
         image: formatImageUrl(item.image),
         basePrice: toNumber(item.basePrice),
+        optionGroups,
         branchItems: undefined
       };
     });
@@ -181,8 +190,19 @@ exports.getItemById = async (req, res) => {
     });
 
     if (!item) return res.status(404).json({ error: 'Item not found' });
+    
+    const optionGroups = (item.modifierGroups || []).map(g => ({
+      ...g,
+      options: (g.modifiers || []).map(m => ({
+        ...m,
+        price: toNumber(m.price)
+      }))
+    }));
+
     res.json({
       ...item,
+      basePrice: toNumber(item.basePrice),
+      optionGroups,
       image: formatImageUrl(item.image)
     });
   } catch (error) {
@@ -204,7 +224,8 @@ exports.createItem = async (req, res) => {
       excludeFromStats,
       preparationTime,
       variants,
-      modifierGroups
+      modifierGroups,
+      optionGroups
     } = req.body;
 
     if (!title || typeof title !== 'string' || title.trim() === '') {
@@ -223,8 +244,9 @@ exports.createItem = async (req, res) => {
     }
 
     let parsedGroups = [];
-    if (modifierGroups) {
-      parsedGroups = typeof modifierGroups === 'string' ? safeJsonParse(modifierGroups) : modifierGroups;
+    const inputGroups = modifierGroups || optionGroups;
+    if (inputGroups) {
+      parsedGroups = typeof inputGroups === 'string' ? safeJsonParse(inputGroups) : inputGroups;
     }
 
     let parsedVariants = [];
@@ -235,7 +257,8 @@ exports.createItem = async (req, res) => {
     // 🛡️ [SEC-FIX] Pre-validate option prices before transaction
     if (parsedGroups.length > 0) {
       for (const group of parsedGroups) {
-        for (const opt of group.options) {
+        const opts = group.options || group.modifiers || [];
+        for (const opt of opts) {
           const optPrice = parseFloat(opt.price);
           if (isNaN(optPrice) || optPrice < 0) {
             return res.status(400).json({ error: `سعر الإضافة "${opt.name}" غير صحيح، يرجى إدخال رقم موجب` });
@@ -267,23 +290,26 @@ exports.createItem = async (req, res) => {
             }))
           },
           modifierGroups: {
-            create: parsedGroups.map(group => ({
-              groupName: group.groupName,
-              groupNameEn: group.groupNameEn,
-              type: group.type || 'SINGLE',
-              isRequired: group.isRequired || false,
-              minSelection: parseInt(group.minSelection) || 0,
-              maxSelection: parseInt(group.maxSelection) || 1,
-              modifiers: {
-                create: group.modifiers.map(mod => ({
-                  name: mod.name,
-                  nameEn: mod.nameEn,
-                  price: parseFloat(mod.price) || 0,
-                  isDefault: mod.isDefault || false,
-                  isAvailable: mod.isAvailable !== false
-                }))
-              }
-            }))
+            create: parsedGroups.map(group => {
+              const opts = group.options || group.modifiers || [];
+              return {
+                groupName: group.groupName,
+                groupNameEn: group.groupNameEn,
+                type: group.type || 'SINGLE',
+                isRequired: group.isRequired || false,
+                minSelection: parseInt(group.minSelection) || 0,
+                maxSelection: parseInt(group.maxSelection) || 1,
+                modifiers: {
+                  create: opts.map(mod => ({
+                    name: mod.name,
+                    nameEn: mod.nameEn,
+                    price: parseFloat(mod.price) || 0,
+                    isDefault: mod.isDefault || false,
+                    isAvailable: mod.isAvailable !== false
+                  }))
+                }
+              };
+            })
           }
         },
         include: {
@@ -306,7 +332,16 @@ exports.createItem = async (req, res) => {
         logger.info(`[AutoLink] Linked new item ${newItem.id} to ${branches.length} branches`);
       }
 
-      return newItem;
+      const mappedGroups = (newItem.modifierGroups || []).map(g => ({
+        ...g,
+        options: (g.modifiers || []).map(m => ({ ...m, price: toNumber(m.price) }))
+      }));
+
+      return {
+        ...newItem,
+        basePrice: toNumber(newItem.basePrice),
+        optionGroups: mappedGroups
+      };
     });
 
     await menuCacheService.invalidate();
@@ -335,7 +370,10 @@ exports.updateItem = async (req, res) => {
       isFeatured,
       excludeFromStats,
       preparationTime,
-      removeImage
+      removeImage,
+      variants,
+      modifierGroups,
+      optionGroups
     } = req.body;
 
     const currentItem = await prisma.item.findUnique({ where: { id: parseInt(id) } });
@@ -353,18 +391,25 @@ exports.updateItem = async (req, res) => {
     }
 
     let parsedGroups = [];
-    if (req.body.optionGroups) {
-      parsedGroups = typeof req.body.optionGroups === 'string' ? safeJsonParse(req.body.optionGroups) : req.body.optionGroups;
+    const inputGroups = modifierGroups || optionGroups;
+    if (inputGroups) {
+      parsedGroups = typeof inputGroups === 'string' ? safeJsonParse(inputGroups) : inputGroups;
 
       // 🛡️ [SEC-FIX] Pre-validate option prices
       for (const group of parsedGroups) {
-        for (const opt of group.options) {
+        const opts = group.options || group.modifiers || [];
+        for (const opt of opts) {
           const optPrice = parseFloat(opt.price);
           if (isNaN(optPrice) || optPrice < 0) {
             return res.status(400).json({ error: `سعر الإضافة "${opt.name}" غير صحيح، يرجى إدخال رقم موجب` });
           }
         }
       }
+    }
+
+    let parsedVariants = [];
+    if (variants) {
+      parsedVariants = typeof variants === 'string' ? safeJsonParse(variants) : variants;
     }
 
     const parsedPrice = toNumber(basePrice, -1);
@@ -383,7 +428,7 @@ exports.updateItem = async (req, res) => {
         excludeFromStats: excludeFromStats === 'true' || excludeFromStats === true,
         preparationTime: preparationTime ? parseInt(preparationTime) : null,
         image: imageUrl,
-        variants: req.body.variants ? {
+        variants: variants ? {
           deleteMany: {},
           create: parsedVariants.map(v => ({
             name: v.name,
@@ -392,25 +437,28 @@ exports.updateItem = async (req, res) => {
             isDefault: v.isDefault || false
           }))
         } : undefined,
-        modifierGroups: req.body.modifierGroups ? {
+        modifierGroups: inputGroups ? {
           deleteMany: {},
-          create: parsedGroups.map(group => ({
-            groupName: group.groupName,
-            groupNameEn: group.groupNameEn,
-            type: group.type || 'SINGLE',
-            isRequired: group.isRequired || false,
-            minSelection: parseInt(group.minSelection) || 0,
-            maxSelection: parseInt(group.maxSelection) || 1,
-            modifiers: {
-              create: group.modifiers.map(mod => ({
-                name: mod.name,
-                nameEn: mod.nameEn,
-                price: parseFloat(mod.price) || 0,
-                isDefault: mod.isDefault || false,
-                isAvailable: mod.isAvailable !== false
-              }))
-            }
-          }))
+          create: parsedGroups.map(group => {
+            const opts = group.options || group.modifiers || [];
+            return {
+              groupName: group.groupName,
+              groupNameEn: group.groupNameEn,
+              type: group.type || 'SINGLE',
+              isRequired: group.isRequired || false,
+              minSelection: parseInt(group.minSelection) || 0,
+              maxSelection: parseInt(group.maxSelection) || 1,
+              modifiers: {
+                create: opts.map(mod => ({
+                  name: mod.name,
+                  nameEn: mod.nameEn,
+                  price: parseFloat(mod.price) || 0,
+                  isDefault: mod.isDefault || false,
+                  isAvailable: mod.isAvailable !== false
+                }))
+              }
+            };
+          })
         } : undefined
       },
       include: {
@@ -422,9 +470,18 @@ exports.updateItem = async (req, res) => {
 
     await menuCacheService.invalidate();
 
+    const mappedGroups = (updatedItem.modifierGroups || []).map(g => ({
+      ...g,
+      options: (g.modifiers || []).map(m => ({ ...m, price: toNumber(m.price) }))
+    }));
+
     res.json({
       success: true,
-      data: updatedItem
+      data: {
+        ...updatedItem,
+        basePrice: toNumber(updatedItem.basePrice),
+        optionGroups: mappedGroups
+      }
     });
   } catch (error) {
     logger.error('Update item error', { id: req.params.id, error: error.message });
