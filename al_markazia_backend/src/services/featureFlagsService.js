@@ -23,6 +23,7 @@ class FeatureFlagsService {
         'FEATURE_SECURE_CANCELLATION': { enabled: true, rolloutPercentage: 100 },
         'FEATURE_STRICT_APPROVALS': { enabled: true, rolloutPercentage: 100 },
         'FEATURE_SOCKET_CANONICAL_SYNC': { enabled: false, rolloutPercentage: 100 },
+        'ENABLE_READ_REPLICA_ROUTING': { enabled: false, rolloutPercentage: 100 },
       };
 
       if (!data) {
@@ -43,8 +44,28 @@ class FeatureFlagsService {
 
       return userBucket < data.rolloutPercentage;
     } catch (err) {
-      this.logger.error('[FeatureFlag] Error checking flag', { flagName, error: err.message });
-      return false;
+      this.logger.error('[FeatureFlag] Error checking flag, applying strict deterministic safety mapping', { flagName, error: err.message });
+      
+      // 🛡️ Strictly Classified Safety baselines
+      const failSafeMatrix = {
+        // 🔴 Security Critical -> Fail-Safe ON (Maximum Defense)
+        'ENFORCE_BRANCH_ISOLATION': true,
+        'ENFORCE_USER_STATUS_CHECK': true,
+        'CSRF_STRICT_MODE': true,
+        'FEATURE_SECURE_CANCELLATION': true,
+        'FEATURE_STRICT_APPROVALS': true,
+        
+        // 🟡 Operational Critical -> Fail-Safe ON (Prevent DB Query Storms)
+        'USE_QUERY_OPTIMIZER': true,
+        'DEVICE_FINGERPRINT_TOLERANCE': true,
+        
+        // 🔵 Experimental / Performance -> Fail-Safe OFF (Maintain Stable Legacy Core)
+        'FEATURE_SOCKET_CANONICAL_SYNC': false,
+        'BRANCH_AWARE_SOCKET_ROOMS': false,
+        'ENABLE_READ_REPLICA_ROUTING': false,
+      };
+
+      return failSafeMatrix[flagName] !== undefined ? failSafeMatrix[flagName] : false;
     }
   }
 

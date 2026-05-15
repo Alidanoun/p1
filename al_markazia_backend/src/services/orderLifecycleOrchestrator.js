@@ -51,9 +51,22 @@ class OrderLifecycleOrchestrator {
       });
 
       // B. 🎁 Status-Specific Logic (Hooks)
-      let pointsEarned = 0;
       if (newStatus === 'delivered') {
-        pointsEarned = await this.container.loyaltyService.awardPointsForOrder(updated, tx);
+        const pointsEarned = await this.container.loyaltyService.calculatePointsForOrder(updated);
+        if (pointsEarned > 0) {
+          await this.container.outboxService.enqueue(tx, {
+            type: 'loyalty.order_award',
+            aggregateId: updated.id,
+            aggregateType: 'Order',
+            payload: {
+              orderId: updated.id,
+              orderNumber: updated.orderNumber,
+              customerId: updated.customerId,
+              points: pointsEarned
+            }
+          });
+          this.logger.debug(`[Lifecycle] Enqueued loyalty reward for order #${updated.id} (${pointsEarned} points)`);
+        }
       }
 
       // C. 📮 Canonical Audit & Outbox
@@ -64,7 +77,7 @@ class OrderLifecycleOrchestrator {
         payload: {
           previousStatus: order.status,
           newStatus,
-          order: { ...mapOrderResponse(updated), pointsEarned }
+          order: mapOrderResponse(updated)
         },
         eventSequence: updated.eventSequence
       });

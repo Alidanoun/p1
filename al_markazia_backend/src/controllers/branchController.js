@@ -93,8 +93,8 @@ exports.toggleItemAvailability = async (req, res) => {
       logger.info(`[BranchService] Updated availability for item ${item.id} in branch ${targetBranchId} to ${isAvailable}`);
     }
 
-    // 5. 📊 Audit Logging
-    await auditService.log({
+    // 5. 📊 Audit Logging (Synchronous for consistency with Inventory Consumers)
+    await auditService.logSync({
       action: 'ITEM_AVAILABILITY_TOGGLED',
       userId: user.id,
       userRole: user.role,
@@ -107,6 +107,10 @@ exports.toggleItemAvailability = async (req, res) => {
       },
       req
     });
+
+    // 6. ⚡ [PHASE 3] Branch-Aware Cache Invalidation
+    const menuCacheService = require('../services/menuCacheService');
+    await menuCacheService.invalidate(targetBranchId);
 
     return response.success(res, {
       message: `تم ${isAvailable ? 'تفعيل' : 'إيقاف'} الصنف بنجاح`,
@@ -125,7 +129,7 @@ exports.toggleItemAvailability = async (req, res) => {
 exports.getAllBranches = async (req, res) => {
   try {
     const user = req.user;
-    const where = { isActive: true };
+    const where = { isActive: true, isDeleted: false };
 
     // 🛡️ [SEC-FIX] Branch Isolation for Managers
     if (user?.role?.toUpperCase() === 'BRANCH_MANAGER' && user?.branchId) {
@@ -163,8 +167,8 @@ exports.switchBranch = async (req, res) => {
     }
 
     // 1. Validate Target Branch
-    const branch = await prisma.branch.findUnique({
-      where: { id: to },
+    const branch = await prisma.branch.findFirst({
+      where: { id: to, isDeleted: false },
       select: { id: true, name: true, isActive: true }
     });
 
@@ -200,5 +204,52 @@ exports.switchBranch = async (req, res) => {
   } catch (error) {
     logger.error('Branch switch error', { error: error.message });
     return response.error(res, 'حدث خطأ أثناء تبديل الفرع', 'SERVER_ERROR', 500);
+  }
+};
+
+/**
+ * 🗑️ Soft-Delete Branch
+ * Replaces hard deletion to preserve financial and audit history.
+ */
+exports.deleteBranch = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = req.user;
+
+    // 🔐 Only Admins can delete branches
+    if (user.role?.toUpperCase() !== 'ADMIN') {
+      return response.error(res, 'غير مصرح لك بحذف الفروع', 'UNAUTHORIZED', 403);
+    }
+
+    // 🔍 Verify existence
+    const branch = await prisma.branch.findUnique({ where: { id } });
+    if (!branch || branch.isDeleted) {
+      return response.error(res, 'الفرع غير موجود', 'BRANCH_NOT_FOUND', 404);
+    }
+
+    // 🔄 Perform Soft-Delete
+    await prisma.branch.update({
+      where: { id },
+      data: {
+        isDeleted: true,
+        isActive: false,
+        deletedAt: new Date()
+      }
+    });
+
+    // 📊 Audit Log
+    await auditService.log({
+      action: 'BRANCH_DELETED_SOFT',
+      userId: user.id,
+      userRole: user.role,
+      metadata: { branchId: id, branchName: branch.name },
+      req
+    });
+
+    return response.success(res, { message: 'تم حذف الفرع بنجاح (حذف منطقي)' });
+
+  } catch (error) {
+    logger.error('Delete branch error', { error: error.message });
+    return response.error(res, 'حدث خطأ أثناء حذف الفرع', 'SERVER_ERROR', 500);
   }
 };

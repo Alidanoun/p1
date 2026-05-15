@@ -28,6 +28,10 @@ const RATE_LIMIT_SCRIPT = `
   return { 1, newCount }
 `;
 
+// 🛡️ Ultra-strict short-window local fallback map for Auth endpoints during Redis outage
+const fallbackMemoryLimiter = new Map();
+setInterval(() => fallbackMemoryLimiter.clear(), 60000);
+
 class DistributedRateLimiter {
   constructor(options = {}) {
     this.scope = options.scope || 'global';
@@ -92,7 +96,8 @@ class DistributedRateLimiter {
         throw new Error('Redis Client Unavailable');
       }
 
-      const [allowed, currentCount] = await this.redis.eval(
+      // 🛡️ Bounded Execution: Prevent execution layer hang if eval stalls over 500ms
+      const evalPromise = this.redis.eval(
         RATE_LIMIT_SCRIPT,
         1,
         key,
@@ -101,6 +106,9 @@ class DistributedRateLimiter {
         now,
         requestId
       );
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Execution Timeout')), 500));
+
+      const [allowed, currentCount] = await Promise.race([evalPromise, timeoutPromise]);
 
       const isAllowed = allowed === 1;
       const result = {
@@ -114,14 +122,31 @@ class DistributedRateLimiter {
       trackCheck(this.scope, isAllowed, false, req);
       return result;
     } catch (error) {
-      // ✅ Fail-Open Resilience Path
       if (logger && typeof logger.error === 'function') {
-        logger.error('[RateLimiter] Redis cluster anomaly, failing open gracefully', {
-          error: error.message,
-          key
-        });
+        logger.error('[RateLimiter] Redis cluster anomaly during threshold evaluation', { error: error.message, key, scope: this.scope });
       }
 
+      // 🔴 STRICT ROUTE-SPECIFIC DEGRADATION: Never fail open freely on authentication/uploads
+      if (this.scope === 'auth' || this.scope === 'upload') {
+        const fallbackCount = (fallbackMemoryLimiter.get(key) || 0) + 1;
+        fallbackMemoryLimiter.set(key, fallbackCount);
+        
+        // Tight local limit: Max 2 requests per minute for auth endpoints during degraded outage
+        const strictMax = this.scope === 'auth' ? 2 : 5;
+        const isAllowed = fallbackCount <= strictMax;
+        
+        const fallbackResult = {
+          allowed: isAllowed,
+          current: fallbackCount,
+          remaining: isAllowed ? strictMax - fallbackCount : 0,
+          resetAt: now + 60000,
+          fallback: true
+        };
+        trackCheck(this.scope, isAllowed, true, req);
+        return fallbackResult;
+      }
+
+      // 🟢 Safe Fail-Open for pure read APIs / search
       const fallbackResult = {
         allowed: true,
         current: 0,

@@ -78,8 +78,8 @@ class WalletService {
     const [customer] = await tx.$queryRaw`SELECT * FROM "Customer" WHERE id = ${customerId} FOR UPDATE`;
     if (!customer) throw new Error('CUSTOMER_NOT_FOUND');
 
-    const balanceBefore = toNumber(customer.walletBalance);
-    const balanceAfter = balanceBefore + toNumber(amount);
+    const balanceBefore = toDecimal(customer.walletBalance);
+    const balanceAfter = balanceBefore.plus(toDecimal(amount));
 
     // 3. [PHASE 5] Create Immutable Ledger Entry via LedgerService
     const ledgerEntry = await this.container.ledgerService.record(tx, {
@@ -157,10 +157,11 @@ class WalletService {
     const [customer] = await tx.$queryRaw`SELECT * FROM "Customer" WHERE id = ${customerId} FOR UPDATE`;
     if (!customer) throw new Error('CUSTOMER_NOT_FOUND');
 
-    const balanceBefore = toNumber(customer.walletBalance);
-    if (balanceBefore < amount) throw new Error('INSUFFICIENT_WALLET_BALANCE');
+    const balanceBefore = toDecimal(customer.walletBalance);
+    const amountDec = toDecimal(amount);
+    if (balanceBefore.lessThan(amountDec)) throw new Error('INSUFFICIENT_WALLET_BALANCE');
 
-    const balanceAfter = balanceBefore - toNumber(amount);
+    const balanceAfter = balanceBefore.minus(amountDec);
 
     // 2. [PHASE 5] Create Immutable Ledger Entry via LedgerService
     const ledgerEntry = await this.container.ledgerService.record(tx, {

@@ -21,8 +21,7 @@ class AuditLogger {
     newData = null,
     rejectionReason = null
   }) {
-    try {
-      // 1. Detect changed fields
+    // 1. Detect changed fields
       const changedFields = this.getChangedFields(previousData, newData);
 
       // 2. Prepare stringified data
@@ -30,11 +29,22 @@ class AuditLogger {
       const newDataStr = newData ? JSON.stringify(newData) : null;
       const changedFieldsStr = JSON.stringify(changedFields);
 
-      // 3. Create Integrity Hash (SHA256)
-      const hashInput = `${orderId}-${prevDataStr}-${newDataStr}-${Date.now()}`;
+      // 3. 🔐 Implement Hash Chaining (Blockchain-lite)
+      // Fetch the last entry's hash to chain this one to it.
+      const lastEntry = await tx.orderAuditLog.findFirst({
+        where: { orderId },
+        orderBy: { createdAt: 'desc' },
+        select: { integrityHash: true }
+      });
+      const previousHash = lastEntry?.integrityHash || 'GENESIS';
+
+      // 4. Create Integrity Hash (SHA256) - including previousHash for chaining
+      const hashInput = `${orderId}-${prevDataStr}-${newDataStr}-${previousHash}`;
       const hash = crypto.createHash('sha256').update(hashInput).digest('hex');
 
-      // 4. Insert Audit Log
+      // 5. Insert Audit Log
+      // [COMPLIANCE-FIX] We NO LONGER swallow errors. 
+      // Audit must be part of the atomic transaction. If audit fails, transaction MUST roll back.
       await tx.orderAuditLog.create({
         data: {
           orderId,
@@ -46,14 +56,10 @@ class AuditLogger {
           newData: newDataStr,
           changedFields: changedFieldsStr,
           rejectionReason,
-          integrityHash: hash
+          integrityHash: hash,
+          previousHash: previousHash
         }
       });
-    } catch (error) {
-      // We don't want to break the main transaction if logging fails, 
-      // but we should log it to the console/logger
-      console.error('Audit Logging Failed:', error.message);
-    }
   }
 
   /**

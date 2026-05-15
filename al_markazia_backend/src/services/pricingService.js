@@ -57,17 +57,30 @@ class PricingService {
   }
 
   /**
-   * 🔍 Calculate Modification Impact
-   * Useful for partial cancellations and refunds.
+   * 🎁 Canonical Points Redemption Logic
+   * Ensures safe conversion between points (integer) and currency (decimal).
    */
-  calculateImpact(oldTotal, newTotal) {
-    const diffDec = toDecimal(oldTotal).minus(toDecimal(newTotal));
-    const difference = diffDec.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber();
+  calculatePointsRedemption(customerPoints, subtotal, config) {
+    const minPoints = parseInt(config.minPointsToRedeem || 500);
+    const rate = toDecimal(config.pointsToJodRate || 100);
+    const subtotalDec = toDecimal(subtotal);
+    
+    if (customerPoints < minPoints) {
+      return { discount: new Decimal(0), pointsToDeduct: 0 };
+    }
+    
+    // 1. Calculate maximum discount possible from current points
+    const maxDiscountFromPoints = toDecimal(customerPoints).dividedBy(rate);
+    
+    // 2. Cap discount by the subtotal (Cannot discount more than the order value)
+    const actualDiscount = Decimal.min(maxDiscountFromPoints, subtotalDec).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+    
+    // 3. Calculate exact points to deduct (ceiling to prevent "free fractional points" exploitation)
+    const pointsToDeduct = actualDiscount.times(rate).ceil().toNumber();
+    
     return {
-      difference,
-      isRefund: diffDec.isPositive() && !diffDec.isZero(),
-      isCharge: diffDec.isNegative(),
-      absoluteAmount: Math.abs(difference)
+      discount: actualDiscount,
+      pointsToDeduct: Math.min(pointsToDeduct, customerPoints)
     };
   }
 }

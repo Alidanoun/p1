@@ -56,6 +56,17 @@ axiosRetry(api, {
   }
 });
 
+// 🛰️ Tracing Interceptor: Inject unique IDs for distributed observability
+api.interceptors.request.use((config) => {
+  const correlationId = `c_${Math.random().toString(36).substring(2, 15)}`;
+  const requestId = `r_${Math.random().toString(36).substring(2, 15)}`;
+  
+  config.headers['X-Correlation-ID'] = correlationId;
+  config.headers['X-Request-Id'] = requestId;
+  
+  return config;
+});
+
 // Add a request interceptor to attach JWT token and Branch Context
 api.interceptors.request.use((config) => {
   // 1. Attach JWT Token
@@ -177,14 +188,18 @@ export const getImageUrl = (path) => {
  */
 export const unwrap = (response) => {
   const body = response?.data;
+  if (!body) return null;
   if (Array.isArray(body)) return body;
-  if (body && typeof body === 'object' && 'data' in body) return body.data;
+  if (typeof body === 'object' && 'data' in body) return body.data;
   return body;
 };
 
 /**
  * 🔓 يجلب pagination metadata لو موجودة
  */
+export const getPagination = (response) => {
+  return response?.data?.pagination || null;
+};
 /**
  * 🔐 Centralized Bootstrap Refresh
  * Used by AuthContext to restore session on page load.

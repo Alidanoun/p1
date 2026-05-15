@@ -1,43 +1,20 @@
-import { useState, useEffect } from 'react';
 import { ShoppingBag, AlertCircle, Zap, Star } from 'lucide-react';
-import api, { unwrap } from '../api/client';
 import { cn } from '../lib/utils';
 import { motion } from 'framer-motion';
-
-import { useAuth } from '../contexts/AuthContext';
+import { usePermissions } from '../hooks/usePermissions';
 
 const BranchStats = () => {
-  const { user, selectedBranchId } = useAuth();
-  const [stats, setStats] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const { selectedBranchId } = useAuth();
+  const { can } = usePermissions();
+  const { data: stats, isLoading } = useBranchStats(selectedBranchId);
 
-  const fetchStats = async () => {
-    try {
-      const url = 'analytics/branch/report/today';
-      const response = await api.get(url);
-      const data = unwrap(response);
-      
-      setStats(prev => {
-        if (prev && (data.eventSequence || 0) < (prev.eventSequence || 0)) {
-           console.warn(`[P10] Stale metrics ignored: Seq ${data.eventSequence} < Local ${prev.eventSequence}`);
-           return prev;
-        }
-        return data;
-      });
-    } catch (err) {
-      console.error('Failed to fetch stats', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchStats();
-    const interval = setInterval(fetchStats, 60000); // Update every minute
-    return () => clearInterval(interval);
-  }, [selectedBranchId]);
-
-  if (loading || !stats) return null;
+  if (isLoading || !stats) return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      {[1,2,3,4].map(i => (
+        <div key={i} className="h-20 bg-white/5 border border-white/10 rounded-2xl animate-pulse" />
+      ))}
+    </div>
+  );
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
@@ -53,7 +30,7 @@ const BranchStats = () => {
         icon={Zap} 
         color="emerald" 
       />
-      {user?.role?.toUpperCase() === 'ADMIN' && (
+      {can('VIEW_GLOBAL_STATS') && (
         <StatCard 
           title="عمليات الإلغاء" 
           value={stats.cancellations} 

@@ -3,6 +3,7 @@ require('winston-daily-rotate-file');
 const path = require('path');
 const fs = require('fs');
 const { getRequestId, getCorrelationId } = require('./context');
+const { trace } = require('@opentelemetry/api');
 
 const logDir = path.join(__dirname, '../../logs');
 if (!fs.existsSync(logDir)) {
@@ -83,6 +84,14 @@ const sanitizeMetadata = winston.format((info) => {
   const correlationId = getCorrelationId();
   if (requestId) info.requestId = requestId;
   if (correlationId) info.correlationId = correlationId;
+
+  // 📡 OpenTelemetry Integration
+  const activeSpan = trace.getActiveSpan();
+  if (activeSpan) {
+    const spanContext = activeSpan.spanContext();
+    info.traceId = spanContext.traceId;
+    info.spanId = spanContext.spanId;
+  }
 
   // Attach standard service tag
   info.service = 'al-markazia-backend';

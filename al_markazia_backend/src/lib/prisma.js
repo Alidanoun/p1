@@ -52,7 +52,7 @@ const prisma = basePrisma.$extends({
     $allModels: {
       async $allOperations({ model, operation, args, query }) {
         // ─── Phase 0: Transparent Encryption (Write) ─────────
-        const writeActions = ['create', 'update', 'upsert', 'createMany', 'updateMany'];
+        const writeActions = ['create', 'update', 'upsert', 'createMany', 'updateMany', 'delete', 'deleteMany'];
         if (writeActions.includes(operation) && args.data) {
           const sensitiveFields = ['email', 'phone', 'fcmToken'];
           
@@ -71,9 +71,8 @@ const prisma = basePrisma.$extends({
           }
         }
 
-        // ⏱️ [PERF-FIX] Programmatic Query Timeout (8s limit)
-        // Note: DB-level timeout is set to 5s in .env for harder enforcement.
-        const TIMEOUT_MS = 8000;
+        // ⏱️ [PERF-FIX] Programmatic Query Timeout
+        const TIMEOUT_MS = 25000;
         let timeoutId;
         const timeoutPromise = new Promise((_, reject) => {
           timeoutId = setTimeout(() => {
@@ -86,9 +85,27 @@ const prisma = basePrisma.$extends({
           const { getContext } = require('../utils/securityContext');
           const SecurityPolicyService = require('../services/securityPolicyService');
 
+          // 🏛️ [PHASE 6] Read Replica Routing
+          const readActions = ['findMany', 'findFirst', 'findUnique', 'count', 'aggregate', 'groupBy'];
+          const isReadOperation = readActions.includes(operation);
+          
+          // Use Primary by default
+          let targetQuery = query;
+
+          if (isReadOperation && process.env.READ_REPLICA_URL) {
+            const useReplica = await FeatureFlagsService.isEnabled('ENABLE_READ_REPLICA_ROUTING');
+            if (useReplica) {
+              // 🧪 Dynamic Read Routing: Using separate client for reads
+              // We use a global singleton to avoid connection explosion
+              const readClient = require('./prismaRead');
+              targetQuery = (args) => readClient[model][operation](args);
+              logger.debug(`[PrismaRouting] Redirected ${model}.${operation} to Read Replica`);
+            }
+          }
+
           // 1. Check if enforcement is enabled
           const isEnforced = await FeatureFlagsService.isEnabled('ENFORCE_BRANCH_ISOLATION');
-          if (!isEnforced) return query(args);
+          if (!isEnforced) return targetQuery(args);
 
           // 2. Identify models and actions requiring isolation
           const modelsToSecure = ['Order', 'BranchItem', 'Branch', 'FinancialLedger', 'DailyFinancialSnapshot'];
@@ -102,44 +119,29 @@ const prisma = basePrisma.$extends({
                 
                 // 🛡️ [SEC-FIX] For findUnique, we MUST keep unique fields at the top level
                 if (operation === 'findUnique') {
-                  args.where = {
-                    ...args.where,
-                    ...securityFilter
-                  };
+                  args.where = { ...args.where, ...securityFilter };
                 } else {
                   // For other operations, use atomic AND merge to prevent where-clause overrides
                   args.where = {
-                    AND: [
-                      securityFilter,
-                      args.where || {}
-                    ]
+                    AND: [ securityFilter, args.where || {} ]
                   };
                 }
 
-                // 🕵️ Security Logging for Customer Scoping
+                // 🕵️ Security Logging
                 if (user.role?.toLowerCase() === 'customer') {
                   logger.security(`[PrismaIsolation] Customer Query Scoped: ${model}.${operation}`, {
-                    userId: user.id,
-                    model,
-                    finalWhere: JSON.stringify(args.where)
+                    userId: user.id, model, finalWhere: JSON.stringify(args.where)
                   });
-                } else {
-                  logger.debug(`[PrismaIsolation] Applied extension filter to ${model}.${operation}`, { userId: user.id });
                 }
               } catch (err) {
                 logger.error('[PrismaIsolation] Extension filter failed', { 
-                  error: err.message, 
-                  userId: user.id,
-                  model,
-                  operation
+                  error: err.message, userId: user.id, model, operation
                 });
                 
-                // 🔴 SECURITY FAIL-SAFE: If filter generation fails for a restricted user, block the query
                 if (user.role?.toLowerCase() !== 'admin') {
                   throw new Error(`SECURITY_ACCESS_DENIED: ${err.message}`);
                 }
 
-                // Fail-safe for admins (rare)
                 if (operation.includes('Many') || operation === 'count') {
                   return operation === 'count' ? 0 : [];
                 }
@@ -148,7 +150,7 @@ const prisma = basePrisma.$extends({
             }
           }
 
-          return query(args);
+          return targetQuery(args);
         };
 
         try {
@@ -157,7 +159,6 @@ const prisma = basePrisma.$extends({
           return result;
         } catch (error) {
           clearTimeout(timeoutId);
-          // Log timeout specifically
           if (error.message.includes('PRISMA_TIMEOUT')) {
             logger.error('❌ Prisma Query Timeout', { model, operation, timeout: TIMEOUT_MS });
           }

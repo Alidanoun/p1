@@ -24,4 +24,7 @@ router.post('/items/toggle',
 // 🔄 Switch Branch Context (Audit Logged)
 router.post('/switch', authenticateToken, branchController.switchBranch);
 
+// 🗑️ Soft-Delete Branch (Admin Only)
+router.delete('/:id', authenticateToken, isAdmin, branchController.deleteBranch);
+
 module.exports = router;

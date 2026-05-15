@@ -55,8 +55,8 @@ class LedgerService {
        balanceBefore = customer ? Number(customer.walletBalance) : 0;
     }
 
-    const numericAmount = Number(amount);
-    const balanceAfter = type === 'CREDIT' ? balanceBefore + numericAmount : balanceBefore - numericAmount;
+    const numericAmountDec = toDecimal(amount);
+    const balanceAfterDec = type === 'CREDIT' ? toDecimal(balanceBefore).plus(numericAmountDec) : toDecimal(balanceBefore).minus(numericAmountDec);
 
     // 2. Create the Immutable Record
     const entry = await tx.financialLedger.create({
@@ -66,9 +66,9 @@ class LedgerService {
         branchId: finalBranchId,
         type, // CREDIT | DEBIT
         category,
-        amount: numericAmount,
-        balanceBefore,
-        balanceAfter,
+        amount: numericAmountDec.toNumber(),
+        balanceBefore: toNumber(balanceBefore),
+        balanceAfter: balanceAfterDec.toNumber(),
         method,
         referenceId: String(referenceId || ''),
         description,
@@ -121,13 +121,13 @@ class LedgerService {
       _sum: { amount: true }
     });
 
-    let balance = 0;
+    let balance = new Decimal(0);
     for (const group of aggregates) {
-      const sum = Number(group._sum.amount || 0);
-      if (group.type === 'CREDIT') balance += sum;
-      else if (group.type === 'DEBIT') balance -= sum;
+      const sum = toDecimal(group._sum.amount || 0);
+      if (group.type === 'CREDIT') balance = balance.plus(sum);
+      else if (group.type === 'DEBIT') balance = balance.minus(sum);
     }
-    return balance;
+    return balance.toNumber();
   }
 
   /**

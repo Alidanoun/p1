@@ -7,20 +7,24 @@
 
 const getPublicMenuFilter = () => {
   return {
-    isAvailable: true
+    isAvailable: true,
+    isDeleted: false
   };
 };
 
 const getFeaturedSectionFilter = () => {
   return {
     isAvailable: true,
-    isFeatured: true // ✅ CRITICAL: Only return items explicitly marked as featured
+    isFeatured: true,
+    isDeleted: false
   };
 };
 
 const getAdminPanelFilter = (originalFilter = {}) => {
-  // Admin sees everything within their query parameters
-  return { ...originalFilter };
+  return { 
+    ...originalFilter,
+    isDeleted: false 
+  };
 };
 
 const getAnalyticsFilter = (originalFilter = {}) => {

@@ -2,11 +2,12 @@
 const prisma = require('../lib/prisma');
 const { deleteFile } = require('../utils/fileUploadHelper');
 const logger = require('../utils/logger');
+const imageService = require('../services/imageService');
 
 exports.getAllCategories = async (req, res) => {
   try {
     const { admin } = req.query;
-    const filter = admin === 'true' ? {} : { isActive: true };
+    const filter = admin === 'true' ? { isDeleted: false } : { isActive: true, isDeleted: false };
     const categories = await prisma.category.findMany({
       where: filter,
       orderBy: { sortOrder: 'asc' }
@@ -29,7 +30,11 @@ exports.createCategory = async (req, res) => {
       return res.status(400).json({ error: 'اسم الفئة مطلوب' });
     }
 
-    const imageUrl = req.file ? req.file.path : null;
+    let imageUrl = null;
+    if (req.file) {
+      const processed = await imageService.processMenuImage(req.file.filename);
+      imageUrl = processed ? processed.medium : `/uploads/${req.file.filename}`;
+    }
 
     const category = await prisma.category.create({
       data: {
@@ -57,9 +62,24 @@ exports.createCategory = async (req, res) => {
 exports.updateCategory = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, nameEn, description, descriptionEn, sortOrder, isActive } = req.body;
+    const { name, nameEn, description, descriptionEn, sortOrder, isActive, version } = req.body;
     
-    const updateData = {};
+    const existingCategory = await prisma.category.findUnique({
+      where: { id: parseInt(id) }
+    });
+
+    if (!existingCategory) return res.status(404).json({ success: false, error: 'Category not found' });
+
+    // 🛡️ [PHASE 1] Optimistic Concurrency Guard
+    if (version !== undefined && parseInt(version) !== existingCategory.version) {
+      return res.status(409).json({ 
+        success: false, 
+        error: '⚠️ تضارب في البيانات: تم تعديل هذه الفئة من قبل مستخدم آخر.',
+        currentVersion: existingCategory.version
+      });
+    }
+
+    const updateData = { version: { increment: 1 } };
     if (name !== undefined) updateData.name = name;
     if (nameEn !== undefined) updateData.nameEn = nameEn || null;
     if (description !== undefined) updateData.description = description;
@@ -73,20 +93,16 @@ exports.updateCategory = async (req, res) => {
 
     if (req.file) {
       try {
-        // Delete old image if exists
-        const existingCategory = await prisma.category.findUnique({
-          where: { id: parseInt(id) },
-          select: { image: true }
-        });
+        const processed = await imageService.processMenuImage(req.file.filename);
+        updateData.image = processed ? processed.medium : `/uploads/${req.file.filename}`;
 
+        // Delete old image if exists
         if (existingCategory?.image) {
           deleteFile(existingCategory.image);
         }
       } catch (err) {
-        logger.error('[UpdateCategory] Pre-update cleanup error', { error: err.message, categoryId: id });
+        logger.error('[UpdateCategory] Image processing error', { error: err.message, categoryId: id });
       }
-
-      updateData.image = req.file.path;
     }
 
     const updatedCategory = await prisma.category.update({
@@ -122,8 +138,25 @@ exports.deleteCategory = async (req, res) => {
       select: { image: true }
     });
 
-    // 2. Delete record
-    await prisma.category.delete({ where: { id: parseInt(id) } });
+    // 2. Atomic Soft Delete Cascade
+    await prisma.$transaction(async (tx) => {
+      // Soft-delete the category
+      await tx.category.update({ 
+        where: { id: parseInt(id) },
+        data: { isDeleted: true, deletedAt: new Date() }
+      });
+
+      // Soft-delete all items in this category
+      const affectedItems = await tx.item.updateMany({
+        where: { categoryId: parseInt(id), isDeleted: false },
+        data: { isDeleted: true, deletedAt: new Date() }
+      });
+
+      logger.info('Category and associated items soft-deleted', { 
+        categoryId: id, 
+        itemsAffected: affectedItems.count 
+      });
+    });
 
     // 3. Delete physical file
     if (category?.image) {

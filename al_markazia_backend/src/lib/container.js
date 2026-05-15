@@ -21,6 +21,10 @@ const factories = {
     const { LoyaltyService } = require('../services/loyaltyService');
     return new LoyaltyService(container);
   },
+  loyaltyLedgerService: () => {
+    const { LoyaltyLedgerService } = require('../services/loyaltyLedgerService');
+    return new LoyaltyLedgerService(container);
+  },
   financialService: () => {
     const { FinancialService } = require('../services/financialService');
     return new FinancialService(container);
@@ -100,6 +104,14 @@ const factories = {
     const instance = new PressureService(container);
     instance.startMonitoring();
     return instance;
+  },
+  financialAggregatorService: () => {
+    const FinancialAggregatorService = require('../services/financialAggregatorService');
+    return new FinancialAggregatorService(container);
+  },
+  financialSnapshotService: () => {
+    const FinancialSnapshotService = require('../services/financialSnapshotService');
+    return new FinancialSnapshotService(container);
   }
 };
 

@@ -120,9 +120,21 @@ class FirebaseService {
   async _executeWithRetry(messagePayload, logRecordId = null, attempt = 1) {
     if (!this.fcmEnabled) return null;
 
+    const circuitBreaker = require('./circuitBreakerService');
+    const serviceName = 'firebase_fcm';
+
+    // ⚡ Circuit Breaker Check
+    if (await circuitBreaker.isOpen(serviceName)) {
+      logger.warn(`⚡ [FCM Circuit] rejected transmission - Circuit is OPEN for ${serviceName}`);
+      return null;
+    }
+
     try {
       const responseId = await admin.messaging().send(messagePayload);
       this.metrics.sent++;
+
+      // ⚡ Record Success
+      await circuitBreaker.recordSuccess(serviceName);
 
       // Update Database Persistence status to SENT
       if (logRecordId) {
@@ -157,6 +169,9 @@ class FirebaseService {
         await this._removeStaleToken(messagePayload.token);
         return null;
       }
+
+      // ⚡ Record Failure for the Circuit Breaker
+      await circuitBreaker.recordFailure(serviceName);
 
       // Check network backoff feasibility
       const isTemporaryFailure = [

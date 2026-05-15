@@ -11,9 +11,11 @@ import { AnimatePresence, motion } from 'framer-motion'; // eslint-disable-line 
 import { formatDistanceToNow } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { formatCurrencyArabic } from '../lib/formatters';
-import { useSocket } from '../contexts/SocketContext';
-import { useSocketSync } from '../hooks/useSocketSync';
-import { useAuth } from '../contexts/AuthContext';
+import { useQueryClient } from '@tanstack/react-query';
+import { useOrders } from '../hooks/queries/useOrders';
+import { useBranchStats } from '../hooks/queries/useBranchStats';
+import { useBranchStatus } from '../hooks/queries/useBranchStatus';
+import { usePermissions } from '../hooks/usePermissions';
 import InvoiceModal from '../components/InvoiceModal';
 import BranchStats from '../components/BranchStats';
 
@@ -37,7 +39,7 @@ const COLUMN_TO_STATUS = {
   completed: 'delivered'
 };
 
-const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onCancelOrder, onHandleRequest }) => {
+const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onCancelOrder, onHandleRequest, can }) => {
   const [elapsed, setElapsed] = useState('');
   const [isDelayed, setIsDelayed] = useState(false);
   const [showInvoice, setShowInvoice] = useState(false);
@@ -157,7 +159,7 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onC
 
               {/* ⚡ One-Tap Workflow Buttons */}
               <div className="grid grid-cols-2 gap-2 mt-2">
-                {order.status === 'pending' && (
+                {order.status === 'pending' && can('MANAGE_ORDERS') && (
                   <button
                     onClick={() => onUpdateStatus(order.id, 'preparing', order.version, order.eventSequence)}
                     className="col-span-2 py-2.5 bg-emerald-500 hover:bg-emerald-600 rounded-xl text-white font-black text-xs shadow-lg shadow-emerald-500/20 transition-all active:scale-95 flex items-center justify-center gap-2"
@@ -167,7 +169,7 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onC
                   </button>
                 )}
                 
-                {order.status === 'preparing' && (
+                {order.status === 'preparing' && can('MANAGE_ORDERS') && (
                   <button
                     onClick={() => onUpdateStatus(order.id, 'ready', order.version, order.eventSequence)}
                     className="col-span-2 py-2.5 bg-indigo-500 hover:bg-indigo-600 rounded-xl text-white font-black text-xs shadow-lg shadow-indigo-500/20 transition-all active:scale-95 flex items-center justify-center gap-2"
@@ -177,7 +179,7 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onC
                   </button>
                 )}
 
-                {order.status === 'ready' && (
+                {order.status === 'ready' && can('MANAGE_ORDERS') && (
                   <button
                     onClick={() => onUpdateStatus(order.id, 'delivered', order.version, order.eventSequence)}
                     className="col-span-2 py-2.5 bg-emerald-500 hover:bg-emerald-600 rounded-xl text-white font-black text-xs shadow-lg shadow-emerald-500/20 transition-all active:scale-95 flex items-center justify-center gap-2"
@@ -187,7 +189,7 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onC
                   </button>
                 )}
 
-                {(order.status === 'waiting_cancellation' || order.status === 'waiting_cancellation_admin') && (
+                {(order.status === 'waiting_cancellation' || order.status === 'waiting_cancellation_admin') && can('CANCEL_ORDER') && (
                   <>
                     <button
                       onClick={() => onHandleRequest(order, 'approve')}
@@ -217,12 +219,16 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onC
     </>
   );
 };
-
 const LiveOrders = () => {
+  const queryClient = useQueryClient();
   const { user, selectedBranchId } = useAuth();
-  const [orders, setOrders] = useState([]);
-  const pendingOperations = useRef(new Map()); // Map<orderId, {status, version, eventSequence}>
-  const [loading, setLoading] = useState(true);
+  const { can } = usePermissions();
+  
+  // 🚀 [SSOT-CUTOVER] React Query Hooks
+  const { data: orders = [], isLoading: ordersLoading } = useOrders(selectedBranchId);
+  const { data: stats } = useBranchStats(selectedBranchId);
+  const { data: restaurantStatus } = useBranchStatus(selectedBranchId);
+
   const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [orderToCancel, setOrderToCancel] = useState(null);
@@ -231,298 +237,65 @@ const LiveOrders = () => {
   const [isSubmittingCancel, setIsSubmittingCancel] = useState(false);
 
   const [showHandleModal, setShowHandleModal] = useState(false);
-  const [handleAction, setHandleAction] = useState('approve'); // 'approve' or 'reject'
+  const [handleAction, setHandleAction] = useState('approve'); 
   const [rejectionReason, setRejectionReason] = useState('');
   const [isHandlingRequest, setIsHandlingRequest] = useState(false);
   const location = useLocation();
   const audioRef = useRef(null);
-  const prevOrdersCount = useRef(0);
-  const { socket } = useSocket();
-  const [restaurantStatus, setRestaurantStatus] = useState(null);
-  const [showEmergencyModal, setShowEmergencyModal] = useState(false);
-  const [emergencyDuration, setEmergencyDuration] = useState(30);
-  const [emergencyType, setEmergencyType] = useState('timed'); // 'timed' or 'day'
-  const [emergencyPassword, setEmergencyPassword] = useState('');
-  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const cancelAudioRef = useRef(null);
 
-  const [timeLeft, setTimeLeft] = useState('');
+  const [showEmergencyModal, setShowEmergencyModal] = useState(false);
+  const [emergencyDuration, setEmergencyDuration] = useState(30);
+  const [emergencyType, setEmergencyType] = useState('timed'); 
+  const [emergencyPassword, setEmergencyPassword] = useState('');
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
-  // 🔄 Reconnection Sync Logic
-  useSocketSync(() => {
-    fetchOrders();
-    fetchStatus();
-  });
+  // 🔄 All Manual useEffect Fetchers and Socket Listeners REMOVED.
+  // Real-time synchronization is now handled by the SocketContext -> Query Invalidation pattern.
 
-  const fetchStatus = async () => {
-    try {
-      const response = await api.get('/restaurant/status');
-      setRestaurantStatus(unwrap(response));
-    } catch (err) {
-      console.error('Failed to fetch status', err);
-    }
+  const VALID_TRANSITIONS = {
+    'pending': ['confirmed', 'preparing', 'cancelled'],
+    'confirmed': ['preparing', 'ready', 'cancelled'],
+    'preparing': ['ready', 'cancelled'],
+    'ready': ['in_route', 'delivered', 'cancelled'],
+    'in_route': ['delivered', 'cancelled'],
+    'delivered': [],
+    'cancelled': []
   };
 
-  useEffect(() => {
-    fetchStatus();
-    const interval = setInterval(fetchStatus, 30000); // Sync every 30s
-    return () => clearInterval(interval);
-  }, []);
-
-  // Countdown logic
-  useEffect(() => {
-    if (!restaurantStatus || restaurantStatus.isOpen || !restaurantStatus.nextOpenAt) {
-      setTimeLeft('');
-      return;
-    }
-
-    const timer = setInterval(() => {
-      const now = new Date().getTime();
-      const openAt = new Date(restaurantStatus.nextOpenAt).getTime();
-      const distance = openAt - now;
-
-      if (distance <= 0) {
-        setTimeLeft('جاري التحديث...');
-        clearInterval(timer);
-        setTimeout(fetchStatus, 2000);
-        return;
-      }
-
-      const hours = Math.floor(distance / (1000 * 60 * 60));
-      const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
-      const seconds = Math.floor((distance % (1000 * 60)) / 1000);
-
-      let formattedTime = '';
-      if (hours > 0) {
-        formattedTime = `${hours} ساعة و ${minutes} دقيقة`;
-      } else {
-        formattedTime = `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
-      }
-
-      setTimeLeft(formattedTime);
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [restaurantStatus]);
-
-  useEffect(() => {
-    if (!socket) return;
-
-    // 🆕 Optimistic Reconciliation for New Orders
-    const handleNewOrder = (newOrder) => {
-      setOrders(prev => {
-        // Prevent duplicates
-        if (prev.some(o => o.id === newOrder.id)) return prev;
-        return [newOrder, ...prev];
-      });
-
-      if (audioRef.current) audioRef.current.play();
-      toast.success('طلب جديد وصل! 🔔', {
-        description: `طلب جديد من ${newOrder.customerName}`,
-        duration: 5000
-      });
-
-      // ⏱️ Reconciliation: Re-sync with API after 2 seconds to ensure final state consistency
-      setTimeout(() => {
-        fetchOrders(); // Silently sync in background
-      }, 2000);
-    };
-
-    // 🔄 Standardized Status Updates (Canonical Sync)
-    const handleStatusUpdate = (canonicalOrder) => {
-      setOrders(prev => {
-        const orderId = canonicalOrder.id;
-        const index = prev.findIndex(o => o.id === orderId);
-        
-        if (index === -1) {
-          // If order is missing, it might have been archived or is new
-          return [canonicalOrder, ...prev];
-        }
-
-        const currentOrder = prev[index];
-
-        // 🛡️ [CSS-LAYER] Reconciliation & Authority Guard
-        if (pendingOperations.current.has(orderId)) {
-           // If we have a pending operation, and the socket confirms it (or newer version)
-           // we clear the pending state and accept the socket update.
-           if (canonicalOrder.version >= (currentOrder.version || 0)) {
-             pendingOperations.current.delete(orderId);
-           }
-        }
-
-        // 🛡️ [PROBLEM-10] Strict Sequence Authority
-        const incomingSeq = canonicalOrder.eventSequence || 0;
-        const localSeq = currentOrder.eventSequence || 0;
-
-        if (incomingSeq < localSeq) {
-          console.warn(`[P10] 🛑 Out-of-order event ignored: Seq ${incomingSeq} < Local ${localSeq}`);
-          return prev;
-        }
-
-        // 🧠 Canonical Overwrite (Source of Truth)
-        const newOrders = [...prev];
-        newOrders[index] = {
-          ...canonicalOrder,
-          // Sync timestamp for Server Driven State
-          updatedAt: canonicalOrder.updatedAt || new Date().toISOString()
-        }; 
-        return newOrders;
-      });
-
-      const element = document.getElementById(`order-${canonicalOrder.id}`);
-      if (element) {
-        element.classList.add('ring-2', 'ring-primary', 'scale-[1.02]');
-        setTimeout(() => element.classList.remove('ring-2', 'ring-primary', 'scale-[1.02]'), 2000);
-      }
-    };
-
-    // 🏥 Periodic State Reconciliation (Catch Drift)
-    const reconciliationInterval = setInterval(() => {
-      console.debug('[CSS] Running periodic state reconciliation...');
-      fetchOrders();
-    }, 30000); // 30s Safety Poll
-
-
-    // 🛑 Cancellation Request Alert
-    const handleCancellationRequest = ({ order: updatedOrder, level }) => {
-      setOrders(prev => {
-        const index = prev.findIndex(o => o.id === updatedOrder.id);
-        if (index === -1) return [updatedOrder, ...prev];
-        const newOrders = [...prev];
-        newOrders[index] = { ...newOrders[index], ...updatedOrder };
-        return newOrders;
-      });
-
-      if (cancelAudioRef.current) cancelAudioRef.current.play();
-      toast.warning(`طلب إلغاء جديد! 🛑 [${level}]`, {
-        description: `الطلب #${updatedOrder.orderNumber} يحتاج معالجة فورية`,
-        duration: 10000
-      });
-    };
-
-    socket.on('order:created', handleNewOrder);
-    socket.on('order:updated', handleStatusUpdate);
-    socket.on('order:cancellation_requested', handleCancellationRequest);
-
-    return () => {
-      clearInterval(reconciliationInterval);
-      socket.off('order:created', handleNewOrder);
-      socket.off('order:updated', handleStatusUpdate);
-      socket.off('order:cancellation_requested', handleCancellationRequest);
-    };
-  }, [socket]);
-
-  useEffect(() => {
-    if (location.state?.orderId && location.state?.autoDetails) {
-      setSelectedOrderId(location.state.orderId);
-      // Wait for data to load before scrolling
-      if (!loading) {
-        setTimeout(() => {
-          const element = document.getElementById(`order-${location.state.orderId}`);
-          if (element) element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }, 500);
-      }
-    }
-  }, [location.state, loading]);
-
-  const fetchOrders = async () => {
-    try {
-      const url = '/orders?active_only=true';
-      const ordersData = unwrap(await api.get(url)) || [];
-
-      if (!Array.isArray(ordersData)) {
-        console.error('Unexpected orders response shape', ordersData);
-        setOrders([]);
-        setLoading(false);
-        return;
-      }
-
-      setOrders(ordersData);
-      prevOrdersCount.current = ordersData.length;
-      setLoading(false);
-    } catch (err) {
-      console.error('Failed to fetch orders', err);
-      toast.error('فشل تحميل الطلبات');
-      setLoading(false);
-    }
-  };
-
-  const onAdjustTimer = async (id, delta) => {
-    const previousOrders = [...orders];
-    const order = orders.find(o => o.id === id);
-    if (!order) return;
-    
-    const currentPrep = order.preparationTimeMinutes || 20;
-    const newPrep = Math.max(5, currentPrep + delta); // Minimum 5 mins
-
-    // 1. 🚀 Optimistic update
-    setOrders(prev => prev.map(o => o.id === id ? { ...o, preparationTimeMinutes: newPrep } : o));
-
-    try {
-      const { data } = await api.patch(`/orders/${id}/prep-time`, { minutes: newPrep });
-      
-      // 2. ✅ Sync with server metadata
-      setOrders(prev => prev.map(o => o.id === id ? { 
-        ...o, 
-        preparationTimeMinutes: data.preparationTimeMinutes,
-        estimatedReadyAt: data.estimatedReadyAt,
-        estimatedArrivalAt: data.estimatedArrivalAt
-      } : o));
-      
-      toast.success(`تم تحديث وقت التجهيز إلى ${newPrep} دقيقة`);
-    } catch (err) {
-      // 3. 🔄 Rollback
-      setOrders(previousOrders);
-      console.error('Timer Update Error:', err);
-      toast.error('فشل تحديث الوقت');
-    }
-  };
-
-  const onUpdateStatus = async (id, status, version, eventSequence) => {
-    // 1. 🚀 Optimistic UI Update + Register Pending Operation
-    const previousOrders = [...orders];
-    const orderToUpdate = orders.find(o => o.id === id);
-    if (!orderToUpdate) return;
- 
-    pendingOperations.current.set(id, { status, version, eventSequence });
-    setOrders(prev => prev.map(o => o.id === id ? { ...o, status, eventSequence: (eventSequence || 0) + 1 } : o));
-
+  const onUpdateStatus = async (id, status, version) => {
     try {
       const idempotencyKey = `manual_upd_${id}_${status}_${Date.now()}`;
-      const { data } = await api.patch(`/orders/${id}/status`, 
+      await api.patch(`/orders/${id}/status`, 
         { status, version },
         { headers: { 'idempotency-key': idempotencyKey } }
       );
       
-      // 2. ✅ Authority Reconciliation: Only apply if version is still relevant
-      setOrders(prev => {
-        const current = prev.find(o => o.id === id);
-        // [P10] Respect Event Sequence Authority
-        if (current && (data.eventSequence || 0) >= (current.eventSequence || 0)) {
-          return prev.map(o => o.id === id ? { 
-            ...o, 
-            status: data.status, 
-            version: data.version, 
-            eventSequence: data.eventSequence 
-          } : o);
-        }
-        return prev;
-      });
-      
-      pendingOperations.current.delete(id);
+      queryClient.invalidateQueries({ queryKey: ['orders', selectedBranchId] });
       toast.success('تم تحديث الحالة');
     } catch (err) {
-      // 3. 🔄 Rollback on error
-      setOrders(previousOrders);
-      pendingOperations.current.delete(id);
-      
       if (err.response?.status === 409) {
-        toast.error('⚠️ تضارب في البيانات: تم تحديث هذا الطلب مسبقاً من قبل موظف آخر. جاري التحديث...');
-        fetchOrders();
+        toast.error('⚠️ تضارب: تم تغيير حالة الطلب بالفعل. جاري إعادة المزامنة...');
+        queryClient.invalidateQueries({ queryKey: ['orders', selectedBranchId] });
       } else {
-        toast.error('فشل تحديث الحالة');
-        console.error('Status Update Error:', err);
+        toast.error('فشل في تحديث حالة الطلب');
       }
+    }
+  };
+
+  const onAdjustTimer = async (id, delta) => {
+    const order = orders.find(o => o.id === id);
+    if (!order) return;
+    
+    const currentPrep = order.preparationTimeMinutes || 20;
+    const newPrep = Math.max(5, currentPrep + delta); 
+
+    try {
+      await api.patch(`/orders/${id}/prep-time`, { minutes: newPrep });
+      queryClient.invalidateQueries({ queryKey: ['orders', selectedBranchId] });
+      toast.success(`تم تحديث وقت التجهيز إلى ${newPrep} دقيقة`);
+    } catch (err) {
+      toast.error('فشل تحديث الوقت');
     }
   };
 
@@ -551,7 +324,9 @@ const LiveOrders = () => {
         { headers: { 'idempotency-key': idempotencyKey } }
       );
 
-      setOrders(prev => prev.filter(o => o.id !== orderToCancel.id));
+      queryClient.invalidateQueries({ queryKey: ['orders', selectedBranchId] });
+      queryClient.invalidateQueries({ queryKey: ['branchStats', selectedBranchId] });
+      
       setShowCancelModal(false);
       toast.success('تم إلغاء الطلب بنجاح');
     } catch (err) {
@@ -562,68 +337,45 @@ const LiveOrders = () => {
   };
 
   useEffect(() => {
-    fetchOrders();
-    // 🛑 Polling Removed! replaced by Socket.io
+    // 🛡️ Component entry sync
   }, [selectedBranchId]);
-
-  const VALID_TRANSITIONS = {
-    'pending': ['preparing', 'cancelled'],
-    'preparing': ['ready', 'cancelled'],
-    'ready': ['in_route', 'delivered', 'cancelled'],
-    'in_route': ['delivered', 'cancelled'],
-    'delivered': [],
-    'cancelled': []
-  };
 
   const onDragEnd = async (result) => {
     const { destination, source, draggableId } = result;
 
     if (!destination) return;
+    if (!can('MANAGE_ORDERS')) {
+      toast.error('غير مصرح لك بتغيير حالة الطلب');
+      return;
+    }
     if (destination.droppableId === source.droppableId && destination.index === source.index) return;
 
-    // 🧠 Mapping column back to its primary target status
     const newStatus = COLUMN_TO_STATUS[destination.droppableId];
     if (!newStatus) return;
 
     const orderToUpdate = orders.find(o => o.id === draggableId);
     if (!orderToUpdate) return;
 
-    const currentStatus = orderToUpdate.status;
-    if (!VALID_TRANSITIONS[currentStatus]?.includes(newStatus)) {
+    if (!VALID_TRANSITIONS[orderToUpdate.status]?.includes(newStatus)) {
       toast.error('انتقال غير مسموح لهذه الحالة');
       return;
     }
 
-    // 🛡️ Capture current state for safe rollback BEFORE optimistic update
-    const previousOrders = [...orders];
-
-    // Optimistic update
-    const updatedOrders = orders.map(o => o.id === draggableId ? { ...o, status: newStatus } : o);
-    setOrders(updatedOrders);
-
     try {
       const idempotencyKey = `drag_upd_${draggableId}_${newStatus}_${Date.now()}`;
-      const { data } = await api.patch(`/orders/${draggableId}/status`, 
+      await api.patch(`/orders/${draggableId}/status`, 
         { status: newStatus, version: orderToUpdate.version },
         { headers: { 'idempotency-key': idempotencyKey } }
       );
       
-      // 🛡️ [P10] Server-Driven State Update
-      setOrders(prev => prev.map(o => o.id === draggableId ? { 
-        ...o, 
-        status: data.status, 
-        version: data.version, 
-        eventSequence: data.eventSequence 
-      } : o));
+      queryClient.invalidateQueries({ queryKey: ['orders', selectedBranchId] });
       toast.info(`تم تحديث حالة الطلب إلى: ${COLUMNS.find(c => c.id === destination.droppableId).title}`);
     } catch (err) {
+      queryClient.invalidateQueries({ queryKey: ['orders', selectedBranchId] });
       if (err.response?.status === 409) {
         toast.error('⚠️ تضارب: تم تغيير حالة الطلب بالفعل. جاري إعادة المزامنة...');
-        fetchOrders();
       } else {
         toast.error('فشل في تحديث حالة الطلب');
-        // 🔄 Safe Rollback: Return to the exact state before the drag started
-        setOrders(previousOrders);
       }
     }
   };
@@ -640,24 +392,25 @@ const LiveOrders = () => {
         title="الطلبات الحية"
         subtitle="نظام السحب والإفلات لإدارة حالة الطلبات المباشرة"
         action={
-          <button
-            onClick={() => setShowEmergencyModal(true)}
-            className={cn(
-              "flex items-center gap-2 px-3 py-1.5 rounded-full font-bold transition-all border shadow-sm",
-              restaurantStatus?.isOpen
-                ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20 hover:bg-emerald-500/20"
-                : "bg-red-500/10 text-red-500 border-red-500/20 hover:bg-red-500/20"
-            )}
-          >
-            <div className={cn(
-              "w-2.5 h-2.5 rounded-full shadow-[0_0_8px]",
-              restaurantStatus?.isOpen ? "bg-emerald-500 shadow-emerald-500/50" : "bg-red-500 shadow-red-500/50"
-            )} />
-            <span className="text-xs">
-              {restaurantStatus?.isOpen ? 'مفتوح' : 'مغلق'}
-              {timeLeft && <span className="mr-1.5 font-mono opacity-80 text-[10px]">({timeLeft})</span>}
-            </span>
-          </button>
+          can('TOGGLE_RESTAURANT_STATUS') && (
+            <button
+              onClick={() => setShowEmergencyModal(true)}
+              className={cn(
+                "flex items-center gap-2 px-3 py-1.5 rounded-full font-bold transition-all border shadow-sm",
+                restaurantStatus?.isOpen
+                  ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20 hover:bg-emerald-500/20"
+                  : "bg-red-500/10 text-red-500 border-red-500/20 hover:bg-red-500/20"
+              )}
+            >
+              <div className={cn(
+                "w-2.5 h-2.5 rounded-full shadow-[0_0_8px]",
+                restaurantStatus?.isOpen ? "bg-emerald-500 shadow-emerald-500/50" : "bg-red-500 shadow-red-500/50"
+              )} />
+              <span className="text-xs">
+                {restaurantStatus?.isOpen ? 'مفتوح' : 'مغلق'}
+              </span>
+            </button>
+          )
         }
       />
 
@@ -667,7 +420,7 @@ const LiveOrders = () => {
       <audio ref={audioRef} src={NEW_ORDER_SOUND} preload="auto" />
       <audio ref={cancelAudioRef} src={CANCEL_REQUEST_SOUND} preload="auto" />
 
-      {loading ? (
+      {ordersLoading ? (
         <div className="flex-1 flex items-center justify-center">
           <div className="flex flex-col items-center gap-4">
             <div className="w-12 h-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
@@ -726,6 +479,7 @@ const LiveOrders = () => {
                                 }
                                 setShowHandleModal(true);
                               }}
+                              can={can}
                             />
                           ))}
                         </AnimatePresence>
@@ -788,9 +542,10 @@ const LiveOrders = () => {
                         { headers: { 'idempotency-key': idempotencyKey } }
                       );
                       toast.success(handleAction === 'approve' ? 'تم قبول الإلغاء' : 'تم رفض الإلغاء');
-                      setOrders(prev => prev.map(o => o.id === orderToCancel.id ? { ...o, status: handleAction === 'approve' ? 'cancelled' : o.cancellation.previousStatus } : o));
-                      // Refresh orders to be safe
-                      fetchOrders();
+                      
+                      // 🛡️ [SSOT] Invalidate cache
+                      queryClient.invalidateQueries({ queryKey: ['orders', selectedBranchId] });
+                      
                       setShowHandleModal(false);
                     } catch (err) {
                       toast.error('حدث خطأ أثناء معالجة الطلب');
@@ -1004,65 +759,63 @@ const LiveOrders = () => {
           </motion.div>
         </div>
       )}
-{/* Cancellation Modal */ }
-{
-  showCancelModal && (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.9 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="bg-card w-full max-w-md rounded-2xl border border-white/10 shadow-2xl p-6"
-      >
-        <div className="flex items-center gap-3 mb-6 text-red-500">
-          <XCircle className="w-8 h-8" />
-          <h3 className="text-xl font-bold">تأكيد إلغاء الطلب</h3>
-        </div>
-
-        <div className="space-y-4">
-          <div>
-            <label className="block text-xs font-bold text-text-muted mb-2 uppercase tracking-wider">سبب الإلغاء</label>
-            <textarea
-              value={cancelReason}
-              onChange={(e) => setCancelReason(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm text-white focus:border-primary outline-none transition-all h-24 resize-none"
-              placeholder="اكتب سبب الإلغاء هنا..."
-            />
-          </div>
-
-          {(orderToCancel?.status === 'ready' || orderToCancel?.status === 'in_route') && (
-            <div>
-              <label className="block text-xs font-bold text-text-muted mb-2 uppercase tracking-wider">كلمة مرور المدير العام</label>
-              <input
-                type="password"
-                value={managerPassword}
-                onChange={(e) => setManagerPassword(e.target.value)}
-                className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm text-white focus:border-primary outline-none transition-all"
-                placeholder="مطلوب لإلغاء طلبات جاهزة/في الطريق"
-              />
+      {/* Cancellation Modal */}
+      {showCancelModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-card w-full max-w-md rounded-2xl border border-white/10 shadow-2xl p-6"
+          >
+            <div className="flex items-center gap-3 mb-6 text-red-500">
+              <XCircle className="w-8 h-8" />
+              <h3 className="text-xl font-bold">تأكيد إلغاء الطلب</h3>
             </div>
-          )}
 
-          <div className="flex gap-3 pt-4">
-            <button
-              onClick={executeCancellation}
-              disabled={isSubmittingCancel}
-              className="flex-1 bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white font-bold py-3 rounded-xl shadow-lg shadow-red-500/20 transition-all flex items-center justify-center gap-2"
-            >
-              {isSubmittingCancel ? 'جاري الإلغاء...' : 'تأكيد الإلغاء'}
-            </button>
-            <button
-              onClick={() => setShowCancelModal(false)}
-              className="px-6 bg-white/5 hover:bg-white/10 text-white font-bold py-3 rounded-xl transition-all"
-            >
-              تراجع
-            </button>
-          </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-text-muted mb-2 uppercase tracking-wider">سبب الإلغاء</label>
+                <textarea
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm text-white focus:border-primary outline-none transition-all h-24 resize-none"
+                  placeholder="اكتب سبب الإلغاء هنا..."
+                />
+              </div>
+
+              {(orderToCancel?.status === 'ready' || orderToCancel?.status === 'in_route') && (
+                <div>
+                  <label className="block text-xs font-bold text-text-muted mb-2 uppercase tracking-wider">كلمة مرور المدير العام</label>
+                  <input
+                    type="password"
+                    value={managerPassword}
+                    onChange={(e) => setManagerPassword(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm text-white focus:border-primary outline-none transition-all"
+                    placeholder="مطلوب لإلغاء طلبات جاهزة/في الطريق"
+                  />
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  onClick={executeCancellation}
+                  disabled={isSubmittingCancel}
+                  className="flex-1 bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white font-bold py-3 rounded-xl shadow-lg shadow-red-500/20 transition-all flex items-center justify-center gap-2"
+                >
+                  {isSubmittingCancel ? 'جاري الإلغاء...' : 'تأكيد الإلغاء'}
+                </button>
+                <button
+                  onClick={() => setShowCancelModal(false)}
+                  className="px-6 bg-white/5 hover:bg-white/10 text-white font-bold py-3 rounded-xl transition-all"
+                >
+                  تراجع
+                </button>
+              </div>
+            </div>
+          </motion.div>
         </div>
-      </motion.div>
+      )}
     </div>
-  )
-}
-    </div >
   );
 };
 

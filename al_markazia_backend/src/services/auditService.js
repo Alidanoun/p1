@@ -3,6 +3,9 @@ const { sanitizeForAudit } = require('../utils/auditSanitizer');
 const { translateAction, getFriendlyCategory } = require('../utils/auditTranslator');
 const { decrypt } = require('../utils/crypto');
 
+const { getRequestId, getCorrelationId } = require('../utils/context');
+const { trace } = require('@opentelemetry/api');
+
 /**
  * 🕵️ Enterprise Audit Service
  * Provides centralized logging with diff support and severity levels.
@@ -58,16 +61,42 @@ class AuditService {
 
   /**
    * Log an event to the SystemAuditLog
-   * 🔥 [PERF-FIX] Non-blocking by default unless explicitly awaited
+   * 🛡️ [COMPLIANCE-FIX] Removed fire-and-forget setImmediate.
+   * All logs are now durable. If backgrounding is needed, use logDurable().
    */
   async log(params) {
-    // We return immediately and handle the work in the background to avoid blocking the API response
-    setImmediate(() => {
-      this._performLog(params).catch(err => 
-        this.logger.error('[AUDIT_LOG_ASYNC_FAILURE]', { error: err.message, action: params.action })
-      );
+    return await this._performLog(params);
+  }
+
+  /**
+   * 📦 Durable Background Log (Outbox-backed)
+   * Saves the audit to the Outbox first to guarantee persistence if the process crashes.
+   */
+  async logDurable(params) {
+    const { tx = this.prisma } = params;
+    
+    // Save to Outbox as a 'system.audit_log' event
+    await tx.outboxEvent.create({
+      data: {
+        type: 'system.audit_log',
+        aggregateId: params.entityId || 'system',
+        aggregateType: params.entityType || 'System',
+        payload: {
+          ...params,
+          timestamp: new Date().toISOString()
+        }
+      }
     });
-    return true; // Return a dummy success to avoid breaking callers
+    
+    return true;
+  }
+
+  /**
+   * 🔒 Explicitly Synchronous Log
+   * Use only for critical security/state transitions that require immediate consistency.
+   */
+  async logSync(params) {
+    return await this._performLog({ ...params, sync: true });
   }
 
   /**
@@ -87,8 +116,21 @@ class AuditService {
     } = params;
 
     try {
+      // 📡 Trace Context Enrichment
+      const requestId = getRequestId();
+      const correlationId = getCorrelationId();
+      const activeSpan = trace.getActiveSpan();
+      const traceId = activeSpan?.spanContext()?.traceId;
+
+      const tracingMetadata = {
+        requestId,
+        correlationId,
+        traceId,
+        ...metadata
+      };
+
       // ✅ Sanitize metadata before saving
-      const cleanMetadata = sanitizeForAudit(metadata);
+      const cleanMetadata = sanitizeForAudit(tracingMetadata);
 
       const logEntry = {
         userId,

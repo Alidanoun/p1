@@ -6,38 +6,49 @@ const logger = require('../utils/logger');
 /**
  * 🧠 Notification Policy Service (Phase 1 Governance)
  * Enforces user preferences, quiet hours, and channel routing.
+ * Hardened SDS 3.1: Multi-Identity Evaluation (Staff & Customers).
  */
 class NotificationPolicyService {
   /**
-   * Evaluates if a notification should be sent to a user.
-   * @param {number} userId 
+   * Evaluates if a notification should be sent to an identity.
+   * @param {number|string} identityId 
    * @param {string} eventType 
-   * @returns {Promise<Object>} { allowed: boolean, reason: string|null, channels: string[] }
+   * @param {string} identityType 'user' | 'customer'
    */
-  async evaluate(userId, eventType) {
+  async evaluate(identityId, eventType, identityType = 'user') {
     try {
       const config = EVENT_TYPE_CONFIG[eventType];
       if (!config) {
         return { allowed: false, reason: 'INVALID_EVENT_TYPE', channels: [] };
       }
 
-      // 1. Fetch User Preferences & Timezone
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        include: { notificationPreferences: true }
-      });
+      // 1. Fetch Identity Preferences & Timezone
+      let identity;
+      if (identityType === 'customer') {
+        const query = typeof identityId === 'string' ? { uuid: identityId } : { id: parseInt(identityId) };
+        identity = await prisma.customer.findUnique({
+          where: query,
+          include: { notificationPreferences: true }
+        });
+      } else {
+        const query = typeof identityId === 'string' ? { uuid: identityId } : { id: parseInt(identityId) };
+        identity = await prisma.user.findUnique({
+          where: query,
+          include: { notificationPreferences: true }
+        });
+      }
 
-      if (!user) return { allowed: false, reason: 'USER_NOT_FOUND', channels: [] };
+      if (!identity) return { allowed: false, reason: 'IDENTITY_NOT_FOUND', channels: [] };
 
       // 2. Check Opt-out Status
-      const pref = user.notificationPreferences.find(p => p.category === config.category);
+      const pref = identity.notificationPreferences.find(p => p.category === config.category);
       if (pref && !pref.isEnabled && config.priority !== NOTIFICATION_PRIORITIES.CRITICAL) {
-        return { allowed: false, reason: 'USER_OPTED_OUT', channels: [] };
+        return { allowed: false, reason: 'IDENTITY_OPTED_OUT', channels: [] };
       }
 
       // 3. Check Quiet Hours (unless Critical)
       if (config.priority !== NOTIFICATION_PRIORITIES.CRITICAL) {
-        const isQuiet = await this.isQuietTime(user);
+        const isQuiet = await this.isQuietTime(identity);
         if (isQuiet) {
           return { allowed: false, reason: 'QUIET_HOURS', channels: [] };
         }
@@ -45,7 +56,7 @@ class NotificationPolicyService {
 
       return { allowed: true, reason: null, channels: config.channels };
     } catch (err) {
-      logger.error('[NotificationPolicy] Evaluation failed', { userId, eventType, error: err.message });
+      logger.error('[NotificationPolicy] Evaluation failed', { identityId, eventType, error: err.message });
       return { allowed: false, reason: 'INTERNAL_ERROR', channels: [] };
     }
   }
@@ -54,7 +65,7 @@ class NotificationPolicyService {
    * Checks if the current time is within the user's quiet hours.
    */
   async isQuietTime(user) {
-    const timezone = user.timezone || 'UTC';
+    const timezone = user.timezone || 'Africa/Cairo';
     const now = DateTime.now().setZone(timezone);
     const hour = now.hour;
 

@@ -5,7 +5,15 @@ const orders = new Map();
 
 function upsertOrder(order) {
   if (!order || !order.id) return;
-  orders.set(order.id.toString(), order);
+  const targetId = order.id.toString();
+  const existing = orders.get(targetId);
+  
+  // 🛡️ Monotonic Version Guard: Last-Write-Wins based on deterministic causal DB versions
+  if (existing && existing.version && order.version && order.version < existing.version) {
+    return; // Silently drop out-of-order stale network replays
+  }
+  
+  orders.set(targetId, order);
 }
 
 function removeOrder(orderId) {
@@ -48,7 +56,8 @@ async function replay() {
       branchId: { in: Array.from(activeBranchIds) } // Only load orders from active branches
     },
     include: ORDER_INCLUDE_FULL,
-    orderBy: { createdAt: 'desc' }
+    orderBy: { createdAt: 'desc' },
+    take: 300
   });
 
   orders.clear();

@@ -53,14 +53,14 @@ exports.submitReview = async (req, res) => {
       });
     }
 
-    // 4. Duplicate Check
-    const existing = await prisma.review.findUnique({
-      where: { customerId_itemId: { customerId: customer.id, itemId: itemIdInt } }
+    // 4. Duplicate Check (Scoped per delivered order to allow re-reviewing separate future orders of the same item)
+    const existing = await prisma.review.findFirst({
+      where: { customerId: customer.id, orderId: purchasedOrder.id, itemId: itemIdInt }
     });
 
     if (existing) {
       return res.status(409).json({ 
-        error: 'لقد قمت بتقييم هذا الصنف مسبقاً',
+        error: 'لقد قمت بتقييم هذا الصنف مسبقاً في هذا الطلب',
         code: 'ALREADY_REVIEWED'
       });
     }
@@ -263,6 +263,30 @@ exports.toggleApproval = async (req, res) => {
     // 🚀 Update Item Cache (Background)
     await updateItemStats(review.itemId);
 
+    // 🎁 [LOYALTY-FIX] Emit reward event on approval
+    if (review.status === 'APPROVED') {
+      try {
+        const container = require('../lib/container');
+        const points = await container.loyaltyService.calculateEngagementPoints('REVIEW');
+        
+        await prisma.systemOutbox.create({
+          data: {
+            type: 'loyalty.review_award',
+            aggregateId: String(review.id),
+            aggregateType: 'Review',
+            payload: {
+              reviewId: review.id,
+              customerId: review.customerId,
+              points
+            }
+          }
+        });
+        logger.info(`[ReviewController] Enqueued loyalty reward for review #${review.id}`);
+      } catch (err) {
+        logger.error('[ReviewController] Failed to enqueue loyalty reward', { error: err.message });
+      }
+    }
+
     res.json({
       ...review,
       isApproved: review.status === 'APPROVED'
@@ -437,4 +461,14 @@ async function updateItemStats(itemId) {
       }
     });
   });
+
+  // 🧹 [CACHE-FIX] Synchronize caching layer to ensure public averages immediately reflect updates
+  try {
+    const menuCacheService = require('../services/menuCacheService');
+    if (menuCacheService && typeof menuCacheService.invalidate === 'function') {
+      await menuCacheService.invalidate();
+    }
+  } catch (cacheErr) {
+    logger.warn('[ReviewController] Menu cache invalidation skipped', { error: cacheErr.message });
+  }
 }

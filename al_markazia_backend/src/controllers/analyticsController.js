@@ -25,82 +25,14 @@ exports.getBranchDailyReport = async (req, res) => {
  */
 exports.getDashboardStats = async (req, res) => {
   try {
-    const { period = 'today', source = 'all' } = req.query;
+    const { period = 'today' } = req.query;
     
-    // Convert period to date range
-    const now = new Date();
-    let startDate = new Date();
-    
-    if (period === 'today') {
-      startDate.setHours(0, 0, 0, 0);
-    } else if (period === 'week') {
-      startDate.setDate(now.getDate() - 7);
-    } else if (period === 'month') {
-      startDate.setMonth(now.getMonth() - 1);
-    }
-
-    const prisma = require('../lib/prisma');
-
-    // 🛡️ [SEC-FIX] Branch Isolation
-    const SecurityPolicyService = require('../services/securityPolicyService');
-    const { getContext } = require('../utils/securityContext');
-    const isolationFilter = await SecurityPolicyService.getHardenedFilter(getContext(), 'Order');
-
-    // Fetch orders
-    const orders = await prisma.order.findMany({
-      where: {
-        ...isolationFilter,
-        createdAt: { gte: startDate },
-        // 🛡️ [AUDIT-FIX] Exclude 'pending' and 'cancelled' to align with Projection revenue logic
-        status: { 
-          notIn: ['pending', 'cancelled', 'waiting_cancellation', 'waiting_cancellation_admin'] 
-        },
-        isDeleted: false
-      },
-      include: { orderItems: true }
-    });
-
-    const { toNumber, toMoney } = require('../utils/number');
-
-    const totalOrders = orders.length;
-    const totalRevenue = toMoney(orders.reduce((sum, o) => sum + toNumber(o.total), 0));
-    const avgOrderValue = totalOrders > 0 ? toMoney(totalRevenue / totalOrders) : 0;
-
-    // Chart Data (Aggregating by Hour for 'today', Day for others)
-    const chartMap = {};
-    orders.forEach(o => {
-      let label;
-      if (period === 'today') {
-        const hour = o.createdAt.getHours();
-        label = `${hour}:00`;
-      } else {
-        label = o.createdAt.toLocaleDateString('ar-EG', { weekday: 'short' });
-      }
-      chartMap[label] = (chartMap[label] || 0) + 1;
-    });
-
-    const chartData = Object.entries(chartMap).map(([label, count]) => ({ label, count }));
-
-    // Top Items
-    const itemMap = {};
-    orders.forEach(o => {
-      o.orderItems.forEach(i => {
-        itemMap[i.itemName] = (itemMap[i.itemName] || 0) + i.quantity;
-      });
-    });
-
-    const topItems = Object.entries(itemMap)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([name, quantity]) => ({ name, quantity }));
+    // 🛡️ [PHASE 5] Standardized Analytics Service
+    const metrics = await req.container.analyticsService.getDashboardMetrics(req.user, period);
 
     res.json({
       success: true,
-      data: {
-        overview: { totalRevenue, totalOrders, avgOrderValue },
-        chartData,
-        topItems
-      }
+      data: metrics
     });
 
   } catch (error) {

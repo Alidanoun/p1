@@ -21,6 +21,7 @@ const {
   createOrder, 
   getOrders,
   getOrdersReport,
+  getOrderById,
   getMyOrders,
   syncOrders,
   updateOrderStatus, 
@@ -63,6 +64,7 @@ router.get('/report', authMiddleware, adminMiddleware, BranchAccessMiddleware, e
 // Only admin/manager can view and update (RBAC v3)
 router.get('/', authMiddleware, hasPermission(PERMISSIONS.ORDER_VIEW), BranchAccessMiddleware, enforceIntent('read'), getOrders);
 router.get('/sync', authMiddleware, hasPermission(PERMISSIONS.ORDER_VIEW), BranchAccessMiddleware, enforceIntent('read'), syncOrders);
+router.get('/:id', authMiddleware, hasPermission(PERMISSIONS.ORDER_VIEW), BranchAccessMiddleware, enforceIntent('read'), validateId(), getOrderById);
 router.post('/accept-all', authMiddleware, hasPermission(PERMISSIONS.ORDER_UPDATE_STATUS), BranchAccessMiddleware, enforceIntent('write'), idempotency.guard(true), acceptAllNewOrders);
 router.patch('/:id/status', authMiddleware, hasPermission(PERMISSIONS.ORDER_UPDATE_STATUS), BranchAccessMiddleware, verifyOrderOwnership, enforceIntent('write'), healthGuard('db'), idempotency.guard(true), validateId(), updateOrderStatus);
 router.patch('/:id/timer', authMiddleware, hasPermission(PERMISSIONS.ORDER_MANAGE_TIMER), BranchAccessMiddleware, verifyOrderOwnership, enforceIntent('write'), idempotency.guard(true), validateId(), updateOrderTimer);

@@ -2,6 +2,10 @@
  * 🛡️ Security Policy Service (The Fortress)
  * The single source of truth for all authorization and data isolation logic.
  */
+const NodeCache = require('node-cache');
+const localBranchCache = new NodeCache({ stdTTL: 30, maxKeys: 1000 });
+const inFlightBranches = new Map();
+
 class SecurityPolicyService {
   constructor({ prisma, redis, logger }) {
     this.prisma = prisma;
@@ -152,42 +156,66 @@ class SecurityPolicyService {
       if (user.branchId) allowedBranchIds.push(user.branchId);
 
       const cacheKey = `user:branches:${user.id}`;
-      const cached = await redis.get(cacheKey);
+      let extraIds = localBranchCache.get(cacheKey);
 
-      if (cached) {
-        const extraIds = JSON.parse(cached);
-        allowedBranchIds = [...new Set([...allowedBranchIds, ...extraIds])];
-      } else {
-        const prisma = this.prisma;
-        
-        // 🛡️ [SECURITY-FIX] Identity Resolution (Number vs UUID)
-        let numericUserId = typeof user.id === 'number' ? user.id : null;
-        
-        if (!numericUserId && typeof user.id === 'string' && !isNaN(user.id)) {
-           numericUserId = parseInt(user.id);
+      if (!extraIds) {
+        let cachedRedis = null;
+        let redisDown = false;
+        try {
+          cachedRedis = await redis.get(cacheKey);
+        } catch (e) {
+          redisDown = true;
+          logger.warn('[SecurityPolicy] Redis read failed, falling back to direct database linked branches lookup');
         }
 
-        if (!numericUserId) {
-          // If it's a UUID string, look up the numeric ID
-          const userRecord = await prisma.user.findUnique({ 
-            where: { uuid: user.id }, 
-            select: { id: true } 
-          });
-          if (userRecord) numericUserId = userRecord.id;
-        }
-
-        if (numericUserId) {
-          const linkedBranches = await prisma.userBranch.findMany({
-            where: { userId: numericUserId },
-            select: { branchId: true }
-          });
-          const extraIds = linkedBranches.map(lb => lb.branchId);
-          await redis.setex(cacheKey, 300, JSON.stringify(extraIds)); // 🛡️ 5-minute TTL for security
-          allowedBranchIds = [...new Set([...allowedBranchIds, ...extraIds])];
+        if (cachedRedis) {
+          extraIds = JSON.parse(cachedRedis);
+          localBranchCache.set(cacheKey, extraIds);
         } else {
-          logger.security('IDENTITY_RESOLUTION_FAILED', { userId: user.id, role: user.role });
+          if (inFlightBranches.has(cacheKey)) {
+            extraIds = await inFlightBranches.get(cacheKey);
+          } else {
+            const prisma = this.prisma;
+            const fetchPromise = (async () => {
+              // 🛡️ [SECURITY-FIX] Identity Resolution (Number vs UUID)
+              let numericUserId = typeof user.id === 'number' ? user.id : null;
+              
+              if (!numericUserId && typeof user.id === 'string' && !isNaN(user.id)) {
+                 numericUserId = parseInt(user.id);
+              }
+
+              if (!numericUserId) {
+                // If it's a UUID string, look up the numeric ID
+                const userRecord = await prisma.user.findUnique({ 
+                  where: { uuid: user.id }, 
+                  select: { id: true } 
+                });
+                if (userRecord) numericUserId = userRecord.id;
+              }
+
+              if (numericUserId) {
+                const linkedBranches = await prisma.userBranch.findMany({
+                  where: { userId: numericUserId },
+                  select: { branchId: true }
+                });
+                const extra = linkedBranches.map(lb => lb.branchId);
+                if (!redisDown) {
+                  await redis.setex(cacheKey, 300, JSON.stringify(extra)).catch(() => {});
+                }
+                localBranchCache.set(cacheKey, extra);
+                return extra;
+              } else {
+                logger.security('IDENTITY_RESOLUTION_FAILED', { userId: user.id, role: user.role });
+                return [];
+              }
+            })();
+            inFlightBranches.set(cacheKey, fetchPromise);
+            extraIds = await fetchPromise;
+            inFlightBranches.delete(cacheKey);
+          }
         }
       }
+      allowedBranchIds = [...new Set([...allowedBranchIds, ...extraIds])];
     } else {
       if (user.branchId) allowedBranchIds.push(user.branchId);
     }
@@ -313,9 +341,14 @@ class SecurityPolicyService {
           rooms.add(SOCKET_ROOMS.EXEC_BRANCH(context.branchId));
         }
 
-        // Handle multi-branch managers
+        // Handle multi-branch managers safely
         const cacheKey = `user:branches:${context.id}`;
-        const cached = await redis.get(cacheKey);
+        let cached = null;
+        try {
+          cached = await redis.get(cacheKey);
+        } catch (err) {
+          logger.warn('[SecurityPolicy] Redis lookup failed in getTargetRooms', { error: err.message });
+        }
         if (cached) {
           JSON.parse(cached).forEach(bid => rooms.add(SOCKET_ROOMS.EXEC_BRANCH(bid)));
         }
@@ -406,10 +439,10 @@ class SecurityPolicyService {
 
       logger.info(`[SecurityPolicy] 🛡️ Starting Security Cache Rehydration for ${activeUsers.length} users...`);
 
-      for (const user of activeUsers) {
-        // Calling getHardenedFilter triggers the internal caching logic
-        await this.getHardenedFilter(user, 'Order').catch(() => {});
-      }
+      const warmupPromises = activeUsers.map(user => 
+        this.getHardenedFilter(user, 'Order').catch(() => {})
+      );
+      await Promise.all(warmupPromises);
 
       logger.info('[SecurityPolicy] ✅ Security Cache Rehydrated successfully.');
     } catch (err) {
@@ -445,21 +478,29 @@ class SecurityPolicyService {
         }).catch(() => null);
       }
 
-      // 2. 🏮 Fast Layer Purge: Delete Redis cache
-      const cacheKey = `user:branches:${userId}`;
-      await redis.del(cacheKey);
-
-      // 3. 🛰️ Broadcast: Notify all instances via Distributed Event Bus
+      // 2. 🛰️ FIRST: Guarantee distributed propagation (Event is the Source of Truth)
       await publishEvent({
         type: 'USER_PERMISSIONS_CHANGED',
         aggregateId: null,
         payload: { userId, reason: 'ADMIN_ACTION' },
+        version: Date.now(),
         isCritical: true
       });
 
+      // 3. 🧹 SECOND: Best-effort cache cleanup (NOT authoritative)
+      const cacheKey = `user:branches:${userId}`;
+      try {
+        localBranchCache.del(cacheKey);
+        await redis.del(cacheKey);
+      } catch (cacheErr) {
+        logger.warn('[SecurityPolicy] Cache invalidation failed (non-critical optimization drop)', { error: cacheErr.message });
+      }
+
       logger.info('[SECURITY] Distributed Invalidation Dispatch Success', { userId });
+      return true;
     } catch (err) {
       logger.error('[SECURITY] Critical: Distributed Invalidation Failed', { userId, error: err.message });
+      return false;
     }
   }
 }

@@ -1,7 +1,7 @@
 const express = require('express');
 const { authenticateToken, isAdmin } = require('../middleware/auth');
 const { uploadImage } = require('../middleware/upload');
-const { getAllItems, searchItems, createItem, updateItem, deleteItem, updateFeaturedItems, toggleExclusion } = require('../controllers/itemController');
+const { getAllItems, searchItems, createItem, updateItem, deleteItem, updateFeaturedItems, toggleExclusion, toggleVariantAvailability } = require('../controllers/itemController');
 const { searchLimiter } = require('../middleware/rateLimiter');
 
 const { validateId } = require('../utils/security');
@@ -18,6 +18,7 @@ router.patch('/:id/options/toggle', authenticateToken, isAdmin, validateId(), (r
   // New specific endpoint for availability toggling to avoid "wipe and rebuild" complexity
   require('../controllers/itemController').toggleOptionAvailability(req, res, next);
 });
+router.patch('/variants/:variantId/availability', authenticateToken, isAdmin, toggleVariantAvailability);
 router.delete('/:id', authenticateToken, isAdmin, validateId(), deleteItem);
 
 module.exports = router;
