@@ -173,112 +173,101 @@ const refreshToken = async (req, res) => {
 const login = async (req, res) => {
   const { email, password, fcmToken } = req.body;
   const start = Date.now();
+
   try {
     const cleanEmail = email.toLowerCase().trim();
     const cleanPassword = typeof password === 'string' ? password.trim() : password;
-    logger.debug('Login attempt initiated', { email: cleanEmail });
-    
-    // 🛡️ [SEC-FIX] Lockout Key: IP + Email to prevent global user DoS
-    const lockoutKey = `${req.ip}_${cleanEmail}`;
-    
-    const user = await prisma.user.findUnique({ 
+
+    // Phase 1: High-Performance Search (Hashed Email)
+    let user = await prisma.user.findUnique({ 
       where: { emailHash: hashBlind(cleanEmail) },
       include: { branch: true }
     });
-    const customer = !user ? await prisma.customer.findUnique({ where: { emailHash: hashBlind(cleanEmail) } }) : null;
-    const account = user || customer;
 
-    // 🛡️ Account Lockout Check
-    if (account && account.lockUntil && account.lockUntil > new Date()) {
-      const remainingMinutes = Math.ceil((account.lockUntil - new Date()) / 60000);
-      return response.error(res, `الحساب مغلق مؤقتاً بكثرة المحاولات الخاطئة. حاول مجدداً بعد ${remainingMinutes} دقيقة.`, 'ACCOUNT_LOCKED', 403);
+    // Phase 2: Compatibility Fallback (Plain Email - handles seed/legacy data)
+    if (!user) {
+      user = await prisma.user.findUnique({
+        where: { email: cleanEmail },
+        include: { branch: true }
+      });
     }
 
+    let customer = null;
+    if (!user) {
+      customer = await prisma.customer.findUnique({ 
+        where: { emailHash: hashBlind(cleanEmail) } 
+      });
+      if (!customer) {
+        customer = await prisma.customer.findUnique({
+          where: { email: cleanEmail }
+        });
+      }
+    }
+
+    const account = user || customer;
+
+    // 🛡️ [SEC] Multi-Factor/Lockout Guard
+    if (account && account.lockUntil && account.lockUntil > new Date()) {
+      const remainingMinutes = Math.ceil((account.lockUntil - new Date()) / 60000);
+      return response.error(res, `الحساب مغلق مؤقتاً. حاول مجدداً بعد ${remainingMinutes} دقيقة.`, 'ACCOUNT_LOCKED', 403);
+    }
+
+    // ⚙️ Load System Config with Safe Fallbacks
     const configService = require('../services/configService');
     const systemConfig = await configService.getFullConfig();
     const { maxLoginAttempts, lockDurationMinutes, timingDelayMs } = systemConfig.security;
 
     if (!account || !account.password) {
-      await auditService.log({
-        action: 'LOGIN_FAIL',
-        status: 'FAIL',
-        severity: 'WARN',
-        metadata: { identifier: cleanEmail, reason: 'ACCOUNT_NOT_FOUND' },
-        req
-      });
       return response.error(res, 'بيانات الدخول غير صحيحة', 'INVALID_CREDENTIALS', 401);
     }
 
-    const match = account ? await bcrypt.compare(cleanPassword, account.password) : false;
+    // 🔐 Password Verification
+    const match = await bcrypt.compare(cleanPassword, account.password);
     
     if (!match) {
       if (account) {
-        // Increment failed attempts
-        const newAttempts = account.failedAttempts + 1;
+        const newAttempts = (account.failedAttempts || 0) + 1;
         const lockUntil = newAttempts >= maxLoginAttempts 
           ? new Date(Date.now() + lockDurationMinutes * 60 * 1000) 
           : null;
         
-        if (user) {
-          await prisma.user.update({ where: { id: user.id }, data: { failedAttempts: newAttempts, lockUntil } });
-        } else {
-          await prisma.customer.update({ where: { id: customer.id }, data: { failedAttempts: newAttempts, lockUntil } });
-        }
-        
+        const table = user ? prisma.user : prisma.customer;
+        await table.update({ where: { id: account.id }, data: { failedAttempts: newAttempts, lockUntil } });
+
         await auditService.log({
           userId: account.uuid,
           userRole: account.role || 'customer',
           action: 'LOGIN_FAIL',
           status: 'FAIL',
           severity: newAttempts >= maxLoginAttempts ? 'CRITICAL' : 'WARN',
-          metadata: { failedAttempts: newAttempts, locked: !!lockUntil },
           req
         });
       }
 
-      logger.security('Invalid login attempt: Password mismatch or no account', { identifier: cleanEmail, ip: req.ip });
-      
-      // ⏱️ Timing Attack Protection: Standardized delay
+      // ⏱️ Timing Attack Protection
       const elapsed = Date.now() - start;
       if (elapsed < timingDelayMs) await new Promise(r => setTimeout(r, timingDelayMs - elapsed));
       
       return response.error(res, 'بيانات الدخول غير صحيحة', 'INVALID_CREDENTIALS', 401);
     }
 
-    // Success: Reset failed attempts
-    if (account.failedAttempts > 0) {
-      if (user) {
-        await prisma.user.update({ where: { id: user.id }, data: { failedAttempts: 0, lockUntil: null } });
-      } else {
-        await prisma.customer.update({ where: { id: customer.id }, data: { failedAttempts: 0, lockUntil: null } });
-      }
-    }
+    // ✅ Success Path
+    const table = user ? prisma.user : prisma.customer;
+    await table.update({ where: { id: account.id }, data: { failedAttempts: 0, lockUntil: null } });
 
-    // 🛡️ Account Status Security Check
+    // 🛡️ Status Check
     const isDisabled = (user && !user.isActive) || (customer && customer.isBlacklisted);
     if (isDisabled) {
-      logger.security('Login blocked: Account is disabled or blacklisted', { identifier: cleanEmail, uuid: account.uuid });
-      return response.error(res, 'هذا الحساب معطل حالياً أو محظور، يرجى التواصل مع الدعم', 'ACCOUNT_DISABLED', 403);
+      return response.error(res, 'هذا الحساب محظور حالياً، يرجى التواصل مع الدعم', 'ACCOUNT_DISABLED', 403);
     }
 
-    // --- 📡 Smart FCM Token Sync ---
+    // 📱 FCM Token Sync
     if (fcmToken) {
-      const encryptedFcm = encrypt(fcmToken);
-      // Only update if changed (comparing decrypted values to avoid unnecessary re-encryption of same token)
-      if (decrypt(account.fcmToken) !== fcmToken) {
-        if (user) {
-          await prisma.user.update({ where: { id: user.id }, data: { fcmToken: encryptedFcm } });
-        } else {
-          await prisma.customer.update({ where: { id: customer.id }, data: { fcmToken: encryptedFcm } });
-        }
-        logger.info('FCM Token updated (Encrypted)', { accountId: account.uuid });
-      }
+      await table.update({ where: { id: account.id }, data: { fcmToken: encrypt(fcmToken) } }).catch(() => {});
     }
 
-    // 🛡️ [SEC-FIX] Device Fingerprinting
+    // 🔐 Session Generation
     const fingerprint = generateFingerprint(req);
-
-    // 🔐 [SEC-FIX] JTI-based Session Logic
     const { token: refreshToken, jti } = await TokenService.generateAndSaveRefreshToken(account, {
       ip: req.ip,
       userAgent: req.headers['user-agent'],
@@ -286,34 +275,25 @@ const login = async (req, res) => {
     });
     const accessToken = TokenService.generateAccessToken(account, jti);
 
-    // 🛡️ Cookie Hardening (Level 5 Security - Dual HttpOnly Cookies)
+    // 🍪 Secure Cookies
     res.cookie('refreshToken', refreshToken, refreshCookieOptions(req));
     res.cookie('accessToken', accessToken, accessCookieOptions(req));
 
-    await auditService.log({
-      userId: account.uuid,
-      userRole: account.role || 'customer',
-      action: 'LOGIN_SUCCESS',
-      metadata: { device: req.headers['user-agent'] },
-      req
-    });
+    await auditService.log({ userId: account.uuid, action: 'LOGIN_SUCCESS', req });
 
-    response.success(res, { 
+    return response.success(res, { 
       accessToken, 
-      refreshToken: refreshToken,
       user: { 
         id: account.uuid,
         email: decrypt(account.email), 
         name: decrypt(account.name),
-        phone: decrypt(account.phone),
-        role: account.role || 'customer',
-        branchId: account.branchId || null,
-        branchName: user?.branch?.name || null
+        role: account.role || 'customer'
       } 
     });
+
   } catch (error) {
-    logger.error('Login error', { error: error.message });
-    response.error(res, 'Internal Server Error', 'SERVER_ERROR', 500);
+    logger.error('Login error', { error: error.message, stack: error.stack });
+    return response.error(res, 'حدث خطأ في النظام', 'SERVER_ERROR', 500);
   }
 };
 

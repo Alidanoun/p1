@@ -1,0 +1,15 @@
+
+model SystemSettings {
+  id                      Int      @id @default(autoincrement())
+  key                     String   @default("GLOBAL")
+  value                   Json?    // Legacy support
+  businessConfig          Json?    // { slaPrepTime: 20, ... }
+  securityConfig          Json?    // { maxLoginAttempts: 5, ... }
+  freeCancelWindowMinutes Int      @default(5)
+  spamCancelLimit         Int      @default(3)
+  spamTimeWindowMinutes   Int      @default(60)
+  defaultDeliveryFee      Decimal  @default(1.0) @db.Decimal(10, 2)
+  updatedAt               DateTime @updatedAt
+
+  @@unique([key])
+}

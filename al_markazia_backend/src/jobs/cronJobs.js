@@ -105,22 +105,12 @@ function initCronJobs(io = null) {
     });
   });
 
-  // تشغيل أولي عند بدء السيرفر (Startup Check) بعد 5 ثوانٍ لضمان استقرار الربط
+  // تشغيل أولي عند بدء السيرفر (Startup Check) - Temporarily disabled to debug login timeouts
+  /*
   setTimeout(async () => {
-    try {
-      logger.info('Startup Trace: Running Initial Cleanups...');
-      await Promise.all([
-        MaintenanceService.cleanupStuckOrders(),
-        MaintenanceService.cleanupOldIdempotencyRecords(),
-        MaintenanceService.cleanupNotificationLogs(),
-        MaintenanceService.expireFinancialApprovals(),
-        MaintenanceService.cleanupWaitingCancellations(),
-        otpService.cleanupExpired()
-      ]);
-    } catch (err) {
-      logger.error('Startup Cleanup Failed', { error: err.message });
-    }
-  }, 5000);
+    // ...
+  }, 10000);
+  */
 
   // 7. 🎁 Rewards Maintenance: Cleanup Expired Rewards - Every Day at 5:00 AM
   cron.schedule('0 5 * * *', async () => {

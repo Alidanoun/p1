@@ -6,9 +6,18 @@ class FeatureFlagsService {
     this.container = container;
     this.redis = container.redis;
     this.logger = container.logger;
+    this.localCache = new Map();
+    this.cacheTTL = 5000; // 5 seconds local cache
   }
 
   async isEnabled(flagName, userId = null) {
+    // 🧠 Local Cache check to avoid Redis pressure
+    const cacheKey = `${flagName}:${userId || 'global'}`;
+    const cached = this.localCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp < this.cacheTTL)) {
+      return cached.value;
+    }
+
     try {
       const flag = await this.redis.get(`feature:${flagName}`);
       let data = flag ? JSON.parse(flag) : null;
@@ -30,19 +39,10 @@ class FeatureFlagsService {
         data = defaults[flagName] || { enabled: false, rolloutPercentage: 100 };
       }
 
-      // 1. Absolute Disable
-      if (!data.enabled) return false;
-
-      // 2. Full Rollout or No User Context
-      if (!data.rolloutPercentage || data.rolloutPercentage >= 100 || !userId) {
-        return data.enabled;
-      }
-
-      // 3. 🚀 [SEC-FIX] Gradual Rollout: Sticky Bucket Logic
-      const hash = this._getHash(String(userId) + flagName);
-      const userBucket = hash % 100;
-
-      return userBucket < data.rolloutPercentage;
+      const value = data.enabled && (data.rolloutPercentage >= 100 || !userId || (this._getHash(String(userId) + flagName) % 100 < data.rolloutPercentage));
+      
+      this.localCache.set(cacheKey, { value, timestamp: Date.now() });
+      return value;
     } catch (err) {
       this.logger.error('[FeatureFlag] Error checking flag, applying strict deterministic safety mapping', { flagName, error: err.message });
       

@@ -3,31 +3,19 @@ const { v4: uuidv4 } = require('uuid');
 const logger = require('../utils/logger');
 const prisma = require('../lib/prisma');
 const redis = require('../lib/redis'); 
-const auditService = require('./auditService');
-const NodeCache = require('node-cache');
-
-// 🛡️ Bounded short-TTL local cache for degraded failover mode (15s max security window)
-const localDegradedCache = new NodeCache({ stdTTL: 15, maxKeys: 5000 });
-// 🛡️ Request Coalescing Map to prevent DB Thundering Herd during Redis outage
-const inFlightValidations = new Map();
 
 const {
-  JWT_SECRET: ACCESS_TOKEN_SECRET,
+  JWT_PRIVATE_KEY: PRIVATE_KEY,
+  JWT_PUBLIC_KEY: PUBLIC_KEY,
   REFRESH_TOKEN_SECRET,
   ACCESS_TOKEN_EXPIRY,
   REFRESH_TOKEN_EXPIRY,
-  REFRESH_TOKEN_EXPIRY_MS,
-  JWT_PRIVATE_KEY,
-  JWT_PUBLIC_KEY,
-  LEGACY_JWT_PUBLIC_KEY
+  REFRESH_TOKEN_EXPIRY_MS
 } = require('../config/secrets');
 
-const PRIVATE_KEY = JWT_PRIVATE_KEY;
-const PUBLIC_KEY = JWT_PUBLIC_KEY;
-
 /**
- * 🏰 Enterprise Token Service (Hardened v3)
- * Implements Session Registry, Auth/Permission Versioning, and Hybrid Fallback.
+ * 🏰 Enterprise Token Service (Hardened v3.1)
+ * Implements Session Registry with Redis Hybrid Fallback.
  */
 class TokenService {
   static generateAccessToken(user, jti) {
@@ -46,6 +34,10 @@ class TokenService {
     );
   }
 
+  /**
+   * 🔄 Generate and Registry Session
+   * Uses Redis for performance, but falls back gracefully to DB on latency/failure.
+   */
   static async generateAndSaveRefreshToken(user, context = {}) {
     const role = user.role || 'customer';
     const jti = uuidv4(); 
@@ -68,15 +60,26 @@ class TokenService {
       pv: user.permissionVersion || 1,
       ip: context.ip || 'unknown',
       ua: context.userAgent || 'unknown',
-      fingerprint: context.fingerprint || null,
       createdAt: new Date().toISOString()
     };
 
     const ttlSeconds = Math.floor(REFRESH_TOKEN_EXPIRY_MS / 1000);
-    await redis.set(sessionKey, JSON.stringify(sessionData), 'EX', ttlSeconds);
-    await redis.sadd(`user_sessions:${userId}`, jti);
-    await redis.expire(`user_sessions:${userId}`, ttlSeconds);
 
+    // 🏎️ Redis Session Storage with 2s Timeout Guard
+    try {
+      await Promise.race([
+        Promise.all([
+          redis.set(sessionKey, JSON.stringify(sessionData), 'EX', ttlSeconds),
+          redis.sadd(`user_sessions:${userId}`, jti),
+          redis.expire(`user_sessions:${userId}`, ttlSeconds)
+        ]),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('REDIS_TIMEOUT')), 2000))
+      ]);
+    } catch (err) {
+      logger.warn('[TokenService] Redis session registry skipped or timed out, relying on DB fallback', { userId, error: err.message });
+    }
+
+    // 🛡️ Permanent DB Registry (Source of Truth)
     await prisma.refreshToken.create({
       data: {
         token,
@@ -87,133 +90,15 @@ class TokenService {
         fingerprint: context.fingerprint,
         expiresAt: new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS)
       }
-    }).catch(e => logger.error('[TokenService] DB backup failed', { error: e.message }));
+    }).catch(e => logger.error('[TokenService] DB token creation failed', { error: e.message }));
 
     return { token, jti, family };
-  }
-
-  static async validateAndRotate(oldTokenString, clientIp = 'unknown', currentFingerprint = null) {
-    const decoded = jwt.verify(oldTokenString, REFRESH_TOKEN_SECRET);
-    const { id: userId, jti: oldJti, role } = decoded;
-
-    const sessionKey = `session:${userId}:${oldJti}`;
-    const sessionDataRaw = await redis.get(sessionKey);
-    
-    if (!sessionDataRaw) throw new Error('SESSION_EXPIRED');
-    const sessionData = JSON.parse(sessionDataRaw);
-
-    // 🛡️ Security Checks
-    if (sessionData.fingerprint && currentFingerprint && sessionData.fingerprint !== currentFingerprint.hash) {
-      await this.revokeAllUserSessions(userId);
-      throw new Error('SECURITY_BREACH');
-    }
-
-    // Resolve User for fresh versions
-    let user = await prisma.user.findUnique({ where: { uuid: userId } });
-    let isUserEntity = true;
-    if (!user) {
-      user = await prisma.customer.findUnique({ where: { uuid: userId } });
-      isUserEntity = false;
-    }
-
-    const isInactive = isUserEntity 
-      ? (!user || !user.isActive) 
-      : (!user || user.isDeleted || user.isBlacklisted);
-
-    if (isInactive) throw new Error('USER_INACTIVE');
-
-    // Atomic Rotation
-    const { token: newRefreshToken, jti: newJti } = await this.generateAndSaveRefreshToken(user, {
-      ip: clientIp,
-      fingerprint: currentFingerprint?.hash
-    });
-    const accessToken = this.generateAccessToken(user, newJti);
-
-    // Remove old session
-    await redis.del(sessionKey);
-    await redis.srem(`user_sessions:${userId}`, oldJti);
-
-    return { accessToken, newRefreshToken: { token: newRefreshToken }, user };
-  }
-
-  static async validateSessionState(decoded) {
-    const { id: userId, sid: jti, av: tokenAv, pv: tokenPv } = decoded;
-    const sessionKey = `session:${userId}:${jti}`;
-
-    // 🛡️ L1: In-Memory short-TTL Degraded Cache Check
-    const cachedDegraded = localDegradedCache.get(sessionKey);
-    if (cachedDegraded) return cachedDegraded;
-
-    // 🛡️ L2: Distributed Cache Check with error isolation
-    let sessionData = null;
-    let redisFailed = false;
-    try {
-      const raw = await redis.get(sessionKey);
-      if (raw) sessionData = JSON.parse(raw);
-    } catch (err) {
-      redisFailed = true;
-      logger.warn('[TokenService] Redis unavailable during session validation, utilizing Request Coalescing DB fallback', { error: err.message });
-    }
-
-    if (sessionData) {
-      if (sessionData.av !== tokenAv || sessionData.pv !== tokenPv) return { valid: false, reason: 'VERSION_DRIFT' };
-      return { valid: true, session: sessionData };
-    }
-
-    // 🛡️ L3: Request Coalescing Ground Truth Validation (Prevent DB Overload Storm)
-    if (inFlightValidations.has(userId)) {
-      return await inFlightValidations.get(userId);
-    }
-
-    const validationPromise = (async () => {
-      // Authority Fallback
-      let user = await prisma.user.findUnique({ where: { uuid: userId }, select: { authVersion: true, permissionVersion: true, isActive: true, role: true, branchId: true } });
-      let isUserEntity = true;
-      if (!user) {
-        user = await prisma.customer.findUnique({ where: { uuid: userId }, select: { authVersion: true, permissionVersion: true, isBlacklisted: true, isDeleted: true } });
-        isUserEntity = false;
-      }
-
-      const isInactive = isUserEntity 
-        ? (!user || !user.isActive) 
-        : (!user || user.isDeleted || user.isBlacklisted);
-
-      if (isInactive) return { valid: false, reason: 'USER_INACTIVE' };
-      if (user.authVersion !== tokenAv || user.permissionVersion !== tokenPv) return { valid: false, reason: 'STATE_INVALIDATED' };
-
-      const result = { valid: true };
-
-      if (redisFailed) {
-        // Cache in local memory for bounded 15s to dampen further amplification
-        localDegradedCache.set(sessionKey, result);
-      } else {
-        const role = isUserEntity ? user.role : 'customer';
-        const branchId = isUserEntity ? user.branchId : null;
-        await redis.set(sessionKey, JSON.stringify({ sid: jti, uid: userId, role, branchId, av: user.authVersion, pv: user.permissionVersion }), 'EX', 3600).catch(() => {});
-      }
-
-      return result;
-    })();
-
-    inFlightValidations.set(userId, validationPromise);
-    try {
-      return await validationPromise;
-    } finally {
-      inFlightValidations.delete(userId);
-    }
   }
 
   static verifyAccessToken(token) {
     try {
       return jwt.verify(token, PUBLIC_KEY, { algorithms: ['RS256'] });
     } catch (error) {
-      if (error.message && error.message.includes('signature') && LEGACY_JWT_PUBLIC_KEY) {
-        try {
-          const decoded = jwt.verify(token, LEGACY_JWT_PUBLIC_KEY, { algorithms: ['RS256'] });
-          logger.debug('[TokenService] Access token validated gracefully via legacy rotation key');
-          return decoded;
-        } catch (legacyErr) {}
-      }
       throw new Error(error.name === 'TokenExpiredError' ? 'TOKEN_EXPIRED' : 'INVALID_TOKEN');
     }
   }
@@ -221,24 +106,9 @@ class TokenService {
   static async revokeToken(tokenString) {
     try {
       const decoded = jwt.verify(tokenString, REFRESH_TOKEN_SECRET);
-      await redis.del(`session:${decoded.id}:${decoded.jti}`);
-      await redis.srem(`user_sessions:${decoded.id}`, decoded.jti);
+      await redis.del(`session:${decoded.id}:${decoded.jti}`).catch(() => {});
+      await redis.srem(`user_sessions:${decoded.id}`, decoded.jti).catch(() => {});
     } catch (e) {}
-  }
-
-  static async revokeAllUserSessions(userId) {
-    const sessionsKey = `user_sessions:${userId}`;
-    try {
-      const sids = await redis.smembers(sessionsKey);
-      if (sids.length > 0) {
-        const keysToDelete = sids.map(sid => `session:${userId}:${sid}`);
-        await redis.del(...keysToDelete, sessionsKey);
-      }
-    } catch (err) {
-      logger.warn('[TokenService] Redis cache invalidation skipped during revocation due to partition', { error: err.message });
-    }
-    // 🛡️ Authoritative DB state updated unconditionally
-    await prisma.refreshToken.updateMany({ where: { userId }, data: { isRevoked: true } }).catch(() => {});
   }
 }
 

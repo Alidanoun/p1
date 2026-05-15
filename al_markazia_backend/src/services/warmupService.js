@@ -12,11 +12,11 @@ class WarmupService {
     logger.info('[Warmup] 🚀 Initializing Predictive Cache Warmup...');
     
     try {
-      await Promise.all([
-        this.warmupSettings(),
-        this.warmupTopMenu(),
-        this.warmupActiveZones()
-      ]);
+      await this.warmupSettings();
+      await new Promise(resolve => setTimeout(resolve, 500));
+      await this.warmupTopMenu();
+      await new Promise(resolve => setTimeout(resolve, 500));
+      await this.warmupActiveZones();
       
       logger.info('[Warmup] ✅ System primed and ready for peak load.');
     } catch (err) {

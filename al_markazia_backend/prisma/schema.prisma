@@ -96,6 +96,7 @@ model Branch {
   auditLogs      SystemAuditLog[]
   financialApprovals FinancialApproval[]
   branchVariants BranchVariant[]
+  businessPolicies BusinessPolicy[]
 }
 
 model BranchItem {
@@ -165,7 +166,7 @@ model Item {
   excludeFromStats  Boolean           @default(false)
   isDeleted         Boolean           @default(false)
   deletedAt         DateTime?
-  isGlobal          Boolean           @default(true) // 🧬 [PHASE 3] If true, appears in all branches. If false, only assigned.
+  isGlobal          Boolean           @default(true) // ðŸ§¬ [PHASE 3] If true, appears in all branches. If false, only assigned.
   availabilitySchedule Json?     // {"mon": ["08:00","14:00"], ...}
   
   category          Category          @relation(fields: [categoryId], references: [id])
@@ -253,10 +254,10 @@ model Order {
   createdAt              DateTime           @default(now())
   updatedAt              DateTime           @updatedAt
   version          Int                @default(1)
-  eventSequence    Int                @default(1) // 🛡️ Monotonic scoped sequence for this specific aggregate
-  previousVersion  Int                @default(0) // 🔗 Link to previous state for causal tracking
-  causedByEventId  String?                        // 🕵️ Traceback to the event that triggered this state
-  snapshotEpoch    Int                @default(1) // 🏛️ Resync boundary for major resets
+  eventSequence    Int                @default(1) // ðŸ›¡ï¸ Monotonic scoped sequence for this specific aggregate
+  previousVersion  Int                @default(0) // ðŸ”— Link to previous state for causal tracking
+  causedByEventId  String?                        // ðŸ•µï¸ Traceback to the event that triggered this state
+  snapshotEpoch    Int                @default(1) // ðŸ›ï¸ Resync boundary for major resets
   isDeleted        Boolean            @default(false)
   pointsAwarded    Boolean            @default(false)
   deletedAt        DateTime?
@@ -380,6 +381,7 @@ model Customer {
   quietHoursStart     Int                @default(23)
   quietHoursEnd       Int                @default(7)
   notificationPreferences CustomerNotificationPreference[]
+  loyaltyLedgers      LoyaltyLedger[]
 
   @@index([isBlacklisted])
 }
@@ -888,10 +890,10 @@ model BranchMetric {
   revenue         Decimal  @db.Decimal(10, 2)
   updatedAt       DateTime @updatedAt
   version         Int      @default(1)
-  eventSequence   Int      @default(1) // 🛡️ Aggregate-scoped sequence
-  previousVersion Int      @default(0) // 🔗 Causal link
-  causedByEventId String?  // 🕵️ Traceability
-  snapshotEpoch   Int      @default(1) // 🏛️ Resync boundary
+  eventSequence   Int      @default(1) // ðŸ›¡ï¸ Aggregate-scoped sequence
+  previousVersion Int      @default(0) // ðŸ”— Causal link
+  causedByEventId String?  // ðŸ•µï¸ Traceability
+  snapshotEpoch   Int      @default(1) // ðŸ›ï¸ Resync boundary
   branch          Branch   @relation(fields: [branchId], references: [id])
 }
 
@@ -917,11 +919,11 @@ model LoyaltyLedger {
   balanceBefore   Int      // Snapshot for verification
   balanceAfter    Int      // Snapshot for verification
   
-  // 🛡️ [INTEGRITY] Unique Idempotency Key
+  // ðŸ›¡ï¸ [INTEGRITY] Unique Idempotency Key
   // Format: source_type:aggregate_id:action_hash
   idempotencyKey  String   @unique 
   
-  // 🔗 [TRACEABILITY] Causal Links
+  // ðŸ”— [TRACEABILITY] Causal Links
   referenceId     String?  // OrderNumber, ReviewId, or ActionUUID
   description     String?
   metadata        Json?    // { ip: "...", device: "...", version: 1 }
@@ -1052,4 +1054,19 @@ model BiometricDevice {
 
   @@index([userId])
   @@index([deviceId])
+}
+
+model SystemSettings {
+  id                      Int      @id @default(autoincrement())
+  key                     String   @default("GLOBAL")
+  value                   Json?    // Legacy support
+  businessConfig          Json?    // { slaPrepTime: 20, ... }
+  securityConfig          Json?    // { maxLoginAttempts: 5, ... }
+  freeCancelWindowMinutes Int      @default(5)
+  spamCancelLimit         Int      @default(3)
+  spamTimeWindowMinutes   Int      @default(60)
+  defaultDeliveryFee      Decimal  @default(1.0) @db.Decimal(10, 2)
+  updatedAt               DateTime @updatedAt
+
+  @@unique([key])
 }

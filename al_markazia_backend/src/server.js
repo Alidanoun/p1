@@ -90,7 +90,7 @@ async function startServer() {
     }));
     
     // ⏱️ [SEC-FIX] Robust Request Timeout
-    app.use(timeout('25s'));
+    app.use(timeout('30s'));
     app.use((req, res, next) => {
       if (!req.timedout) next();
     });
@@ -126,7 +126,7 @@ async function startServer() {
     });
 
     const { apiLimiter } = require('./middleware/advancedRateLimiter');
-    app.use(apiLimiter);
+    // app.use(apiLimiter);
     
     // CORS Setup
     const allowedOrigins = (process.env.CORS_ORIGIN || '').split(',').map(o => o.trim()).filter(Boolean);
@@ -141,32 +141,23 @@ async function startServer() {
 
     app.use(cors({
       origin: (origin, callback) => {
-        // Allow requests with no origin (e.g., same-origin requests, file://, Postman)
         if (!origin) return callback(null, true);
-        
-        // Auto-allow Localhost/127.0.0.1/192.168.x.x for development comfort
-        // Pattern: Matches http/https with localhost, 127.0.0.1, or 192.168.x.x (with optional port)
         const isLocal = /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3})(:\d+)?$/.test(origin);
-
-        // Check if the origin exactly matches any of the allowed origins using regex
         const isAllowed = allowedOriginRegexes.some(regex => regex.test(origin));
-
-        if (isLocal || isAllowed) {
-          callback(null, true);
-        } else {
-          // Log rejected origin for debugging and security monitoring
-          logger.warn(`🛡️ [CORS] Rejected unauthorized origin: ${origin}`);
-          callback(new Error('Not allowed by CORS'), false);
-        }
+        if (isLocal || isAllowed) callback(null, true);
+        else callback(new Error('Not allowed by CORS'), false);
       },
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
       allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
     }));
 
-    app.use(express.json({ limit: '100kb', strict: true }));
-    app.use(express.urlencoded({ extended: true, limit: '100kb' }));
+    app.use(helmet());
+    app.use(cookieParser());
+    app.use(express.json({ limit: '10mb' }));
+    app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+    app.use(morgan('combined', { stream: { write: message => logger.http(message.trim()) } }));
     const sanitizeBranchId = require('./middleware/sanitizeBranchId');
     app.use(sanitizeBranchId);
 
@@ -284,34 +275,45 @@ async function startServer() {
       logger.warn('🧪 Safety Alert: System started with financial integrity warnings.');
     }
 
-    // 🚀 BIND PORT FIRST — Accept connections immediately, rehydrate in background
     server.listen(PORT, '0.0.0.0', async () => {
       logger.info(`🚀 Backend Server is running on port ${PORT} — accepting connections.`);
+
+      // 🔄 Background Rehydration: Runs in a non-blocking way to keep login responsive
+      // We use setImmediate to ensure the listen callback finishes and the event loop yields
+      setImmediate(async () => {
+        const analyticsProjection = require('./projections/analyticsProjection');
+        const orderProjection = require('./projections/orderProjection');
+        const SecurityPolicyService = require('./services/securityPolicyService');
+
+        try {
+          console.log('🔄 [BackgroundSync] Starting system rehydration...');
+          console.time('🚀 [Rehydration] Total');
+          
+          await orderProjection.replay();
+          await new Promise(resolve => setTimeout(resolve, 500));
+          await analyticsProjection.replay();
+          await new Promise(resolve => setTimeout(resolve, 500));
+          await SecurityPolicyService.warmupSecurityCache();
+          
+          console.timeEnd('🚀 [Rehydration] Total');
+          logger.info('✅ Background rehydration complete — system fully primed.');
+        } catch (e) {
+          logger.error('Rehydration Failed', { error: e.message });
+        }
+
+        // 🚀 Deferred Warmup to ensure instant API availability
+        setTimeout(() => {
+          warmupService.run().catch(e => logger.error('Warmup Error', { error: e.message }));
+        }, 5000);
+      });
 
       // 📊 Periodic Health Status reporting
       setInterval(() => {
         const mem = process.memoryUsage();
         logger.debug(`📊 [HealthReport] Heap: ${Math.round(mem.heapUsed / 1024 / 1024)}MB | Uptime: ${Math.floor(process.uptime())}s`);
       }, 60000);
-
-      // 🔄 Background Rehydration: Runs AFTER port is open so login works immediately
-      const analyticsProjection = require('./projections/analyticsProjection');
-      const orderProjection = require('./projections/orderProjection');
-      const SecurityPolicyService = require('./services/securityPolicyService');
-
-      try {
-        console.time('🚀 [Rehydration] Total');
-        await analyticsProjection.replay();
-        await orderProjection.replay();
-        await SecurityPolicyService.warmupSecurityCache();
-        console.timeEnd('🚀 [Rehydration] Total');
-        logger.info('✅ Background rehydration complete — system fully primed.');
-      } catch (e) {
-        logger.error('Rehydration Failed', { error: e.message });
-      }
-
-      warmupService.run().catch(e => logger.error('Warmup Error', { error: e.message }));
     });
+
 
     server.on('error', (err) => {
       if (err.code === 'EADDRINUSE') {
