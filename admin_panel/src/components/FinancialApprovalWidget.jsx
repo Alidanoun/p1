@@ -5,6 +5,7 @@ import api from '../api/client';
 import { formatCurrencyArabic } from '../lib/formatters';
 import { cn } from '../lib/utils';
 import { toast } from 'sonner';
+import { useSocket } from '../contexts/SocketContext';
 
 /**
  * 🛰️ Financial Approval Widget (Control Tower)
@@ -14,6 +15,7 @@ const FinancialApprovalWidget = () => {
   const [stats, setStats] = useState({ pendingCount: 0, highRiskCount: 0, attentionRequired: false });
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState(null);
+  const { socket } = useSocket();
 
   const fetchApprovals = async () => {
     try {
@@ -32,9 +34,25 @@ const FinancialApprovalWidget = () => {
 
   useEffect(() => {
     fetchApprovals();
-    const interval = setInterval(fetchApprovals, 30000); // Poll every 30s
-    return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (!socket) return;
+    
+    const handleApprovalUpdate = () => {
+      fetchApprovals();
+    };
+
+    socket.on('financial:approval_resolved', handleApprovalUpdate);
+    socket.on('order:updated', handleApprovalUpdate);
+    socket.on('dashboard:metrics:update', handleApprovalUpdate);
+
+    return () => {
+      socket.off('financial:approval_resolved', handleApprovalUpdate);
+      socket.off('order:updated', handleApprovalUpdate);
+      socket.off('dashboard:metrics:update', handleApprovalUpdate);
+    };
+  }, [socket]);
 
   const handleAction = async (id, action, reason = '') => {
     const approval = approvals.find(a => a.id === id);
@@ -60,6 +78,7 @@ const FinancialApprovalWidget = () => {
         version: approval.version 
       });
       toast.success(action === 'approve' ? 'تمت الموافقة المالية بنجاح' : 'تم رفض العملية المالية');
+      // Do NOT optimistically delete, wait for socket or explicit fetch
       fetchApprovals();
     } catch (error) {
       toast.error(error.response?.data?.error || 'فشلت العملية');
@@ -175,18 +194,18 @@ const FinancialApprovalWidget = () => {
                   <button 
                     disabled={processingId === app.id}
                     onClick={() => handleAction(app.id, 'approve')}
-                    className="flex-1 py-2 bg-emerald-500/10 hover:bg-emerald-500 text-emerald-500 hover:text-white border border-emerald-500/20 rounded-lg text-[10px] font-bold transition-all flex items-center justify-center gap-1.5"
+                    className="flex-1 py-2 bg-emerald-500/10 hover:bg-emerald-500 text-emerald-500 hover:text-white border border-emerald-500/20 rounded-lg text-[10px] font-bold transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <CheckCircle className="w-3 h-3" />
-                    موافقة
+                    {processingId === app.id ? 'جاري التنفيذ...' : 'موافقة'}
                   </button>
                   <button 
                     disabled={processingId === app.id}
                     onClick={() => handleAction(app.id, 'reject')}
-                    className="flex-1 py-2 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white border border-red-500/20 rounded-lg text-[10px] font-bold transition-all flex items-center justify-center gap-1.5"
+                    className="flex-1 py-2 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white border border-red-500/20 rounded-lg text-[10px] font-bold transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <XCircle className="w-3 h-3" />
-                    رفض
+                    {processingId === app.id ? 'جاري التنفيذ...' : 'رفض'}
                   </button>
                 </div>
               </motion.div>

@@ -4,6 +4,12 @@ const logger = require('../utils/logger');
 const prisma = require('../lib/prisma');
 const redis = require('../lib/redis'); 
 const auditService = require('./auditService');
+const NodeCache = require('node-cache');
+
+// 🛡️ Bounded short-TTL local cache for degraded failover mode (15s max security window)
+const localDegradedCache = new NodeCache({ stdTTL: 15, maxKeys: 5000 });
+// 🛡️ Request Coalescing Map to prevent DB Thundering Herd during Redis outage
+const inFlightValidations = new Map();
 
 const {
   JWT_SECRET: ACCESS_TOKEN_SECRET,
@@ -133,34 +139,68 @@ class TokenService {
   static async validateSessionState(decoded) {
     const { id: userId, sid: jti, av: tokenAv, pv: tokenPv } = decoded;
     const sessionKey = `session:${userId}:${jti}`;
-    let sessionData = await redis.get(sessionKey);
+
+    // 🛡️ L1: In-Memory short-TTL Degraded Cache Check
+    const cachedDegraded = localDegradedCache.get(sessionKey);
+    if (cachedDegraded) return cachedDegraded;
+
+    // 🛡️ L2: Distributed Cache Check with error isolation
+    let sessionData = null;
+    let redisFailed = false;
+    try {
+      const raw = await redis.get(sessionKey);
+      if (raw) sessionData = JSON.parse(raw);
+    } catch (err) {
+      redisFailed = true;
+      logger.warn('[TokenService] Redis unavailable during session validation, utilizing Request Coalescing DB fallback', { error: err.message });
+    }
 
     if (sessionData) {
-      sessionData = JSON.parse(sessionData);
       if (sessionData.av !== tokenAv || sessionData.pv !== tokenPv) return { valid: false, reason: 'VERSION_DRIFT' };
       return { valid: true, session: sessionData };
     }
 
-    // Authority Fallback
-    let user = await prisma.user.findUnique({ where: { uuid: userId }, select: { authVersion: true, permissionVersion: true, isActive: true, role: true, branchId: true } });
-    let isUserEntity = true;
-    if (!user) {
-      user = await prisma.customer.findUnique({ where: { uuid: userId }, select: { authVersion: true, permissionVersion: true, isBlacklisted: true, isDeleted: true } });
-      isUserEntity = false;
+    // 🛡️ L3: Request Coalescing Ground Truth Validation (Prevent DB Overload Storm)
+    if (inFlightValidations.has(userId)) {
+      return await inFlightValidations.get(userId);
     }
 
-    const isInactive = isUserEntity 
-      ? (!user || !user.isActive) 
-      : (!user || user.isDeleted || user.isBlacklisted);
+    const validationPromise = (async () => {
+      // Authority Fallback
+      let user = await prisma.user.findUnique({ where: { uuid: userId }, select: { authVersion: true, permissionVersion: true, isActive: true, role: true, branchId: true } });
+      let isUserEntity = true;
+      if (!user) {
+        user = await prisma.customer.findUnique({ where: { uuid: userId }, select: { authVersion: true, permissionVersion: true, isBlacklisted: true, isDeleted: true } });
+        isUserEntity = false;
+      }
 
-    if (isInactive) return { valid: false, reason: 'USER_INACTIVE' };
-    if (user.authVersion !== tokenAv || user.permissionVersion !== tokenPv) return { valid: false, reason: 'STATE_INVALIDATED' };
+      const isInactive = isUserEntity 
+        ? (!user || !user.isActive) 
+        : (!user || user.isDeleted || user.isBlacklisted);
 
-    const role = isUserEntity ? user.role : 'customer';
-    const branchId = isUserEntity ? user.branchId : null;
+      if (isInactive) return { valid: false, reason: 'USER_INACTIVE' };
+      if (user.authVersion !== tokenAv || user.permissionVersion !== tokenPv) return { valid: false, reason: 'STATE_INVALIDATED' };
 
-    await redis.set(sessionKey, JSON.stringify({ sid: jti, uid: userId, role, branchId, av: user.authVersion, pv: user.permissionVersion }), 'EX', 3600);
-    return { valid: true };
+      const result = { valid: true };
+
+      if (redisFailed) {
+        // Cache in local memory for bounded 15s to dampen further amplification
+        localDegradedCache.set(sessionKey, result);
+      } else {
+        const role = isUserEntity ? user.role : 'customer';
+        const branchId = isUserEntity ? user.branchId : null;
+        await redis.set(sessionKey, JSON.stringify({ sid: jti, uid: userId, role, branchId, av: user.authVersion, pv: user.permissionVersion }), 'EX', 3600).catch(() => {});
+      }
+
+      return result;
+    })();
+
+    inFlightValidations.set(userId, validationPromise);
+    try {
+      return await validationPromise;
+    } finally {
+      inFlightValidations.delete(userId);
+    }
   }
 
   static verifyAccessToken(token) {
@@ -188,11 +228,16 @@ class TokenService {
 
   static async revokeAllUserSessions(userId) {
     const sessionsKey = `user_sessions:${userId}`;
-    const sids = await redis.smembers(sessionsKey);
-    if (sids.length > 0) {
-      const keysToDelete = sids.map(sid => `session:${userId}:${sid}`);
-      await redis.del(...keysToDelete, sessionsKey);
+    try {
+      const sids = await redis.smembers(sessionsKey);
+      if (sids.length > 0) {
+        const keysToDelete = sids.map(sid => `session:${userId}:${sid}`);
+        await redis.del(...keysToDelete, sessionsKey);
+      }
+    } catch (err) {
+      logger.warn('[TokenService] Redis cache invalidation skipped during revocation due to partition', { error: err.message });
     }
+    // 🛡️ Authoritative DB state updated unconditionally
     await prisma.refreshToken.updateMany({ where: { userId }, data: { isRevoked: true } }).catch(() => {});
   }
 }

@@ -63,7 +63,10 @@ class BranchPolicy {
       if (requestedBranchId) return { branchId: requestedBranchId };
       
       // Still scoped: Only branches that actually exist (Explicit Inclusion)
-      const activeBranches = await prisma.branch.findMany({ select: { id: true } });
+      const activeBranches = await prisma.branch.findMany({ 
+        where: { isDeleted: false },
+        select: { id: true } 
+      });
       return { branchId: { in: activeBranches.map(b => b.id) } };
     }
 

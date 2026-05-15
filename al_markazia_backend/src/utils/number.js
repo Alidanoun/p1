@@ -71,4 +71,14 @@ const toMoneyString = (value) => {
   return toDecimal(value).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toFixed(2);
 };
 
-module.exports = { toNumber, toMoney, toDecimal, toMoneyString, Decimal };
+/**
+ * 🧮 Safely aggregates an array of values into a Decimal sum.
+ * Prevents precision drift during high-volume summations.
+ */
+const sumDecimals = (items, accessor = (x) => x) => {
+  return items.reduce((sum, item) => {
+    return sum.plus(toDecimal(accessor(item)));
+  }, new Decimal(0));
+};
+
+module.exports = { toNumber, toMoney, toDecimal, toMoneyString, sumDecimals, Decimal };

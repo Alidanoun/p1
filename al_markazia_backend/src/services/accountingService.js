@@ -99,21 +99,39 @@ class AccountingService {
   }
 
   /**
-   * Structured audit log generation.
+   * 🏗️ Canonical Revenue Calculation Logic
+   * Purpose: Centralizes the definition of financial success metrics.
    */
-  createAuditLog(event, orderId, before, after, actorId, metadata = {}) {
-    const beforeDec = toDecimal(before);
-    const afterDec = toDecimal(after);
+  calculateFinancialMetrics(orderAggregates, refundAggregates, discountAggregates, cancellationAggregates) {
+    // 1. Gross Revenue = Total of all valid (non-cancelled) orders
+    const grossRevenue = toDecimal(orderAggregates.total || 0);
+    
+    // 2. Refunds = Total amount returned to customers
+    const totalRefunds = toDecimal(refundAggregates.total || 0);
+    
+    // 3. Discounts = Total discounts applied (Points, Promo, etc)
+    const totalDiscounts = toDecimal(discountAggregates.total || 0);
+
+    // 4. Net Revenue = Realized income after refunds
+    // Net Revenue = Gross - Refunds
+    const netRevenue = grossRevenue.minus(totalRefunds);
+    
+    // 5. Tax = 16% portion extracted ONLY from net revenue
+    const taxExtraction = this.extractTax(netRevenue);
+
+    // 6. Loss = Total of cancelled orders that weren't refunded (Operational loss)
+    const totalLoss = toDecimal(cancellationAggregates.totalLoss || 0);
+
     return {
-      trace_id: `txn_${Date.now()}_${orderId}`,
-      event,
-      order_id: orderId,
-      before: beforeDec.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber(),
-      after: afterDec.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber(),
-      delta: afterDec.minus(beforeDec).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber(),
-      actor: actorId || 'system',
-      timestamp: new Date().toISOString(),
-      ...metadata
+      grossRevenue: grossRevenue.toNumber(),
+      totalRefunds: totalRefunds.toNumber(),
+      totalDiscounts: totalDiscounts.toNumber(),
+      netRevenue: netRevenue.toNumber(),
+      taxTotal: taxExtraction.tax,
+      baseRevenue: taxExtraction.base,
+      orderCount: orderAggregates.count || 0,
+      cancelledCount: cancellationAggregates.count || 0,
+      totalLoss: totalLoss.toNumber()
     };
   }
 }

@@ -35,7 +35,12 @@ const MenuManager = () => {
   const [optionGroups, setOptionGroups] = useState([]);
   const [imageFile, setImageFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState('');
-  const [updatingId, setUpdatingId] = useState(null); // Track which item/option is updating
+  const [updatingId, setUpdatingId] = useState(null); 
+  
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pagination, setPagination] = useState(null);
+  const ITEMS_PER_PAGE = 20;
 
   // Category Modal State
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
@@ -53,21 +58,39 @@ const MenuManager = () => {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [currentPage, selectedCategory]);
+
+  // Handle Search Debounce
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (currentPage !== 1) {
+        setCurrentPage(1);
+      } else {
+        fetchData();
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   const fetchData = async () => {
     setLoading(true);
     try {
+      let url = `/items?admin=true&page=${currentPage}&limit=${ITEMS_PER_PAGE}`;
+      if (searchQuery) url += `&query=${encodeURIComponent(searchQuery)}`;
+      if (selectedCategory !== 'all') url += `&categoryId=${selectedCategory}`;
+
       const [itemsRes, catRes] = await Promise.all([
-        api.get('/items?admin=true'),
+        api.get(url),
         api.get('/categories?admin=true')
       ]);
       
       const itemsData = unwrap(itemsRes) || [];
       const catsData = unwrap(catRes) || [];
+      const paginationData = itemsRes.data?.pagination || null;
       
       setItems(Array.isArray(itemsData) ? itemsData : []);
       setCategories(Array.isArray(catsData) ? catsData : []);
+      setPagination(paginationData);
     } catch (err) {  
       console.error('Fetch error:', err);
       toast.error('خطأ في تحميل البيانات');
@@ -126,9 +149,10 @@ const MenuManager = () => {
         categoryId: item.categoryId.toString(),
         isAvailable: item.isAvailable !== false,
         isFeatured: item.isFeatured === true,
-        excludeFromStats: item.excludeFromStats === true
+        excludeFromStats: item.excludeFromStats === true,
+        version: item.version
       });
-      setOptionGroups(item.optionGroups ? JSON.parse(JSON.stringify(item.optionGroups)) : []);
+      setOptionGroups(item.optionGroups ? [...item.optionGroups] : []);
       setPreviewUrl(getImageUrl(item.image));
     } else {
       setEditingId(null);
@@ -157,9 +181,9 @@ const MenuManager = () => {
         name: category.name,
         nameEn: category.nameEn || '',
         description: category.description || '',
-        descriptionEn: category.descriptionEn || '',
         isActive: category.isActive !== false,
-        sortOrder: category.sortOrder || 0
+        sortOrder: category.sortOrder || 0,
+        version: category.version
       });
       setCategoryPreviewUrl(getImageUrl(category.image));
     } else {
@@ -180,27 +204,36 @@ const MenuManager = () => {
     data.append('descriptionEn', categoryFormData.descriptionEn);
     data.append('isActive', categoryFormData.isActive);
     data.append('sortOrder', categoryFormData.sortOrder);
+    if (categoryFormData.version !== undefined) data.append('version', categoryFormData.version);
     
     if (categoryImageFile) {
         data.append('image', categoryImageFile);
     }
 
     try {
-      const promise = editingCategoryId
-        ? api.put(`/categories/${editingCategoryId}`, data, { headers: { 'Content-Type': 'multipart/form-data' }})
-        : api.post('/categories', data, { headers: { 'Content-Type': 'multipart/form-data' }});
+      const response = editingCategoryId
+        ? await api.put(`/categories/${editingCategoryId}`, data, { headers: { 'Content-Type': 'multipart/form-data' }})
+        : await api.post('/categories', data, { headers: { 'Content-Type': 'multipart/form-data' }});
         
-      toast.promise(promise, {
-        loading: editingCategoryId ? 'جاري تحديث الفئة...' : 'جاري إضافة الفئة...',
-        success: () => {
-          fetchData();
-          setIsCategoryModalOpen(false);
-          return editingCategoryId ? 'تم تحديث الفئة بنجاح' : 'تم إضافة الفئة بنجاح';
-        },
-        error: (err) => err.response?.data?.error || 'فشل في معالجة الفئة'
-      });
+      if (response.data.success) {
+        toast.success(editingCategoryId ? 'تم تحديث الفئة بنجاح' : 'تم إضافة الفئة بنجاح');
+        fetchData();
+        setIsCategoryModalOpen(false);
+      }
     } catch (error) {
       console.error('Category submit error:', error);
+      if (error.response?.status === 409) {
+        toast.error('⚠️ تضارب في البيانات', {
+          description: 'قام شخص آخر بتعديل هذه الفئة. يرجى تحديث القائمة.',
+          duration: 10000,
+          action: {
+            label: 'تحديث الآن',
+            onClick: () => fetchData()
+          }
+        });
+      } else {
+        toast.error(error.response?.data?.error || 'فشل في معالجة الفئة');
+      }
     }
   };
 
@@ -237,50 +270,73 @@ const MenuManager = () => {
   };
 
   const updateGroup = (index, field, value) => {
-    const newGroups = JSON.parse(JSON.stringify(optionGroups));
-    newGroups[index][field] = value;
-    if (field === 'type') {
-      if (value === 'SINGLE') {
-        newGroups[index].maxSelect = 1;
-        if (newGroups[index].isRequired) newGroups[index].minSelect = 1;
-      } else {
-        newGroups[index].maxSelect = 5;
+    setOptionGroups(prevGroups => {
+      const newGroups = [...prevGroups];
+      const targetGroup = { ...newGroups[index], [field]: value };
+      
+      if (field === 'type') {
+        if (value === 'SINGLE') {
+          targetGroup.maxSelect = 1;
+          if (targetGroup.isRequired) targetGroup.minSelect = 1;
+        } else {
+          targetGroup.maxSelect = 5;
+        }
       }
-    }
-    if (field === 'isRequired' && newGroups[index].type === 'SINGLE') {
-      newGroups[index].minSelect = value ? 1 : 0;
-    }
-    setOptionGroups(newGroups);
+      
+      if (field === 'isRequired' && targetGroup.type === 'SINGLE') {
+        targetGroup.minSelect = value ? 1 : 0;
+      }
+      
+      newGroups[index] = targetGroup;
+      return newGroups;
+    });
   };
 
   const removeGroup = (index) => {
-    setOptionGroups(optionGroups.filter((_, i) => i !== index));
+    setOptionGroups(prevGroups => prevGroups.filter((_, i) => i !== index));
   };
 
   const addOption = (groupIndex) => {
-    const newGroups = JSON.parse(JSON.stringify(optionGroups));
-    newGroups[groupIndex].options.push({ name: '', nameEn: '', price: 0, isDefault: false, isAvailable: true });
-    setOptionGroups(newGroups);
+    setOptionGroups(prevGroups => {
+      const newGroups = [...prevGroups];
+      newGroups[groupIndex] = {
+        ...newGroups[groupIndex],
+        options: [...newGroups[groupIndex].options, { name: '', nameEn: '', price: 0, isDefault: false, isAvailable: true }]
+      };
+      return newGroups;
+    });
   };
 
   const updateOption = (groupIndex, optionIndex, field, value) => {
-    const newGroups = JSON.parse(JSON.stringify(optionGroups));
-    if (field === 'isDefault' && value === true && newGroups[groupIndex].type === 'SINGLE') {
-      newGroups[groupIndex].options = newGroups[groupIndex].options.map((opt, i) => ({
-        ...opt,
-        isDefault: i === optionIndex
-      }));
-    } else {
-      // Allow strings for price to enable typing decimals (e.g. "1.")
-      newGroups[groupIndex].options[optionIndex][field] = value;
-    }
-    setOptionGroups(newGroups);
+    setOptionGroups(prevGroups => {
+      const newGroups = [...prevGroups];
+      const group = { ...newGroups[groupIndex] };
+      const newOptions = [...group.options];
+      
+      if (field === 'isDefault' && value === true && group.type === 'SINGLE') {
+        group.options = newOptions.map((opt, i) => ({
+          ...opt,
+          isDefault: i === optionIndex
+        }));
+      } else {
+        newOptions[optionIndex] = { ...newOptions[optionIndex], [field]: value };
+        group.options = newOptions;
+      }
+      
+      newGroups[groupIndex] = group;
+      return newGroups;
+    });
   };
 
   const removeOption = (groupIndex, optionIndex) => {
-    const newGroups = JSON.parse(JSON.stringify(optionGroups));
-    newGroups[groupIndex].options = newGroups[groupIndex].options.filter((_, i) => i !== optionIndex);
-    setOptionGroups(newGroups);
+    setOptionGroups(prevGroups => {
+      const newGroups = [...prevGroups];
+      newGroups[groupIndex] = {
+        ...newGroups[groupIndex],
+        options: newGroups[groupIndex].options.filter((_, i) => i !== optionIndex)
+      };
+      return newGroups;
+    });
   };
 
   const handleSubmit = async (e) => {
@@ -295,6 +351,7 @@ const MenuManager = () => {
     data.append('isAvailable', formData.isAvailable);
     data.append('isFeatured', formData.isFeatured);
     data.append('excludeFromStats', formData.excludeFromStats);
+    if (formData.version !== undefined) data.append('version', formData.version);
     
     // Ensure all option prices are numbers before sending
     const sanitizedGroups = optionGroups.map(group => ({
@@ -308,21 +365,29 @@ const MenuManager = () => {
     if (imageFile) data.append('image', imageFile);
 
     try {
-      const promise = editingId 
-        ? api.put(`/items/${editingId}`, data, { headers: { 'Content-Type': 'multipart/form-data' }})
-        : api.post('/items', data, { headers: { 'Content-Type': 'multipart/form-data' }});
+      const response = editingId 
+        ? await api.put(`/items/${editingId}`, data, { headers: { 'Content-Type': 'multipart/form-data' }})
+        : await api.post('/items', data, { headers: { 'Content-Type': 'multipart/form-data' }});
 
-      toast.promise(promise, {
-        loading: 'جاري حفظ الصنف...',
-        success: () => {
-          fetchData();
-          setIsModalOpen(false);
-          return editingId ? 'تم تحديث الصنف بنجاح' : 'تم إضافة الصنف بنجاح';
-        },
-        error: 'فشل في حفظ الصنف'
-      });
+      if (response.data.success) {
+        toast.success(editingId ? 'تم تحديث الصنف بنجاح' : 'تم إضافة الصنف بنجاح');
+        fetchData();
+        setIsModalOpen(false);
+      }
     } catch (error) {
       console.error('Item submit error:', error);
+      if (error.response?.status === 409) {
+        toast.error('⚠️ تضارب في البيانات', {
+          description: 'قام شخص آخر بتعديل هذا الصنف. يرجى تحديث القائمة لرؤية التعديلات الجديدة. تغييراتك لم تضيع، يمكنك محاولة الحفظ مرة أخرى بعد التحديث.',
+          duration: 10000,
+          action: {
+            label: 'تحديث الآن',
+            onClick: () => fetchData()
+          }
+        });
+      } else {
+        toast.error(error.response?.data?.error || 'فشل في حفظ الصنف');
+      }
     }
   };
 
@@ -416,11 +481,8 @@ const MenuManager = () => {
     }
   };
 
-  const filteredItems = items.filter(item => {
-    const matchesCategory = selectedCategory === 'all' || item.categoryId === parseInt(selectedCategory);
-    const matchesSearch = item.title.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesCategory && matchesSearch;
-  });
+  // Server-side filtering is now handled in fetchData and the dependency array
+  const filteredItems = items;
 
   return (
     <div className="p-4 md:p-8 max-w-[1600px] mx-auto min-h-screen pb-20">
@@ -627,6 +689,56 @@ const MenuManager = () => {
               );
             })}
           </AnimatePresence>
+        )}
+
+        {/* 📐 Pagination Footer */}
+        {pagination && pagination.totalPages > 1 && (
+          <div className="flex items-center justify-center gap-2 mt-12 py-8 border-t border-white/5">
+            <button 
+              disabled={currentPage === 1}
+              onClick={() => setCurrentPage(prev => prev - 1)}
+              className="p-3 rounded-xl bg-white/5 border border-white/5 text-text-muted hover:text-white disabled:opacity-20 transition-all"
+            >
+              السابق
+            </button>
+            <div className="flex items-center gap-1">
+              {[...Array(pagination.totalPages)].map((_, i) => {
+                const pageNum = i + 1;
+                // Show current page, first, last, and neighbors
+                if (
+                  pageNum === 1 || 
+                  pageNum === pagination.totalPages || 
+                  (pageNum >= currentPage - 1 && pageNum <= currentPage + 1)
+                ) {
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => setCurrentPage(pageNum)}
+                      className={cn(
+                        "w-10 h-10 rounded-xl font-bold transition-all",
+                        currentPage === pageNum 
+                          ? "bg-primary text-white" 
+                          : "bg-white/5 text-text-muted hover:bg-white/10"
+                      )}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                }
+                if (pageNum === currentPage - 2 || pageNum === currentPage + 2) {
+                  return <span key={pageNum} className="px-2 opacity-30">...</span>;
+                }
+                return null;
+              })}
+            </div>
+            <button 
+              disabled={currentPage === pagination.totalPages}
+              onClick={() => setCurrentPage(prev => prev + 1)}
+              className="p-3 rounded-xl bg-white/5 border border-white/5 text-text-muted hover:text-white disabled:opacity-20 transition-all"
+            >
+              التالي
+            </button>
+          </div>
         )}
       </div>
 

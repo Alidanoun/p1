@@ -21,9 +21,15 @@ const getBranchId = () => {
   return context ? context.branchId : null;
 };
 
+const getRegion = () => {
+  const context = traceContext.getStore();
+  return context ? context.region : 'GLOBAL';
+};
+
 module.exports = {
   traceContext,
   getRequestId,
   getCorrelationId,
-  getBranchId
+  getBranchId,
+  getRegion
 };

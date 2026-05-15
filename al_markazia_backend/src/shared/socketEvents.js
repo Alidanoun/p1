@@ -23,6 +23,8 @@ const SOCKET_EVENTS = {
   NOTIFICATION_NEW: 'notification:new',
   SYSTEM_ALERT: 'system:alert',
   DRIVER_LOCATION_UPDATE: 'tracking:location_update',
+  NOTIFICATION_READ: 'notification:read',
+  NOTIFICATION_READ_ALL: 'notification:read_all',
 };
 
 const SOCKET_ROOMS = {

@@ -1,3 +1,4 @@
+require('./lib/otel');
 const express = require('express'); // Heartbeat: 2026-05-02 01:57
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
@@ -89,7 +90,7 @@ async function startServer() {
     }));
     
     // ⏱️ [SEC-FIX] Robust Request Timeout
-    app.use(timeout('5s'));
+    app.use(timeout('25s'));
     app.use((req, res, next) => {
       if (!req.timedout) next();
     });
@@ -171,7 +172,7 @@ async function startServer() {
 
     // ⏱️ Request Timeout Hardening
     app.use((req, res, next) => {
-      req.setTimeout(5000); // 5 seconds max
+      req.setTimeout(25000); // 25 seconds max
       next();
     });
 
@@ -274,34 +275,42 @@ async function startServer() {
 
     const INITIAL_PORT = parseInt(process.env.PORT || 5000, 10);
     const PORT = await findAvailablePort(INITIAL_PORT);
-    server.listen(PORT, '0.0.0.0', async () => {
-      logger.info(`🚀 Backend Server is running on port ${PORT}`);
-      
-      // Post-startup Warmup
-      // 🛡️ [SAFETY-LAYER] Financial Integrity Handshake
-      const { runIntegrityTests } = require('./tests/financialIntegrity');
-      const integrityPassed = runIntegrityTests();
-      if (!integrityPassed) {
-        logger.warn('🧪 Safety Alert: System started with financial integrity warnings.');
-      }
 
-      warmupService.run().catch(e => logger.error('Warmup Error', { error: e.message }));
-      
-      const analyticsProjection = require('./projections/analyticsProjection');
-      const orderProjection = require('./projections/orderProjection');
-      const SecurityPolicyService = require('./services/securityPolicyService');
-      
-      await Promise.all([
-        analyticsProjection.replay(), 
-        orderProjection.replay(),
-        SecurityPolicyService.warmupSecurityCache()
-      ]).catch(e => logger.error('Rehydration Failed', { error: e.message }));
+    // 🚀 Execute heavy DB rehydration BEFORE accepting incoming socket/HTTP traffic
+    // This prevents connection pool saturation deadlocks with incoming requests.
+    const { runIntegrityTests } = require('./tests/financialIntegrity');
+    const integrityPassed = runIntegrityTests();
+    if (!integrityPassed) {
+      logger.warn('🧪 Safety Alert: System started with financial integrity warnings.');
+    }
+
+    // 🚀 BIND PORT FIRST — Accept connections immediately, rehydrate in background
+    server.listen(PORT, '0.0.0.0', async () => {
+      logger.info(`🚀 Backend Server is running on port ${PORT} — accepting connections.`);
 
       // 📊 Periodic Health Status reporting
       setInterval(() => {
         const mem = process.memoryUsage();
         logger.debug(`📊 [HealthReport] Heap: ${Math.round(mem.heapUsed / 1024 / 1024)}MB | Uptime: ${Math.floor(process.uptime())}s`);
       }, 60000);
+
+      // 🔄 Background Rehydration: Runs AFTER port is open so login works immediately
+      const analyticsProjection = require('./projections/analyticsProjection');
+      const orderProjection = require('./projections/orderProjection');
+      const SecurityPolicyService = require('./services/securityPolicyService');
+
+      try {
+        console.time('🚀 [Rehydration] Total');
+        await analyticsProjection.replay();
+        await orderProjection.replay();
+        await SecurityPolicyService.warmupSecurityCache();
+        console.timeEnd('🚀 [Rehydration] Total');
+        logger.info('✅ Background rehydration complete — system fully primed.');
+      } catch (e) {
+        logger.error('Rehydration Failed', { error: e.message });
+      }
+
+      warmupService.run().catch(e => logger.error('Warmup Error', { error: e.message }));
     });
 
     server.on('error', (err) => {

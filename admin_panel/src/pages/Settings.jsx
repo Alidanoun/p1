@@ -55,6 +55,7 @@ const Settings = () => {
     business: {},
     security: {}
   });
+  const [lastFetchTime, setLastFetchTime] = useState(0);
 
   const fetchData = async () => {
     try {
@@ -68,6 +69,7 @@ const Settings = () => {
       
       if (settingsData) {
         setSettings(prev => ({ ...prev, ...settingsData }));
+        setLastFetchTime(Date.now());
       }
 
       if (branchesData && branchesData.length > 0) {
@@ -105,7 +107,7 @@ const Settings = () => {
   const handleSaveSettings = async () => {
     setUpdating(true);
     try {
-      await api.put('/settings', settings);
+      await api.put('/settings', { settings, lastFetchTime });
       
       if (activeTab === 'schedule') {
         await api.post('/restaurant/schedule', { schedule });

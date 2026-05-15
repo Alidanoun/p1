@@ -1,3 +1,4 @@
+const { v4: uuidv4 } = require('uuid');
 const { DateTime } = require('luxon');
 const Decimal = require('decimal.js');
 const financialConfig = require('../config/financial');
@@ -342,6 +343,45 @@ class LoyaltyService {
   }
 
   /**
+   * 🧮 Pure Calculation: Points earned for a given order
+   */
+  async calculatePointsForOrder(order) {
+    if (!order || !order.customerId) return 0;
+    
+    const config = await this.getConfig();
+    let multiplier = 1.0;
+
+    // Apply Tier Multipliers
+    if (order.customer?.tier === 'GOLD') multiplier = config.tierMultipliers?.GOLD || 1.1;
+    if (order.customer?.tier === 'PLATINUM') multiplier = config.tierMultipliers?.PLATINUM || 1.25;
+
+    // Apply Time-Based Multipliers (Happy Hour, etc)
+    const now = new Date();
+    if (config.happyHour?.isActive) {
+      const hour = now.getHours();
+      if (hour >= config.happyHour.start && hour < config.happyHour.end) {
+        multiplier *= (config.happyHour.multiplier || 1.5);
+      }
+    }
+
+    const points = this.calculateEarnedPoints(toNumber(order.total), multiplier, config.basePointsPerUnit);
+    return points;
+  }
+
+  /**
+   * 🧮 Pure Calculation: Points for specific engagement type
+   */
+  async calculateEngagementPoints(type) {
+    const config = await this.getConfig();
+    switch (type) {
+      case 'REVIEW': return config.reviewPoints || 50;
+      case 'SOCIAL_SHARE': return config.socialPoints || 20;
+      case 'REFERRAL': return config.referralPoints || 100;
+      default: return 0;
+    }
+  }
+
+  /**
    * Award Points for Order Completion
    */
   async awardPointsForOrder(orderIdOrOrder, tx = null) {
@@ -377,21 +417,21 @@ class LoyaltyService {
       const config = await this.getConfig();
       const customer = order.customer;
 
-      let multiplier = 1.0;
-      if (customer.tier === 'GOLD') multiplier = config.pointsMultiplierGold;
-      if (customer.tier === 'PLATINUM') multiplier = config.pointsMultiplierPlatinum;
+      let multiplierDec = new Decimal(1.0);
+      if (customer.tier === 'GOLD') multiplierDec = toDecimal(config.pointsMultiplierGold);
+      if (customer.tier === 'PLATINUM') multiplierDec = toDecimal(config.pointsMultiplierPlatinum);
 
       const orderTz = order.branch?.timezone || 'Africa/Cairo';
       if (this._isWithinHappyHour(config, order.createdAt, orderTz)) {
-        multiplier *= config.happyHourMultiplier;
+        multiplierDec = multiplierDec.times(toDecimal(config.happyHourMultiplier));
         this.logger.info(`[Loyalty] Happy Hour active for order #${order.orderNumber}! Applying ${config.happyHourMultiplier}x multiplier`);
       }
 
-      const subDec = new Decimal(order.subtotal || 0);
-      const discDec = new Decimal(order.discount || 0);
-      const netSubtotal = subDec.minus(discDec).isNegative() ? 0 : subDec.minus(discDec).toNumber();
+      const subDec = toDecimal(order.subtotal || 0);
+      const discDec = toDecimal(order.discount || 0);
+      const netSubtotalDec = Decimal.max(0, subDec.minus(discDec));
       
-      const pointsEarned = this.calculateEarnedPoints(netSubtotal, multiplier, config.pointsPerJod);
+      const pointsEarned = this.calculateEarnedPoints(netSubtotalDec, multiplierDec.toNumber(), config.pointsPerJod);
 
       if (this.logger && typeof this.logger.debug === 'function') {
         this.logger.debug('[Loyalty] Points calculation audit', {
@@ -513,31 +553,36 @@ class LoyaltyService {
     }
 
     if (points > 0) {
-      await this.prisma.$transaction(async (tx) => {
-        const customer = await tx.customer.findUnique({ where: { id: customerId } }, { timeout: 15000 });
-        if (!customer) throw new Error('العميل غير موجود');
-
-        const updatedCustomer = await tx.customer.update({
-          where: { id: customerId },
-          data: { points: { increment: points } }
-        });
+      const result = await this.prisma.$transaction(async (tx) => {
+        const entry = await this.container.loyaltyLedgerService.credit(
+          customerId,
+          points,
+          'ENGAGEMENT',
+          null,
+          reason,
+          `eng:${type}:${customerId}:${Date.now()}`,
+          { type },
+          tx
+        );
 
         await tx.customerAuditLog.create({
           data: {
             customerId,
             eventType: 'LOYALTY_REWARD',
             eventAction: type,
-            changedBy: customer.uuid,
-            changedByRole: 'customer',
             reason: reason,
-            previousData: JSON.stringify({ points: customer.points }),
-            newData: JSON.stringify({ points: updatedCustomer.points }),
             diff: `+${points} points`,
             actionCategory: 'LOYALTY',
-            requestSource: metadata.source || 'APP'
+            metadata: { type, points }
           }
         });
+
+        return entry.balanceAfter;
       });
+
+      // 🔄 Sync Projection
+      await this.container.loyaltyLedgerService.syncProjection(customerId, result);
+      return result;
     }
   }
 
@@ -548,13 +593,27 @@ class LoyaltyService {
         include: { customer: true }
       });
       if (!order || !order.customerId) return null;
-      const config = await this.getConfig();
-      const baseCalc = this.calculateEarnedPoints(order.total, config.cancellationCompensationRate || 0.05, config.pointsPerJod);
-      const amount = Math.max(config.minCompensationPoints || 50, baseCalc);
-      await this.prisma.customer.update({
-        where: { id: order.customerId },
-        data: { points: { increment: amount } }
-      });
+      const compensationRate = toDecimal(config.cancellationCompensationRate || 0.05);
+      const pointsPerJod = toDecimal(config.pointsPerJod || 1);
+      const minCompensation = new Decimal(config.minCompensationPoints || 50);
+
+      const baseCalc = toDecimal(order.total).times(compensationRate).times(pointsPerJod).toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
+      const amount = Decimal.max(minCompensation, baseCalc).toNumber();
+      
+      // 🛡️ [PHASE 6] Ledger Mutation
+      const entry = await this.container.loyaltyLedgerService.credit(
+        order.customerId,
+        amount,
+        'COMPENSATION',
+        orderId,
+        `تعويض عن إلغاء الطلب #${order.orderNumber}`,
+        `comp:${orderId}`,
+        { reason }
+      );
+
+      // 🔄 Sync Projection
+      await this.container.loyaltyLedgerService.syncProjection(order.customerId, entry.balanceAfter);
+
       await this.container.auditService.log({
         userId: order.customer.uuid,
         userRole: 'customer',
@@ -574,40 +633,94 @@ class LoyaltyService {
   async createReward(data) {
     return await this.prisma.rewardItem.create({
       data: {
-        title: data.title, titleEn: data.titleEn, description: data.description, descriptionEn: data.descriptionEn,
-        pointsCost: parseInt(data.pointsCost), imageUrl: data.imageUrl, isActive: data.isActive !== undefined ? data.isActive : true
+        title: data.title, 
+        titleEn: data.titleEn, 
+        description: data.description, 
+        descriptionEn: data.descriptionEn,
+        pointsCost: parseInt(data.pointsCost), 
+        image: data.image !== undefined ? data.image : data.imageUrl, 
+        isActive: data.isActive !== undefined ? data.isActive : true
       }
     });
   }
 
   async updateReward(id, data) {
+    const updatePayload = {};
+    if (data.title !== undefined) updatePayload.title = data.title;
+    if (data.titleEn !== undefined) updatePayload.titleEn = data.titleEn;
+    if (data.description !== undefined) updatePayload.description = data.description;
+    if (data.descriptionEn !== undefined) updatePayload.descriptionEn = data.descriptionEn;
+    if (data.image !== undefined || data.imageUrl !== undefined) {
+      updatePayload.image = data.image !== undefined ? data.image : data.imageUrl;
+    }
+    if (data.pointsCost !== undefined) updatePayload.pointsCost = parseInt(data.pointsCost);
+    if (data.isActive !== undefined) updatePayload.isActive = data.isActive;
+
     return await this.prisma.rewardItem.update({
       where: { id },
-      data: { ...data, pointsCost: data.pointsCost ? parseInt(data.pointsCost) : undefined }
+      data: updatePayload
     });
   }
 
   async deleteReward(id) { return await this.prisma.rewardItem.delete({ where: { id } }); }
 
-  async claimReward(customerId, rewardId) {
-    return await this.prisma.$transaction(async (tx) => {
-      const reward = await tx.rewardItem.findUnique({ where: { id: rewardId } }, { timeout: 15000 });
+  async claimReward(customerId, rewardId, requestId = null) {
+    const crypto = require('crypto');
+    const result = await this.prisma.$transaction(async (tx) => {
+      const reward = await tx.rewardItem.findUnique({ where: { id: rewardId } });
       if (!reward || !reward.isActive) throw new Error('المكافأة غير متاحة حالياً');
-      const customer = await tx.customer.findUnique({ where: { id: customerId } });
-      if (customer.points < reward.pointsCost) throw new Error('رصيد النقاط غير كافٍ');
-      const code = 'RW-' + Math.random().toString(36).substring(2, 8).toUpperCase();
-      await tx.customer.update({ where: { id: customerId }, data: { points: { decrement: reward.pointsCost } } });
-      await tx.customerReward.create({
+
+      // 🛡️ [PHASE 7] Tier Enforcement
+      const customer = await tx.customer.findUnique({ where: { id: customerId }, select: { tier: true } });
+      const tierRank = { 'SILVER': 1, 'GOLD': 2, 'PLATINUM': 3 };
+      const customerRank = tierRank[customer.tier] || 1;
+      const requiredRank = tierRank[reward.minTier] || 1;
+
+      if (customerRank < requiredRank) {
+        throw new Error(`هذه المكافأة متاحة فقط لمستوى ${reward.minTier} أو أعلى.`);
+      }
+
+      // 🛡️ [PHASE 5] Use LoyaltyLedger for atomic, auditable debit
+      // Use stable requestId for idempotency if provided, else fallback to time-safe uuid
+      const idempotencyKey = requestId ? `claim:${customerId}:${reward.id}:${requestId}` : `claim:${customerId}:${reward.id}:${uuidv4()}`;
+      
+      const ledgerEntry = await this.container.loyaltyLedgerService.debit(
+        customerId,
+        reward.pointsCost,
+        'REDEMPTION',
+        reward.id,
+        `استبدال مكافأة: ${reward.title}`,
+        idempotencyKey,
+        { rewardTitle: reward.title },
+        tx
+      );
+
+      // 🔐 [FRAUD-FIX] Cryptographically secure alphanumeric code (10 chars)
+      const code = 'RW-' + crypto.randomBytes(5).toString('hex').toUpperCase();
+      
+      const config = await this.getConfig();
+      const expiresAt = new Date(Date.now() + (config.rewardExpiryDays || 30) * 24 * 60 * 60 * 1000);
+
+      const customerReward = await tx.customerReward.create({
         data: {
           customerId: customerId,
           rewardItemId: reward.id,
           code: code,
-          expiresAt: new Date(Date.now() + (await this.getConfig()).rewardExpiryDays * 24 * 60 * 60 * 1000) 
+          expiresAt: expiresAt
         },
         include: { rewardItem: true }
       });
-      return { success: true, code };
-    });
+
+      // 🔄 [CONSISTENCY-FIX] Sync Projection INSIDE transaction boundary
+      await tx.customer.update({
+        where: { id: customerId },
+        data: { points: ledgerEntry.balanceAfter }
+      });
+
+      return { success: true, code, balanceAfter: ledgerEntry.balanceAfter, customerReward };
+    }, { timeout: 20000 });
+
+    return result;
   }
 
   async getCustomerRewards(customerId) {

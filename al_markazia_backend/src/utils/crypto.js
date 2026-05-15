@@ -9,7 +9,7 @@ const secretProvider = require('../config/secretProvider');
 
 const isDevOrTest = process.env.NODE_ENV !== 'production';
 if (isDevOrTest && !process.env.ENCRYPTION_KEY) {
-  process.env.ENCRYPTION_KEY = crypto.randomBytes(32).toString('hex');
+  process.env.ENCRYPTION_KEY = 'almarkazia-secure-development-key-32bytes-fallback';
 }
 
 const rawKey = secretProvider.getSecretSync('ENCRYPTION_KEY');

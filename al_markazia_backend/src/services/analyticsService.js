@@ -16,8 +16,6 @@ class AnalyticsService {
 
     const role = user.role?.toLowerCase();
     const isGlobalAdmin = role === 'admin';
-
-    // 🛡️ [PHASE 4] Forced Isolation: Managers cannot see outside their branch
     const branchId = isGlobalAdmin ? requestedBranchId : user.branchId;
 
     if (!isGlobalAdmin && requestedBranchId && requestedBranchId !== user.branchId) {
@@ -29,31 +27,50 @@ class AnalyticsService {
     const start = now.startOf('day').toJSDate();
     const end = now.endOf('day').toJSDate();
 
-    const whereClause = {
-      createdAt: { gte: start, lte: end },
-      isDeleted: false
-    };
-    if (branchId) whereClause.branchId = branchId;
+    // 1. 🛡️ Delegate to Advanced Financial Aggregator (Step 2 Optimization)
+    const financialMetrics = await this.container.financialAggregatorService.aggregateBranchData(
+      branchId, 
+      start, 
+      end
+    );
 
-    const orders = await this.prisma.order.findMany({
-      where: whereClause,
-      select: {
-        id: true,
-        status: true,
-        total: true,
-        orderItems: { select: { itemName: true, quantity: true } }
-      }
+    // 3. Fetch Operational Stats (Status Distribution)
+    const statusGroups = await this.prisma.order.groupBy({
+      by: ['status'],
+      where: {
+        createdAt: { gte: start, lte: end },
+        branchId: branchId || undefined,
+        isDeleted: false
+      },
+      _count: { id: true }
+    });
+
+    const statusMap = statusGroups.reduce((acc, g) => ({ ...acc, [g.status]: g._count.id }), {});
+    const activeOrders = ['pending', 'preparing', 'ready', 'confirmed', 'waiting_cancellation', 'waiting_cancellation_admin']
+      .reduce((sum, s) => sum + (statusMap[s] || 0), 0);
+
+    // 4. Fetch Top Items (Non-financial, O(n) is acceptable for small subset)
+    const topItemsData = await this.prisma.order.findMany({
+      where: {
+        createdAt: { gte: start, lte: end },
+        branchId: branchId || undefined,
+        isDeleted: false
+      },
+      select: { orderItems: { select: { itemName: true, quantity: true } } }
     });
 
     const metrics = {
-      totalOrders: orders.length,
-      activeOrders: orders.filter(o => ['pending', 'preparing', 'ready', 'confirmed', 'waiting_cancellation', 'waiting_cancellation_admin'].includes(o.status)).length,
-      cancellations: orders.filter(o => o.status === 'cancelled').length,
-      topItems: this._calculateTopItems(orders),
-      revenue: orders.reduce((sum, o) => sum + toNumber(o.total), 0)
+      totalOrders: financialMetrics.orderCount,
+      activeOrders,
+      cancellations: statusMap['cancelled'] || 0,
+      topItems: await this._calculateTopItems(start, end, branchId),
+      revenue: financialMetrics.netRevenue, // Report net realized income
+      grossRevenue: financialMetrics.grossRevenue,
+      totalRefunds: financialMetrics.totalRefunds,
+      taxLiability: financialMetrics.taxLiability
     };
 
-    // 🛡️ [P10] Upsert to Server Driven State (Conditional for physical branch only)
+    // 🛡️ [P10] Persistence into Metric Store (Async safe-guard)
     let version = 1;
     let eventSequence = 1;
     let updatedAt = new Date();
@@ -91,18 +108,99 @@ class AnalyticsService {
     };
   }
 
-  _calculateTopItems(orders) {
-    const itemCounts = {};
-    orders.forEach(order => {
-      order.orderItems.forEach(item => {
-        const name = item.itemName;
-        itemCounts[name] = (itemCounts[name] || 0) + item.quantity;
-      });
+  async _calculateTopItems(start, end, branchId) {
+    const topItems = await this.prisma.orderItem.groupBy({
+      by: ['itemName'],
+      where: {
+        order: {
+          createdAt: { gte: start, lte: end },
+          branchId: branchId || undefined,
+          isDeleted: false
+        }
+      },
+      _sum: { quantity: true },
+      orderBy: {
+        _sum: { quantity: 'desc' }
+      },
+      take: 5
     });
-    return Object.entries(itemCounts)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 3)
-      .map(([name, count]) => ({ name, count }));
+
+    return topItems.map(item => ({
+      name: item.itemName,
+      count: item._sum.quantity
+    }));
+  }
+
+  async getDashboardMetrics(user, period = 'today') {
+    if (!user) throw new Error('UNAUTHORIZED');
+
+    const now = DateTime.now().setZone('Asia/Amman');
+    let start, end;
+
+    if (period === 'today') {
+      start = now.startOf('day').toJSDate();
+      end = now.endOf('day').toJSDate();
+    } else if (period === 'week') {
+      start = now.minus({ days: 7 }).startOf('day').toJSDate();
+      end = now.endOf('day').toJSDate();
+    } else if (period === 'month') {
+      start = now.minus({ months: 1 }).startOf('day').toJSDate();
+      end = now.endOf('day').toJSDate();
+    } else {
+      start = now.startOf('day').toJSDate();
+      end = now.endOf('day').toJSDate();
+    }
+
+    // 1. 🛡️ Advanced Aggregation (Step 2 - DB Native)
+    const metrics = await this.container.financialAggregatorService.aggregateBranchData(
+      user.role === 'admin' ? null : user.branchId,
+      start,
+      end
+    );
+
+    // 2. Fetch Chart Data (Status Timeline)
+    // For Dashboard, we usually want Order Count trend
+    const orders = await this.prisma.order.findMany({
+      where: {
+        createdAt: { gte: start, lte: end },
+        branchId: user.role === 'admin' ? undefined : user.branchId,
+        isDeleted: false
+      },
+      select: { createdAt: true, status: true }
+    });
+
+    const chartMap = {};
+    orders.forEach(o => {
+      const dt = DateTime.fromJSDate(o.createdAt).setZone('Asia/Amman');
+      const label = period === 'today' ? `${dt.hour}:00` : dt.toFormat('ccc', { locale: 'ar-EG' });
+      chartMap[label] = (chartMap[label] || 0) + 1;
+    });
+
+    const chartData = Object.entries(chartMap).map(([label, count]) => ({ label, count }));
+
+    // 3. Fetch Top Items (Optimization: Only if items exist)
+    const topItemsData = await this.prisma.order.findMany({
+      where: {
+        createdAt: { gte: start, lte: end },
+        branchId: user.role === 'admin' ? undefined : user.branchId,
+        isDeleted: false
+      },
+      select: { orderItems: { select: { itemName: true, quantity: true } } },
+      take: 500 // Limit for safety
+    });
+
+    return {
+      overview: {
+        totalRevenue: metrics.netRevenue,
+        totalOrders: metrics.orderCount,
+        avgOrderValue: metrics.orderCount > 0 ? (metrics.netRevenue / metrics.orderCount) : 0,
+        grossRevenue: metrics.grossRevenue,
+        totalRefunds: metrics.totalRefunds,
+        totalDiscounts: metrics.totalDiscounts
+      },
+      chartData,
+      topItems: await this._calculateTopItems(start, end, user.role === 'admin' ? null : user.branchId)
+    };
   }
 
   updateCacheIncrementally(data) { return true; }

@@ -229,8 +229,18 @@ exports.updateAdvancedConfig = async (req, res) => {
 
 exports.updateBulkSettings = async (req, res) => {
   try {
-    const settings = req.body;
+    const { settings, lastFetchTime } = req.body.settings ? req.body : { settings: req.body, lastFetchTime: 0 };
     const priceRegex = /^\d+(\.\d{1,2})?$/;
+    
+    // 🛡️ Optimistic Locking Guard
+    if (lastFetchTime) {
+      const latestSetting = await prisma.systemSettings.findFirst({
+        orderBy: { updatedAt: 'desc' }
+      });
+      if (latestSetting && new Date(latestSetting.updatedAt).getTime() > lastFetchTime) {
+        return res.status(409).json({ error: 'CONCURRENCY_CONFLICT', message: 'تم تعديل الإعدادات من قبل شخص آخر. يرجى تحديث الصفحة والمحاولة مرة أخرى.' });
+      }
+    }
     
     // 🛡️ [CRITICAL] Strict Validation Phase
     const validationErrors = [];

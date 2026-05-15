@@ -23,7 +23,7 @@ exports.getMetricsSummary = async (req, res) => {
     ] = await Promise.all([
       prisma.order.count({ where: { createdAt: { gte: last24h } } }),
       prisma.orderCancellation.count({ where: { createdAt: { gte: last24h }, status: 'approved' } }),
-      prisma.notificationLog.count({ where: { createdAt: { gte: last24h }, status: 'failed' } }),
+      prisma.notificationLog.count({ where: { createdAt: { gte: last24h }, status: 'FAILED' } }),
       prisma.notificationLog.count({ where: { createdAt: { gte: last24h } } }),
       prisma.orderCancellation.count({ where: { createdAt: { gte: last24h }, cancelledBy: 'customer', status: 'pending' } })
     ]);
@@ -90,7 +90,7 @@ exports.getDrillDown = async (req, res) => {
 
     if (type === 'notifications') {
       const data = await prisma.notificationLog.findMany({
-        where: { createdAt: { gte: cutoff }, status: 'failed' },
+        where: { createdAt: { gte: cutoff }, status: 'FAILED' },
         include: { customer: { select: { name: true, phone: true } } },
         orderBy: { createdAt: 'desc' }
       });

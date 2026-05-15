@@ -14,66 +14,90 @@ class ConfigService {
   }
 
   /**
-   * 🎯 Get All Configs (Cached)
+   * 🎯 Get All Configs (Cached & Branch-Aware)
+   * Resolves hierarchy: Branch Overrides > Global Policies > Hardcoded Defaults
    */
-  async getFullConfig() {
+  async getFullConfig(branchId = null) {
     try {
+      const cacheKey = branchId ? `${this.CACHE_KEY}:${branchId}` : this.CACHE_KEY;
+      
       // 1. Try Cache
-      const cached = await redis.get(this.CACHE_KEY);
+      const cached = await redis.get(cacheKey);
       if (cached) return JSON.parse(cached);
 
-      // 2. Fetch from DB (Legacy + New Policies)
-      const [settings, loyalty, policies] = await Promise.all([
-        prisma.systemSettings.findUnique({ where: { key: 'system_config' } }),
-        prisma.loyaltyConfig.findFirst(),
-        prisma.businessPolicy.findMany({ where: { isActive: true } })
-      ]);
+      // 2. Fetch all active policies
+      // We fetch both global (branchId: null) and specific (branchId: branchId)
+      const policies = await prisma.businessPolicy.findMany({
+        where: {
+          isActive: true,
+          OR: [
+            { branchId: null },
+            ...(branchId ? [{ branchId }] : [])
+          ]
+        }
+      });
 
-      // 3. Map policies into a structured object
+      // 3. 🗺️ Hierarchical Resolution
+      // Branch-specific values always overwrite global values
       const policyMap = {};
-      policies.forEach(p => {
+      
+      // First pass: Global
+      policies.filter(p => !p.branchId).forEach(p => {
         policyMap[p.key] = p.value;
       });
+      
+      // Second pass: Branch Overrides
+      if (branchId) {
+        policies.filter(p => p.branchId === branchId).forEach(p => {
+          policyMap[p.key] = p.value;
+        });
+      }
 
       const config = {
         business: {
-          maxCancellationReasonLength: policyMap['MAX_CANCELLATION_REASON_LENGTH']?.val || settings?.businessConfig?.maxCancellationReasonLength || 500,
-          maxRating: policyMap['MAX_RATING']?.val || settings?.businessConfig?.maxRating || 5,
-          defaultDeliveryFee: policyMap['DEFAULT_DELIVERY_FEE']?.val || settings?.defaultDeliveryFee || 1.0,
-          freeCancelWindowMinutes: policyMap['FREE_CANCEL_WINDOW_MINUTES']?.val || settings?.freeCancelWindowMinutes || 5,
+          maxCancellationReasonLength: policyMap['MAX_CANCELLATION_REASON_LENGTH']?.val || 500,
+          maxRating: policyMap['MAX_RATING']?.val || 5,
+          defaultDeliveryFee: policyMap['DEFAULT_DELIVERY_FEE']?.val || 1.0,
+          freeCancelWindowMinutes: policyMap['FREE_CANCEL_WINDOW_MINUTES']?.val || 5,
           slaPrepTimeMinutes: policyMap['SLA_PREP_TIME']?.val || 20,
           slaDeliveryTimeMinutes: policyMap['SLA_DELIVERY_TIME']?.val || 15,
           peakMultiplier: policyMap['PEAK_MULTIPLIER']?.val || 1.0,
           autoCancelTimeoutMinutes: policyMap['AUTO_CANCEL_TIMEOUT']?.val || 15
         },
         security: {
-          maxLoginAttempts: settings?.securityConfig?.maxLoginAttempts || 5,
-          lockDurationMinutes: settings?.securityConfig?.lockDurationMinutes || 15,
-          timingDelayMs: settings?.securityConfig?.timingDelayMs || 300,
-          passwordMinLength: 8
+          maxLoginAttempts: policyMap['SEC_MAX_LOGIN_ATTEMPTS']?.val || 5,
+          lockDurationMinutes: policyMap['SEC_LOCK_DURATION']?.val || 15,
+          timingDelayMs: policyMap['SEC_TIMING_DELAY']?.val || 300,
+          passwordMinLength: policyMap['SEC_MIN_PASSWORD_LENGTH']?.val || 8
         },
         loyalty: {
-          pointsPerJod: loyalty?.pointsPerJod || 10,
-          minPointsToRedeem: loyalty?.minPointsToRedeem || 500,
-          minCompensationPoints: loyalty?.minCompensationPoints || 50,
-          rewardExpiryDays: loyalty?.rewardExpiryDays || 30,
+          pointsPerJod: policyMap['LOYALTY_POINTS_PER_JOD']?.val || 10,
+          minPointsToRedeem: policyMap['LOYALTY_MIN_REDEEM']?.val || 500,
+          minCompensationPoints: policyMap['LOYALTY_MIN_COMPENSATION']?.val || 50,
+          rewardExpiryDays: policyMap['LOYALTY_EXPIRY_DAYS']?.val || 30,
           tiers: {
-            GOLD: { minOrders: loyalty?.tierGoldMinOrders || 10, multiplier: loyalty?.pointsMultiplierGold || 1.5 },
-            PLATINUM: { minOrders: loyalty?.tierPlatinumMinOrders || 25, multiplier: loyalty?.pointsMultiplierPlatinum || 2.0 }
+            GOLD: { 
+              minOrders: policyMap['LOYALTY_GOLD_MIN_ORDERS']?.val || 10, 
+              multiplier: policyMap['LOYALTY_GOLD_MULTIPLIER']?.val || 1.5 
+            },
+            PLATINUM: { 
+              minOrders: policyMap['LOYALTY_PLATINUM_MIN_ORDERS']?.val || 25, 
+              multiplier: policyMap['LOYALTY_PLATINUM_MULTIPLIER']?.val || 2.0 
+            }
           },
           engagement: {
-            REVIEW: loyalty?.reviewPoints || 50,
-            REFERRAL: loyalty?.referralPoints || 100,
-            SOCIAL_SHARE: loyalty?.socialSharePoints || 20
+            REVIEW: policyMap['LOYALTY_ENGAGEMENT_REVIEW']?.val || 50,
+            REFERRAL: policyMap['LOYALTY_ENGAGEMENT_REFERRAL']?.val || 100,
+            SOCIAL_SHARE: policyMap['LOYALTY_ENGAGEMENT_SHARE']?.val || 20
           }
         }
       };
 
       // 4. Store in Cache
-      await redis.set(this.CACHE_KEY, JSON.stringify(config), 'EX', this.CACHE_TTL);
+      await redis.set(cacheKey, JSON.stringify(config), 'EX', this.CACHE_TTL);
       return config;
     } catch (err) {
-      logger.error('Failed to fetch system config', { error: err.message });
+      logger.error('Failed to fetch system config', { branchId, error: err.message });
       return this._getSafeModeFallbacks();
     }
   }

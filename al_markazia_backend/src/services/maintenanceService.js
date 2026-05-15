@@ -84,7 +84,7 @@ class MaintenanceService {
         where: { createdAt: { gte: lastHour } }
       });
       const failedNotifications = await prisma.notificationLog.count({
-        where: { createdAt: { gte: lastHour }, status: 'failed' }
+        where: { createdAt: { gte: lastHour }, status: 'FAILED' }
       });
 
       const notificationFailureRate = totalNotifications > 0 ? (failedNotifications / totalNotifications) : 0;
@@ -313,6 +313,43 @@ class MaintenanceService {
     } catch (error) {
       logger.error('Maintenance: Waiting Cancellation Cleanup Failed', { error: error.message });
       return 0;
+    }
+  }
+
+  /**
+   * 🕒 Rewards Lifecycle: Marks claimed rewards as EXPIRED if past validity date.
+   */
+  static async cleanupExpiredRewards() {
+    try {
+      const result = await prisma.customerReward.updateMany({
+        where: {
+          status: 'ACTIVE',
+          expiresAt: { lt: new Date() }
+        },
+        data: { status: 'EXPIRED' }
+      });
+      if (result.count > 0) {
+        logger.info(`Maintenance: Transitioned ${result.count} rewards to EXPIRED status.`);
+      }
+      return result.count;
+    } catch (error) {
+      logger.error('Maintenance: Reward Expiry Cleanup Failed', { error: error.message });
+      return 0;
+    }
+  }
+
+  /**
+   * 🛡️ Data Integrity: Reconciles all customer point projections against the authoritative ledger.
+   */
+  static async reconcileLoyaltyLedger() {
+    try {
+      const container = require('../lib/container');
+      const result = await container.loyaltyLedgerService.reconcileAll();
+      logger.info('Maintenance: Global Loyalty Ledger Reconciliation Finished.', result);
+      return result;
+    } catch (error) {
+      logger.error('Maintenance: Ledger Reconciliation Failed', { error: error.message });
+      return null;
     }
   }
 }

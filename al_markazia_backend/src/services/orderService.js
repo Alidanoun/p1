@@ -17,6 +17,7 @@ const { orderQueue } = require('../queues/orderQueue');
 const xss = require('xss');
 const NodeCache = require('node-cache');
 const memoryCache = new NodeCache({ stdTTL: 300 });
+const AuditLogger = require('../utils/auditLogger');
 
 const safeJsonParse = (str) => {
   try { return JSON.parse(str); } catch (e) { return null; }
@@ -328,7 +329,7 @@ class OrderService {
 
     const { toNumber, toMoneyString } = require('../utils/number');
     
-    return await this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       // 1. Fetch order with items
       const order = await tx.order.findUnique({
         where: { id: orderId },
@@ -397,21 +398,27 @@ class OrderService {
         }
       });
 
-      // 7. Notify Customer
-      const notificationService = require('./notificationService');
-      await this.container.notificationService.sendToUser(order.customerId, {
-        title: 'تعديل طلبك بنجاح ✅',
-        message: `تمت الموافقة على تعديل الطلب #${order.orderNumber}. المبلغ المسترد: ${refundAmount.toFixed(2)}`,
-        type: 'order_adjusted',
-        orderId: order.id
-      });
-
       return {
         success: true,
         order: updatedOrder,
         refundAmount
       };
     }, { timeout: 15000 });
+
+    // 7. Notify Customer (OUTSIDE Transaction)
+    try {
+      const notificationService = require('./notificationService');
+      await this.container.notificationService.sendToUser(result.order.customerId, {
+        title: 'تعديل طلبك بنجاح ✅',
+        message: `تمت الموافقة على تعديل الطلب #${result.order.orderNumber}. المبلغ المسترد: ${result.refundAmount.toFixed(2)}`,
+        type: 'order_adjusted',
+        orderId: result.order.id
+      });
+    } catch (err) {
+      this.logger.error('Failed to send notification after partial cancellation', { error: err.message });
+    }
+
+    return result;
   }
 
   /**
@@ -903,23 +910,22 @@ class OrderService {
     // 5. 🔢 Generate Atomic Order Number
     const orderNumber = await this._generateOrderNumber();
 
-    // 5.5 🎁 Points Redemption Logic
+    // 5.5 🎁 Points Redemption Logic (Unified via Pricing Engine)
     let pointsDiscount = 0;
     let pointsToDeduct = 0;
 
     if (data.usePoints === true) {
       const loyaltyConfig = await this.container.loyaltyService.getConfig();
-      const minPoints = loyaltyConfig.minPointsToRedeem || 500;
-      const rate = loyaltyConfig.pointsToJodRate || 100;
+      const pricingService = require('./pricingService');
       
-      if (resolvedCustomer.points >= minPoints) {
-        // Calculate max cash value from points
-        const rawDiscount = resolvedCustomer.points / rate;
-        // Cap discount to subtotal
-        pointsDiscount = Math.min(rawDiscount, subtotal);
-        // Calculate exact points to deduct
-        pointsToDeduct = Math.floor(pointsDiscount * rate);
-      }
+      const redemption = pricingService.calculatePointsRedemption(
+        resolvedCustomer.points, 
+        subtotal, 
+        loyaltyConfig
+      );
+
+      pointsDiscount = redemption.discount.toNumber();
+      pointsToDeduct = redemption.pointsToDeduct;
 
       // 🛡️ [SAFETY GUARD] Verify expected discount from client
       if (data.expectedDiscount && Math.abs(pointsDiscount - data.expectedDiscount) > 0.01) {
@@ -1012,10 +1018,16 @@ class OrderService {
 
       // 💳 Execute Points Deduction if requested
       if (pointsToDeduct > 0) {
-        await tx.customer.update({
-          where: { id: resolvedCustomer.id },
-          data: { points: { decrement: pointsToDeduct } }
-        });
+        await this.container.loyaltyLedgerService.debit(
+          resolvedCustomer.id,
+          pointsToDeduct,
+          'REDEMPTION',
+          order.id,
+          `استخدام نقاط في الطلب #${order.orderNumber}`,
+          `order:redeem:${order.id}`,
+          { orderNumber: order.orderNumber },
+          tx
+        );
 
         await tx.customerAuditLog.create({
           data: {
@@ -1045,40 +1057,63 @@ class OrderService {
         });
       }
 
+      const mappedForEvent = mapOrderResponse(order);
+      await publishEvent({
+        type: eventTypes.ORDER_CREATED,
+        aggregateId: mappedForEvent.id,
+        payload: {
+          order: {
+            ...mappedForEvent,
+            id: order.id,
+            customerId: order.customerId,
+            customerPhone: order.customer?.phone || null,
+            customer: order.customer
+          }
+        },
+        version: 1,
+        tenantId: mappedForEvent.tenantId,
+        metadata: { aggregateType: 'Order', tx }
+      });
+
       return { newOrder: order };
     }, { timeout: 20000 });
+
+    // 🔄 [PHASE 4] Sync Projection after commit if points were deducted
+    if (pointsToDeduct > 0) {
+      const finalCustomer = await this.prisma.customer.findUnique({ 
+        where: { id: resolvedCustomer.id },
+        select: { points: true }
+      });
+      if (finalCustomer) {
+        await this.container.loyaltyLedgerService.syncProjection(resolvedCustomer.id, finalCustomer.points);
+      }
+    }
 
     // 7. 🚀 Async Side Effects (Non-blocking)
     this._triggerPostOrderEffects(newOrder);
 
-    const mappedOrder = mapOrderResponse(newOrder);
-
-    // 📦 Dual-Write: Publish Event to Store
-    await publishEvent({
-      type: eventTypes.ORDER_CREATED,
-      aggregateId: mappedOrder.id,
-      payload: {
-        order: {
-          ...mappedOrder,
-          id: newOrder.id,
-          customerId: newOrder.customerId,
-          customerPhone: newOrder.customer?.phone || null,
-          customer: newOrder.customer
-        }
-      },
-      version: 1,
-      tenantId: mappedOrder.tenantId
+    // 💓 Wake up Outbox Dispatcher instantly outside the database transaction
+    setImmediate(() => {
+      if (this.container && this.container.outboxService) {
+        this.container.outboxService.pulse().catch(() => {});
+      }
     });
 
+    const mappedOrder = mapOrderResponse(newOrder);
+
     // ⚡ [PHASE 2] Live Cache Sync
-    await liveCacheService.cacheOrder(newOrder);
+    await liveCacheService.cacheOrder(newOrder).catch(err =>
+      this.logger.error('[CacheSync] Non-fatal cache write failed', { error: err.message })
+    );
 
     // ⏲️ [PHASE 2] Automated Lifecycle Timeout (15 Mins)
     await orderQueue.add('auto-timeout', { orderId: newOrder.id, type: 'PENDING_TIMEOUT' }, {
       delay: (config.business.autoCancelTimeoutMinutes || 15) * 60 * 1000,
       jobId: `timeout_${newOrder.id}`,
       removeOnComplete: true
-    });
+    }).catch(err =>
+      this.logger.error('[OrderQueue] Non-fatal queue schedule failed', { error: err.message })
+    );
 
     return mappedOrder;
   }
@@ -1203,6 +1238,7 @@ class OrderService {
       // Intelligently lookup branch by code or name to provide absolute client compatibility
       const resolved = await this.prisma.branch.findFirst({
         where: {
+          isDeleted: false,
           OR: [
             { code: { equals: targetId.toUpperCase() } },
             { name: { contains: targetId } }
@@ -1219,8 +1255,8 @@ class OrderService {
     }
 
     // 2. 🛡️ Registry Validation: Check existence in Canonical Registry
-    const branch = await this.prisma.branch.findUnique({ 
-      where: { id: targetId }, 
+    const branch = await this.prisma.branch.findFirst({ 
+      where: { id: targetId, isDeleted: false }, 
       select: { id: true, isActive: true } 
     });
 
@@ -1496,10 +1532,26 @@ class OrderService {
    * 🎁 Loyalty & Rewards Hook (Placeholder)
    * Defered as per Business Design Cycle.
    */
-  _onOrderCompleted(orderId) {
-    this.container.loyaltyService.awardPointsForOrder(orderId).catch(err => {
-      this.logger.error('[Loyalty] Failed to award points on completion', { orderId, error: err.message });
-    });
+  async _onOrderCompleted(orderId) {
+    try {
+      const order = await this.prisma.order.findUnique({ where: { id: orderId }, include: { customer: true } });
+      const points = await this.container.loyaltyService.calculatePointsForOrder(order);
+      if (points > 0) {
+        await this.container.outboxService.enqueue(prisma, {
+          type: 'loyalty.order_award',
+          aggregateId: order.id,
+          aggregateType: 'Order',
+          payload: {
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            customerId: order.customerId,
+            points
+          }
+        });
+      }
+    } catch (err) {
+      this.logger.error('[Loyalty] Failed to enqueue points on completion', { orderId, error: err.message });
+    }
   }
 
   /**
@@ -1558,12 +1610,20 @@ class OrderService {
           }
 
           // 🎁 Loyalty Reward Hook
-          let pointsEarned = 0;
           if (newStatus === 'delivered') {
-            try {
-              pointsEarned = await this.container.loyaltyService.awardPointsForOrder(updated, tx);
-            } catch (err) {
-              this.logger.error('[Loyalty] Failed to award points on status update', { orderId: updated.id, error: err.message });
+            const pointsEarned = await this.container.loyaltyService.calculatePointsForOrder(updated);
+            if (pointsEarned > 0) {
+              await this.container.outboxService.enqueue(tx, {
+                type: 'loyalty.order_award',
+                aggregateId: updated.id,
+                aggregateType: 'Order',
+                payload: {
+                  orderId: updated.id,
+                  orderNumber: updated.orderNumber,
+                  customerId: updated.customerId,
+                  points: pointsEarned
+                }
+              });
             }
           }
 
@@ -1578,10 +1638,7 @@ class OrderService {
             payload: {
               previousStatus,
               newStatus,
-              order: {
-                ...mapOrderResponse(updated),
-                pointsEarned
-              }
+              order: mapOrderResponse(updated)
             },
             metadata: { aggregateType: 'Order', tx } // 🛡️ Level 2: Atomic Persistence
           });
@@ -1684,16 +1741,23 @@ class OrderService {
             });
 
             // Audit Log
-            await tx.orderAuditLog.create({
-              data: {
-                orderId: order.id,
-                eventType: 'ORDER_STATUS_CHANGE',
-                eventAction: 'BATCH_ACCEPTED',
-                changedBy: adminEmail,
-                changedByRole: 'admin',
-                previousData: JSON.stringify({ status: 'pending' }),
-                newData: JSON.stringify({ status: 'preparing' })
-              }
+            await AuditLogger.logOrderChange(tx, {
+              orderId: order.id,
+              eventType: 'ORDER_STATUS_CHANGE',
+              eventAction: 'BATCH_ACCEPTED',
+              changedBy: adminEmail,
+              changedByRole: 'admin',
+              previousData: { status: 'pending' },
+              newData: { status: 'preparing' }
+            });
+
+            const mappedOrder = mapOrderResponse(updated);
+            await publishEvent({
+              type: eventTypes.ORDER_STATUS_CHANGED,
+              aggregateId: mappedOrder.id,
+              payload: { previousStatus: 'pending', newStatus: 'preparing', order: mappedOrder },
+              version: updated.version,
+              metadata: { aggregateType: 'Order', tx }
             });
 
             acceptedCount++;
@@ -1702,7 +1766,7 @@ class OrderService {
             // P2025: Record to update not found (Concurrency conflict)
             if (err.code === 'P2025') {
               skippedCount++;
-              logger.warn(`[BatchAccept] Order ${order.id} skipped due to concurrency conflict.`);
+              this.logger.warn(`[BatchAccept] Order ${order.id} skipped due to concurrency conflict.`);
             } else {
               throw err; // Critical failure
             }
@@ -1718,17 +1782,14 @@ class OrderService {
 
       // 🚀 Background Side-Effects (Notifications, Analytics)
       if (processedOrders.length > 0) {
-        (async () => {
+        setImmediate(async () => {
+          // 💓 Wake up Outbox Dispatcher instantly outside the transaction block
+          if (this.container && this.container.outboxService) {
+            await this.container.outboxService.pulse().catch(() => {});
+          }
+
           for (const order of processedOrders) {
             try {
-              const mappedOrder = mapOrderResponse(order);
-              await publishEvent({
-                type: eventTypes.ORDER_STATUS_CHANGED,
-                aggregateId: mappedOrder.id,
-                payload: { previousStatus: 'pending', newStatus: 'preparing', order: mappedOrder },
-                version: order.version
-              });
-
               this.container.analyticsService.updateCacheIncrementally({
                 type: 'ORDER_STATUS_CHANGE',
                 amount: toNumber(order.total),
@@ -1738,17 +1799,75 @@ class OrderService {
 
               await this.bumpBranchVersion(order.branchId);
             } catch (err) {
-              logger.error(`[BatchAccept] Side-effects failed for order ${order.id}`, { error: err.message });
+              this.logger.error(`[BatchAccept] Side-effects failed for order ${order.id}`, { error: err.message });
             }
           }
-        })().catch(err => logger.error('[BatchAccept] Post-processing worker failed', { error: err.message }));
+        });
       }
 
       return results;
     } catch (error) {
-      logger.error('[BatchAccept] Transaction failed', { error: error.message });
+      this.logger.error('[BatchAccept] Transaction failed', { error: error.message });
       throw error;
     }
+  }
+
+  /**
+   * ⭐ Submit Order Rating (Direct Order Review)
+   */
+  async submitOrderRating(orderId, actor, rating, comment) {
+    if (!orderId) throw new Error('ORDER_NOT_FOUND');
+    const ratingNum = parseInt(rating);
+    if (isNaN(ratingNum) || ratingNum < 1 || ratingNum > 5) {
+      throw new Error('INVALID_RATING');
+    }
+
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { id: true, status: true, rating: true, branchId: true, customer: { select: { uuid: true } } }
+    });
+
+    if (!order) throw new Error('ORDER_NOT_FOUND');
+    
+    // 1. Delivered Status Check
+    if (order.status !== 'delivered') {
+      throw new Error('INVALID_STATE: لا يمكن تقييم الطلب إلا بعد توصيله بنجاح');
+    }
+
+    // 2. Ownership Check
+    if (actor && actor.role === 'customer' && order.customer?.uuid !== actor.id) {
+      throw new Error('ORDER_FORBIDDEN');
+    }
+
+    // 3. Prevent duplicate order rating overwrites
+    if (order.rating !== null) {
+      throw new Error('INVALID_STATE: لقد قمت بتقييم هذا الطلب مسبقاً');
+    }
+
+    const cleanComment = comment ? xss(comment.trim()) : null;
+
+    // Update order with rating
+    const updatedOrder = await this.prisma.order.update({
+      where: { id: orderId },
+      data: {
+        rating: ratingNum,
+        ratingComment: cleanComment,
+        isRatingApproved: false // Requires admin moderation by default
+      }
+    });
+
+    // Invalidate live/branch analytics cache
+    await this.bumpBranchVersion(updatedOrder.branchId);
+
+    return {
+      success: true,
+      message: 'تم استلام تقييمك للطلب بنجاح، شكراً لك!',
+      data: {
+        orderId: updatedOrder.id,
+        rating: updatedOrder.rating,
+        isApproved: updatedOrder.isRatingApproved
+      }
+    };
   }
 }
 

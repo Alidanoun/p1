@@ -84,26 +84,44 @@ class LoyaltyController {
    */
   async rewardSocialShare(req, res) {
     try {
-      const customerId = req.user.id; // From authenticateToken
+      const customerUuid = req.user.id; 
       const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-      const redisKey = `loyalty:share_throttle:${customerId}:${today}`;
+      const redisKey = `loyalty:share_throttle:${customerUuid}:${today}`;
 
-      // Check if already shared today
-      const alreadyShared = await redis.get(redisKey);
-      if (alreadyShared) {
+      const customer = await prisma.customer.findUnique({ where: { uuid: customerUuid }, select: { id: true } });
+      if (!customer) return res.status(404).json({ error: 'Customer not found' });
+
+      // 🛡️ [SEC-FIX] Atomic Daily Throttle (Prevent Race Condition)
+      const acquired = await redis.set(redisKey, '1', 'NX', 'EX', 86400); 
+      
+      if (!acquired) {
         return res.json({ success: true, rewarded: false, message: 'لقد حصلت على مكافأة المشاركة اليوم مسبقاً.' });
       }
 
-      const customer = await prisma.customer.findUnique({ where: { uuid: customerId } });
-      if (!customer) return res.status(404).json({ error: 'Customer not found' });
+      // 🎁 [LOYALTY-FIX] Emit event for background processing
+      const points = await loyaltyService.calculateEngagementPoints('SOCIAL_SHARE');
+      
+      await prisma.outboxEvent.create({
+        data: {
+          type: 'loyalty.social_reward',
+          aggregateId: String(customer.id),
+          aggregateType: 'Customer',
+          payload: {
+            customerId: customer.id,
+            action: 'SHARE',
+            points,
+            date: today,
+            requestId: req.id || req.header('x-request-id')
+          }
+        }
+      });
 
-      // Reward points
-      await loyaltyService.awardEngagementPoints(customer.id, 'SOCIAL_SHARE');
-
-      // Set throttle for 24 hours
-      await redis.set(redisKey, '1', 'EX', 60 * 60 * 24);
-
-      res.json({ success: true, rewarded: true, message: 'تم إضافة نقاط المشاركة لمحفظتك!' });
+      res.json({ 
+        success: true, 
+        rewarded: true, 
+        message: 'سيتم إضافة نقاط المشاركة لمحفظتك قريباً!',
+        points
+      });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -166,7 +184,8 @@ class LoyaltyController {
       });
       if (!customer) return res.status(404).json({ success: false, error: 'Customer not found' });
 
-      const customerReward = await loyaltyService.claimReward(customer.id, req.body.rewardId);
+      const requestId = req.id || req.header('x-request-id') || require('uuid').v4();
+      const customerReward = await loyaltyService.claimReward(customer.id, req.body.rewardId, requestId);
       res.json({ success: true, data: customerReward });
     } catch (err) {
       res.status(400).json({ success: false, error: err.message });

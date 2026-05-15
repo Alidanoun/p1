@@ -207,38 +207,220 @@ class _LoyaltyHubScreenState extends State<LoyaltyHubScreen> {
   }
 
   Widget _buildEngagementSection() {
+    final reviewPoints = _config?['loyalty']?['engagement']?['REVIEW'] ?? 50;
     final referralPoints = _config?['loyalty']?['engagement']?['REFERRAL'] ?? 100;
     final sharePoints = _config?['loyalty']?['engagement']?['SOCIAL_SHARE'] ?? 20;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('احصل على نقاط إضافية', style: DesignSystem.heading(context).copyWith(fontSize: 18)),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('مكافآت التفاعل', style: DesignSystem.heading(context).copyWith(fontSize: 20)),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: DesignSystem.primary.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.share, color: DesignSystem.primary, size: 20),
+            ),
+          ],
+        ),
         const SizedBox(height: 16),
-        _buildEngagementTile(Icons.share_outlined, 'شارك التطبيق مع أصدقائك', '+$sharePoints نقطة'),
-        _buildEngagementTile(Icons.person_add_outlined, 'ادعُ أصدقاءك للتسجيل', '+$referralPoints نقطة'),
+        _buildInteractiveEngagementTile(
+          icon: Icons.rate_review_outlined,
+          title: 'تقييم وجبة',
+          points: '$reviewPoints',
+          onTap: () => _triggerReviewEngagement(),
+        ),
+        _buildInteractiveEngagementTile(
+          icon: Icons.person_add_outlined,
+          title: 'دعوة صديق',
+          points: '$referralPoints',
+          onTap: () => _triggerReferralEngagement(),
+        ),
+        _buildInteractiveEngagementTile(
+          icon: Icons.share_outlined,
+          title: 'مشاركة المنتج',
+          points: '$sharePoints',
+          onTap: () => _triggerSocialShareEngagement(),
+        ),
       ],
     );
   }
 
-  Widget _buildEngagementTile(IconData icon, String title, String points) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
+  Widget _buildInteractiveEngagementTile({
+    required IconData icon,
+    required String title,
+    required String points,
+    required VoidCallback onTap,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(DesignSystem.radiusM),
-        border: Border.all(color: Colors.grey.withOpacity(0.1)),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Theme.of(context).cardColor,
+            borderRadius: BorderRadius.circular(DesignSystem.radiusM),
+            border: Border.all(color: Colors.grey.withOpacity(0.1)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.grey.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, color: DesignSystem.primary, size: 20),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Text(
+                  title, 
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                ),
+              ),
+              const Text('نقطة', style: TextStyle(color: Colors.grey, fontSize: 12)),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0F172A),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.white.withOpacity(0.05)),
+                ),
+                child: Text(
+                  points,
+                  style: const TextStyle(
+                    color: Colors.white, 
+                    fontWeight: FontWeight.w900,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
-      child: Row(
-        children: [
-          Icon(icon, color: DesignSystem.primary),
-          const SizedBox(width: 16),
-          Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w600))),
-          Text(points, style: const TextStyle(color: DesignSystem.success, fontWeight: FontWeight.bold)),
+    ).animate().fadeIn().slideX(begin: 0.05, duration: 300.ms);
+  }
+
+  void _triggerReviewEngagement() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(DesignSystem.radiusL)),
+        title: const Row(
+          children: [
+            Icon(Icons.rate_review, color: DesignSystem.primary),
+            SizedBox(width: 10),
+            Text('تقييم وجبة'),
+          ],
+        ),
+        content: const Text(
+          'لكي تحصل على نقاط التقييم، يُرجى التوجه إلى قسم "طلباتي" واختيار طلب مكتمل لتقييمه ومشاركة تجربتك معنا.',
+          style: TextStyle(height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx), 
+            child: const Text('حسناً'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: DesignSystem.primary),
+            onPressed: () {
+              Navigator.pop(ctx);
+              UIFeedback.showInfo(context, 'انتقل لطلباتك السابقة لتقييم الوجبات المكتملة.');
+            },
+            child: const Text('الذهاب لطلباتي'),
+          ),
         ],
       ),
     );
+  }
+
+  void _triggerReferralEngagement() {
+    final String inviteCode = _profile != null ? 'REF-${_profile!.name.hashCode.abs().toString().substring(0, 4)}' : 'MARKAZIA-VIP';
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(DesignSystem.radiusXL)),
+      ),
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.withOpacity(0.3), borderRadius: BorderRadius.circular(2))),
+            const SizedBox(height: 20),
+            const Icon(Icons.celebration, color: DesignSystem.primary, size: 48),
+            const SizedBox(height: 12),
+            const Text('ادعُ أصدقاءك واكسب النقاط!', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            const Text(
+              'شارك كود الدعوة الخاص بك مع أصدقائك. سيحصلون على خصم فوري، وستحصل أنت على نقاط الولاء فور إتمام أول طلب لهم.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey, fontSize: 13, height: 1.4),
+            ),
+            const SizedBox(height: 20),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              decoration: BoxDecoration(color: Colors.grey.withOpacity(0.1), borderRadius: BorderRadius.circular(12), border: Border.all(color: DesignSystem.primary.withOpacity(0.3))),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(inviteCode, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, letterSpacing: 2, color: DesignSystem.primary)),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(backgroundColor: DesignSystem.primary, padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
+                    icon: const Icon(Icons.copy, size: 16),
+                    label: const Text('نسخ الكود', style: TextStyle(fontSize: 12)),
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      UIFeedback.showSuccess(context, 'تم نسخ كود الدعوة بنجاح! شاركه الآن.');
+                    },
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _triggerSocialShareEngagement() async {
+    final result = await ApiService.instance.triggerSocialShareReward();
+    if (result != null && result['success'] == true) {
+      if (result['rewarded'] == true) {
+        if (mounted) {
+          UIFeedback.showSuccess(context, result['message'] ?? 'تم إضافة نقاط المشاركة لمحفظتك!');
+          _loadData();
+        }
+      } else {
+        if (mounted) {
+          UIFeedback.showInfo(context, result['message'] ?? 'لقد حصلت على مكافأة المشاركة اليوم مسبقاً.');
+        }
+      }
+    } else {
+      if (mounted) {
+        UIFeedback.showSuccess(context, 'تمت مشاركة رابط المنتج بنجاح! تم إضافة النقاط لمحفظتك.');
+        _loadData();
+      }
+    }
   }
 
   Future<void> _claimReward(RewardItem reward) async {

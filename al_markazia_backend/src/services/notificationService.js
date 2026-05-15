@@ -5,6 +5,7 @@ const xss = require('xss');
 
 /**
  * 🛰️ Production-Grade Guaranteed Notification Engine (GNE)
+ * Hardened SDS 3.1: NotificationLog is now the Single Source of Truth.
  */
 class NotificationService {
   constructor(container) {
@@ -17,19 +18,16 @@ class NotificationService {
   }
 
   init() {
-    this.logger.info('[NotificationService] 🛡️ Initializing Self-Healing Engine...');
+    this.logger.info('[NotificationService] 🛡️ Initializing Self-Healing Engine (Targeting NotificationLog SSOT)...');
     
-    // Subscribe to System Events (using global eventBus for now as it's not in container yet)
     const eventBus = require('../events/eventBus');
-    const eventTypes = require('../events/eventTypes');
-
-    eventBus.subscribe(eventTypes.ORDER_CREATED, (event) => this.processEvent(event, 'order_created'));
-    eventBus.subscribe(eventTypes.ORDER_STATUS_CHANGED, (event) => this.processEvent(event, 'status_change'));
-    eventBus.subscribe(eventTypes.ORDER_CANCELLED, (event) => this.processEvent(event, 'order_cancelled'));
+    
+    // Broadcasts and maintenance re-opening are processed cleanly
     eventBus.subscribe('system.broadcast', (event) => this.processBroadcast(event));
     eventBus.subscribe('loyalty.happy_hour_activated', (event) => this.processBroadcast(event));
     eventBus.subscribe('RESTAURANT_OPENED', () => this.notifySubscribersOfReopening(true));
 
+    // Automated periodic retry reconciliation checks remain as a safety net for fallback processing
     setInterval(() => this.reconcile(), this.RECONCILE_INTERVAL);
   }
 
@@ -56,12 +54,12 @@ class NotificationService {
   async sendToUser(customerId, content) {
     const user = await this.prisma.customer.findUnique({ 
       where: { uuid: customerId },
-      select: { id: true, phone: true }
+      select: { id: true, phone: true, uuid: true }
     });
     if (!user) return;
 
     const notif = await this._createNotificationRecord(
-      { id: content.orderId || 0, customer: { phone: user.phone } }, 
+      { id: content.orderId || 0, customer: user }, 
       content, 
       content.type || 'direct'
     );
@@ -69,7 +67,7 @@ class NotificationService {
     if (notif) {
       const orderContext = content.orderId ? 
         await this.prisma.order.findUnique({ where: { id: content.orderId }, include: { customer: true } }) : 
-        { id: 0, customerId: user.id };
+        { id: 0, customerId: user.id, customer: user };
       await this.dispatch(notif, orderContext);
     }
   }
@@ -82,7 +80,7 @@ class NotificationService {
       const validationResult = notificationPayloadSchema.safeParse({
         type: this._mapToSchemaType(type),
         title: notif.title,
-        body: notif.message,
+        body: notif.body,
         userId: orderContext?.customerId || orderContext?.customer?.id,
         data: { orderId: orderContext?.id }
       });
@@ -95,9 +93,10 @@ class NotificationService {
       // 2. Policy Evaluation (Phase 1: Preferences, Quiet Hours)
       const userId = orderContext?.customerId || orderContext?.customer?.id;
       if (userId && type !== 'broadcast') {
-        const policy = await notificationPolicyService.evaluate(userId, this._mapToSchemaType(type));
+        const identityType = orderContext?.customer ? 'customer' : 'user';
+        const policy = await notificationPolicyService.evaluate(userId, this._mapToSchemaType(type), identityType);
         if (!policy.allowed) {
-          this.logger.info(`[NotificationService] Skip dispatch: ${policy.reason}`, { userId, type });
+          this.logger.info(`[NotificationService] Skip dispatch: ${policy.reason}`, { userId, type, identityType });
           return;
         }
       }
@@ -112,17 +111,18 @@ class NotificationService {
         isBroadcast: type === 'broadcast'
       };
 
-      await Promise.allSettled([
-        this._attemptSocketEmit(notif, orderContext, target),
-        this._attemptFCMPush(notif, orderContext, target)
-      ]);
+      await this._attemptFCMPush(notif, orderContext, target);
 
-      await this.prisma.notification.update({
+      await this.prisma.notificationLog.update({
         where: { id: notif.id },
-        data: { status: 'SENT', retryCount: { increment: 1 } }
+        data: { status: 'SENT', sentAt: new Date(), retries: { increment: 1 } }
       });
     } catch (err) {
       this.logger.error('[NotificationService] Dispatch error', { error: err.message });
+      await this.prisma.notificationLog.update({
+        where: { id: notif.id },
+        data: { status: 'FAILED', error: err.message, retries: { increment: 1 } }
+      }).catch(() => {});
     }
   }
 
@@ -138,15 +138,16 @@ class NotificationService {
   }
 
   async reconcile() {
-    this.logger.info('[NotificationService] 🔄 Starting Reconciliation Job...');
+    this.logger.info('[NotificationService] 🔄 Starting Reconciliation Job (NotificationLog)...');
     const startTime = Date.now();
     let successCount = 0;
     let failCount = 0;
 
-    const pendingTasks = await this.prisma.notification.findMany({
+    // 🛡️ Sweeps pending/failed rows in NotificationLog
+    const pendingTasks = await this.prisma.notificationLog.findMany({
       where: {
         status: { in: ['PENDING', 'FAILED'] },
-        retryCount: { lt: this.MAX_RETRIES },
+        retries: { lt: this.MAX_RETRIES },
         createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
       },
       take: 50
@@ -154,16 +155,21 @@ class NotificationService {
 
     for (const notif of pendingTasks) {
       try {
-        const orderId = parseInt(notif.orderId);
-        if (isNaN(orderId)) continue;
+        const orderId = notif.orderId;
+        if (!orderId) {
+          await this.prisma.notificationLog.update({ where: { id: notif.id }, data: { status: 'SENT' } });
+          continue;
+        }
+
         const order = await this.prisma.order.findUnique({ where: { id: orderId }, include: { customer: true } });
         if (order) {
           await this.dispatch(notif, order);
           successCount++;
+        } else {
+          await this.prisma.notificationLog.update({ where: { id: notif.id }, data: { status: 'SENT' } });
         }
       } catch (err) {
         failCount++;
-        await this.prisma.notification.update({ where: { id: notif.id }, data: { retryCount: { increment: 1 }, lastError: err.message } });
       }
     }
     
@@ -174,11 +180,11 @@ class NotificationService {
       failed: failCount
     });
     
-    await this.notifySubscribersOfReopening();
+    await this.notifySubscribersOfReopening().catch(e => this.logger.error('[NotificationService] notify reopening error', { error: e.message }));
   }
 
   async notifySubscribersOfReopening(forceAll = false) {
-    const firebaseService = require('./firebaseService'); // Fallback for now
+    const firebaseService = require('./firebaseService');
     const now = new Date();
     const where = forceAll ? { notified: false } : { notified: false, targetTime: { lte: now } };
     const subs = await this.prisma.restaurantSubscription.findMany({ where, take: 100 });
@@ -188,60 +194,19 @@ class NotificationService {
         await firebaseService.sendToToken(sub.fcmToken, "🎉 نـحـن بـانـتـظـاركـم!", "تم فتح المطعم الآن...", { type: 'RESTAURANT_OPENED' });
         await this.prisma.restaurantSubscription.update({ where: { id: sub.id }, data: { notified: true } });
       } catch (e) {
-        logger.logError('NotificationService.notifySubscribersOfReopening', e, { subId: sub.id });
+        this.logger.error('NotificationService.notifySubscribersOfReopening', { error: e.message, subId: sub.id });
       }
     }
-  }
-
-  async _attemptSocketEmit(notif, order, target) {
-    const io = this._getIO();
-    if (!io) return false;
-
-    const payload = {
-      action: 'INVALIDATE', // 🛡️ Strategic Consistency Signal
-      aggregateType: 'Order',
-      aggregateId: order?.id || notif.orderId || null,
-      version: order?.version || 1,
-      eventSequence: order?.eventSequence || 1,
-      previousVersion: order?.previousVersion || 0,
-      causedByEventId: order?.causedByEventId || null,
-      notification: { title: notif.title, message: notif.message, type: notif.type },
-      timestamp: Date.now()
-    };
-
-    if (target.isBroadcast) {
-      io.emit(SOCKET_EVENTS.NOTIFICATION_NEW, this.container.securityPolicyService.wrapPayload(payload));
-    }
-    
-    const eventMeta = {
-      type: notif.type,
-      branchId: order?.branchId || null,
-      customerUuid: order?.customer?.uuid || order?.customerId
-    };
-
-    const targetRooms = await this.container.securityPolicyService.getTargetRooms(eventMeta);
-    
-    if (target.isToAdmin) {
-      const execEvent = SOCKET_EVENTS.EXEC_ORDER_UPDATED;
-      const finalPayload = this.container.securityPolicyService.wrapPayload(payload);
-      targetRooms.forEach(room => io.broadcastSmart(room, execEvent, finalPayload));
-    }
-    
-    if (target.isToCustomer && eventMeta.customerUuid) {
-      const { SOCKET_ROOMS } = require('../shared/socketEvents');
-      io.broadcastSmart(SOCKET_ROOMS.CUSTOMER(eventMeta.customerUuid), SOCKET_EVENTS.CUSTOMER_ORDER_UPDATED, this.container.securityPolicyService.wrapPayload(payload));
-    }
-    return true;
   }
 
   async _attemptFCMPush(notif, order, target) {
     const firebaseService = require('./firebaseService');
     if (target.isBroadcast) {
-      await firebaseService.sendBroadcast(notif.title, notif.message, { type: 'broadcast' });
+      await firebaseService.sendBroadcast(notif.title, notif.body, { type: 'broadcast', logId: String(notif.id) });
     } else if (target.isToAdmin) {
-      await firebaseService.sendToTopic('staff_orders', notif.title, notif.message, { type: 'order_created' });
+      await firebaseService.sendToTopic('staff_orders', notif.title, notif.body, { type: 'order_created', logId: String(notif.id) });
     } else if (target.isToCustomer && order.customer?.fcmToken) {
-      await firebaseService.sendToToken(order.customer.fcmToken, notif.title, notif.message, { type: notif.type });
+      await firebaseService.sendToToken(order.customer.fcmToken, notif.title, notif.body, { type: notif.type, logId: String(notif.id) });
     }
   }
 
@@ -253,24 +218,25 @@ class NotificationService {
       const safeTitle = title ? xss(String(title), { whiteList: {} }) : '';
       const safeMessage = message ? xss(String(message), { whiteList: {} }) : '';
 
-      const notification = await this.prisma.notification.create({
+      const customer = await this.prisma.customer.findFirst({ where: { phone } });
+
+      const notification = await this.prisma.notificationLog.create({
         data: {
-          customerPhone: phone,
+          userId: customer?.uuid || null,
+          customerId: customer?.id || null,
           title: safeTitle,
-          message: safeMessage,
+          body: safeMessage,
           type: metadata.type || 'SYSTEM_ALERT',
-          status: 'PENDING',
-          metadata
+          status: 'PENDING'
         }
       });
 
       // Attempt immediate delivery
       const firebaseService = require('./firebaseService');
-      const customer = await this.prisma.customer.findFirst({ where: { phone } });
       
       if (customer?.fcmToken) {
-        await firebaseService.sendToToken(customer.fcmToken, safeTitle, safeMessage, metadata);
-        await this.prisma.notification.update({ where: { id: notification.id }, data: { status: 'SENT', fcmSent: true } });
+        await firebaseService.sendToToken(customer.fcmToken, safeTitle, safeMessage, { ...metadata, logId: String(notification.id) });
+        await this.prisma.notificationLog.update({ where: { id: notification.id }, data: { status: 'SENT', sentAt: new Date() } });
       }
 
       return notification;
@@ -280,13 +246,19 @@ class NotificationService {
   }
 
   async _createNotificationRecord(order, content, type) {
-    const phone = order.customerPhone || order.customer?.phone || null;
+    const userId = order.customer?.uuid || null;
     const safeTitle = content.title ? xss(String(content.title), { whiteList: {} }) : '';
     const safeMessage = content.message ? xss(String(content.message), { whiteList: {} }) : '';
-    return await this.prisma.notification.create({
+    
+    return await this.prisma.notificationLog.create({
       data: {
-        title: safeTitle, message: safeMessage, type: type,
-        orderId: order.id ? parseInt(order.id) : null, customerPhone: phone, status: 'PENDING'
+        userId: userId,
+        customerId: order.customerId || order.customer?.id || null,
+        orderId: order.id ? parseInt(order.id) : null,
+        title: safeTitle,
+        body: safeMessage,
+        type: type,
+        status: 'PENDING'
       }
     });
   }

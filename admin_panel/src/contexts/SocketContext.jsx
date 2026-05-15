@@ -1,11 +1,13 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { io } from 'socket.io-client';
 import { toast } from 'sonner';
+import { useQueryClient } from '@tanstack/react-query';
 import { getCookie } from '../lib/utils';
 import api, { unwrap } from '../api/client';
 import { tokenStore } from '../api/tokenStore';
 import { useAuth } from './AuthContext';
 import { useDebounce } from '../hooks/useDebounce';
+import { SOCKET_EVENTS } from '../constants/socketEvents';
 
 const SocketContext = createContext();
 
@@ -13,6 +15,7 @@ const SOCKET_URL = import.meta.env.VITE_API_URL || (typeof window !== 'undefined
 
 export const SocketProvider = ({ children }) => {
   const { user, selectedBranchId } = useAuth();
+  const queryClient = useQueryClient();
   const [socket, setSocket] = useState(null);
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -128,6 +131,32 @@ export const SocketProvider = ({ children }) => {
       handleSync(newSocket);
     });
 
+    // 🧠 [SDS-SCALING] Backpressure Control: Debounced Invalidation
+    // Prevents "Refetch Storms" by batching multiple socket events into a single API call.
+    const invalidationQueue = useRef(new Set());
+    const invalidationTimer = useRef(null);
+
+    const triggerDebouncedInvalidation = (branchId, keys = ['orders', 'branchStats']) => {
+      if (!branchId) return;
+      
+      // Add to queue
+      keys.forEach(k => invalidationQueue.current.add(`${k}-${branchId}`));
+      
+      if (invalidationTimer.current) clearTimeout(invalidationTimer.current);
+      
+      invalidationTimer.current = setTimeout(() => {
+        console.log(`🚀 [Scaling] Executing batched invalidation for ${invalidationQueue.current.size} keys`);
+        
+        // 🛡️ Batch process the queue
+        invalidationQueue.current.forEach(queuedItem => {
+          const [key, bId] = queuedItem.split('-');
+          queryClient.invalidateQueries({ queryKey: [key, bId] });
+        });
+        
+        invalidationQueue.current.clear();
+      }, 800); // 800ms window for peak-hour batching
+    };
+
     newSocket.on('connect_error', (err) => {
       console.error('Socket connection error:', err.message);
       if (err.message === 'Unauthorized' || err.message === 'UNAUTHORIZED_OR_INACTIVE') {
@@ -135,13 +164,13 @@ export const SocketProvider = ({ children }) => {
       }
     });
 
-    // 🧠 LIVE COMMAND CENTER LISTENER
-    newSocket.on('dashboard:metrics:update', (metrics) => {
-      setLiveMetrics(prev => {
-        if (prev && metrics.sequence < prev.sequence) return prev; 
-        setMetricsHistory(h => [...h, metrics].slice(-10));
-        return metrics;
-      });
+    newSocket.on(SOCKET_EVENTS.DASHBOARD_METRICS_UPDATE, (metrics) => {
+      console.log('📊 [Socket] Metrics Update. Queuing branchStats invalidation...');
+      const branchId = metrics.branchId || debouncedBranchId;
+      if (branchId) {
+        triggerDebouncedInvalidation(branchId, ['branchStats']);
+      }
+      setMetricsHistory(h => [...h, metrics].slice(-10));
     });
 
     // 🛡️ [DEDUPLICATION] Event Tracking
@@ -157,10 +186,16 @@ export const SocketProvider = ({ children }) => {
       return false;
     };
 
-    // 📡 Standardized System Notifications
-    newSocket.on('order:created', (payload) => {
-      const { eventId, data: order } = payload;
-      if (isDuplicate(eventId)) return;
+    // 📡 Standardized System Notifications (Semantic Events)
+    newSocket.on(SOCKET_EVENTS.EXEC_ORDER_CREATED, (payload) => {
+      const order = payload?.data || payload;
+      if (isDuplicate(payload.eventId)) return;
+
+      console.log('🔔 [Socket] New Order. Queuing invalidation...');
+      const branchId = order.branchId || debouncedBranchId;
+      if (branchId) {
+        triggerDebouncedInvalidation(branchId, ['orders', 'branchStats']);
+      }
 
       toast.success('طلب جديد 🔔', {
         description: `طلب جديد رقم (${order.orderNumber}) بانتظار القبول.`,
@@ -171,9 +206,15 @@ export const SocketProvider = ({ children }) => {
       fetchNotifications();
     });
 
-    newSocket.on('order:updated', (payload) => {
-      const { eventId, data: order } = payload;
-      if (isDuplicate(eventId)) return;
+    newSocket.on(SOCKET_EVENTS.EXEC_ORDER_UPDATED, (payload) => {
+      const order = payload?.data || payload;
+      if (isDuplicate(payload.eventId)) return;
+
+      console.log('🔄 [Socket] Order Updated. Queuing invalidation...');
+      const branchId = order.branchId || debouncedBranchId;
+      if (branchId) {
+        triggerDebouncedInvalidation(branchId, ['orders', 'branchStats']);
+      }
 
       if (['ready', 'in_route', 'cancelled'].includes(order.status)) {
         toast.info(`تحديث: ${order.orderNumber}`, {
@@ -184,7 +225,7 @@ export const SocketProvider = ({ children }) => {
       fetchNotifications();
     });
 
-    newSocket.on('new_admin_notification', (payload) => {
+    newSocket.on(SOCKET_EVENTS.NOTIFICATION_NEW, (payload) => {
       const { eventId, data: notification } = payload;
       if (isDuplicate(eventId)) return;
 

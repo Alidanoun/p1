@@ -37,6 +37,7 @@ function getInitialMetrics() {
       takeaway: 0,
       dine_in: 0
     },
+    activityFeed: [],
     updatedAt: new Date(),
     version: 1,
     eventSequence: 0
@@ -114,7 +115,8 @@ async function syncFinancials(branchId) {
       createdAt: { gte: ammanStartOfDay },
       isDeleted: false
     },
-    select: { total: true, subtotal: true, deliveryFee: true, discount: true }
+    select: { total: true, subtotal: true, deliveryFee: true, discount: true },
+    take: 500
   });
 
   const cancelledOrders = await prisma.order.findMany({
@@ -124,7 +126,8 @@ async function syncFinancials(branchId) {
       createdAt: { gte: ammanStartOfDay },
       isDeleted: false
     },
-    select: { total: true }
+    select: { total: true },
+    take: 500
   });
 
   // Reset financials
@@ -158,53 +161,150 @@ async function syncFinancials(branchId) {
   metrics.eventSequence += 1;
 }
 
-function handleCreated(payload) {
-  const metrics = getBranchMetrics(payload.branchId);
+// 🛡️ Option B Architecture: Idempotent Event-Application / State Reconstruction Model
+// Authoritative in-memory snapshot tracking logical state of active orders for uncorrupted dynamic reconstruction
+const activeOrdersMap = new Map();
+
+function rebuildBranchMetrics(branchId) {
+  const metrics = getBranchMetrics(branchId);
   if (!metrics) return;
 
-  metrics.counts.total += 1;
-  metrics.counts.active += 1;
-  metrics.statusDistribution.pending += 1;
-  metrics.typeDistribution[payload.orderType || 'takeaway'] += 1;
-  metrics.updatedAt = new Date();
-  metrics.version = (metrics.version || 0) + 1;
-  metrics.eventSequence += 1;
-}
+  // 1. Reset live distribution counters and active count to pure uncorrupted zero
+  metrics.counts.total = 0;
+  metrics.counts.active = 0;
+  Object.keys(metrics.statusDistribution).forEach(k => metrics.statusDistribution[k] = 0);
+  Object.keys(metrics.typeDistribution).forEach(k => metrics.typeDistribution[k] = 0);
 
-function handleModified(payload) {
-  const { order } = payload;
-  // Any modification to a finalized order requires a financial sync
-  if (isRevenueStatus(order.status) || order.status === 'cancelled') {
-    syncFinancials(order.branchId);
-  }
-}
+  // 2. Reconstruct completely in O(N) from authoritative active memory snapshots
+  for (const snap of activeOrdersMap.values()) {
+    if (snap.branchId === branchId) {
+      metrics.counts.total += 1;
+      const st = snap.status || 'pending';
+      metrics.statusDistribution[st] = (metrics.statusDistribution[st] || 0) + 1;
+      const ty = snap.orderType || 'takeaway';
+      metrics.typeDistribution[ty] = (metrics.typeDistribution[ty] || 0) + 1;
 
-function handleStatusChange(payload) {
-  const { previousStatus, newStatus, order } = payload;
-  const metrics = getBranchMetrics(order.branchId);
-  if (!metrics) return;
-
-  // 1. Update Distribution (Live Stats - Approximate)
-  if (previousStatus && metrics.statusDistribution[previousStatus] > 0) {
-    metrics.statusDistribution[previousStatus] -= 1;
-  }
-  metrics.statusDistribution[newStatus] = (metrics.statusDistribution[newStatus] || 0) + 1;
-
-  // 2. Manage Active Count
-  if (previousStatus === 'pending' || previousStatus === 'confirmed' || previousStatus === 'preparing' || previousStatus === 'ready' || previousStatus === 'in_route') {
-    if (newStatus === 'delivered' || newStatus === 'cancelled') {
-      metrics.counts.active = Math.max(0, metrics.counts.active - 1);
+      if (st !== 'delivered' && st !== 'cancelled') {
+        metrics.counts.active += 1;
+      }
     }
   }
 
-  // 3. 💰 Trigger Financial Reconciliation on Terminal States
-  if (newStatus === 'delivered' || newStatus === 'cancelled' || previousStatus === 'delivered' || previousStatus === 'cancelled') {
-    syncFinancials(order.branchId);
-  }
-
   metrics.updatedAt = new Date();
   metrics.version = (metrics.version || 0) + 1;
   metrics.eventSequence += 1;
+}
+
+function pushActivityLog(branchId, order, action) {
+  const metrics = getBranchMetrics(branchId);
+  if (!metrics) return;
+  if (!metrics.activityFeed) metrics.activityFeed = [];
+  metrics.activityFeed.unshift({
+    id: `${order.id}-${Date.now()}`,
+    orderNumber: order.orderNumber,
+    action,
+    status: order.status,
+    time: new Date()
+  });
+  if (metrics.activityFeed.length > 40) metrics.activityFeed.pop();
+}
+
+function broadcastUpdate(branchId) {
+  try {
+    const socketModule = require('../socket');
+    if (socketModule.isReady && socketModule.isReady()) {
+      const io = socketModule.getIO();
+      const { SOCKET_ROOMS, SOCKET_EVENTS } = require('../shared/socketEvents');
+      io.broadcastSmart(SOCKET_ROOMS.MONITOR_BRANCH(branchId), SOCKET_EVENTS.DASHBOARD_METRICS_UPDATE, module.exports.getMetrics(branchId));
+      io.broadcastSmart(SOCKET_ROOMS.MONITOR_GLOBAL, SOCKET_EVENTS.DASHBOARD_METRICS_UPDATE, module.exports.getMetrics(null));
+    }
+  } catch (err) { /* silent safe execution */ }
+}
+
+function handleCreated(payload) {
+  const order = payload?.order || payload;
+  if (!order || !order.id) return;
+
+  const orderId = String(order.id);
+  const incomingVersion = order.version || 1;
+  const existing = activeOrdersMap.get(orderId);
+
+  // 🛡️ Monotonic Version Guard: Ignore stale created events/replays
+  if (existing && existing.version >= incomingVersion) {
+    return;
+  }
+
+  activeOrdersMap.set(orderId, {
+    branchId: order.branchId,
+    status: order.status || 'pending',
+    orderType: order.orderType || 'takeaway',
+    version: incomingVersion
+  });
+
+  rebuildBranchMetrics(order.branchId);
+  pushActivityLog(order.branchId, order, 'تم إنشاء طلب جديد');
+  broadcastUpdate(order.branchId);
+}
+
+async function handleModified(payload) {
+  const order = payload?.order || payload;
+  if (!order || !order.id) return;
+
+  const orderId = String(order.id);
+  const incomingVersion = order.version || 0;
+  const existing = activeOrdersMap.get(orderId);
+
+  if (existing && incomingVersion && existing.version >= incomingVersion) {
+    return;
+  }
+
+  activeOrdersMap.set(orderId, {
+    branchId: order.branchId || existing?.branchId,
+    status: order.status || existing?.status || 'pending',
+    orderType: order.orderType || existing?.orderType || 'takeaway',
+    version: incomingVersion || existing?.version || 1
+  });
+
+  rebuildBranchMetrics(order.branchId || existing?.branchId);
+  pushActivityLog(order.branchId || existing?.branchId, order, 'تعديل على الطلب');
+
+  // Any modification to a finalized order requires a financial sync
+  if (isRevenueStatus(order.status) || order.status === 'cancelled') {
+    await syncFinancials(order.branchId);
+  }
+  broadcastUpdate(order.branchId || existing?.branchId);
+}
+
+async function handleStatusChange(payload) {
+  const { order } = payload;
+  if (!order || !order.id) return;
+
+  const orderId = String(order.id);
+  const incomingVersion = order.version || 0;
+  const existing = activeOrdersMap.get(orderId);
+
+  // 🛡️ Absolute Monotonic Idempotency Check: Drop stale network replays deterministically
+  if (existing && existing.version >= incomingVersion) {
+    return;
+  }
+
+  activeOrdersMap.set(orderId, {
+    branchId: order.branchId || existing?.branchId,
+    status: order.status,
+    orderType: order.orderType || existing?.orderType || 'takeaway',
+    version: incomingVersion
+  });
+
+  rebuildBranchMetrics(order.branchId || existing?.branchId);
+
+  const statusAr = { confirmed: 'تأكيد الطلب', preparing: 'تجهيز الطلب', ready: 'الطلب جاهز', in_route: 'خرج للتوصيل', delivered: 'تم التسليم', cancelled: 'إلغاء الطلب' }[order.status] || order.status;
+  pushActivityLog(order.branchId || existing?.branchId, order, `تحديث الحالة: ${statusAr}`);
+
+  // 💰 Trigger Financial Reconciliation on Terminal States
+  if (order.status === 'delivered' || order.status === 'cancelled') {
+    await syncFinancials(order.branchId);
+  }
+  broadcastUpdate(order.branchId || existing?.branchId);
 }
 
 const prisma = require('../lib/prisma');
@@ -231,26 +331,22 @@ async function replay(targetBranchId = null) {
           createdAt: { gte: ammanStartOfDay },
           isDeleted: false
       },
-      select: { total: true, status: true, orderType: true, subtotal: true, deliveryFee: true, discount: true, tax: true }
+      select: { id: true, total: true, status: true, orderType: true, subtotal: true, deliveryFee: true, discount: true, tax: true, version: true },
+      take: 500
     });
 
-    const metrics = getBranchMetrics(bid);
-    // Reset non-financials (Financials will be synced via syncFinancials or logic below)
-    metrics.counts.total = 0;
-    metrics.counts.active = 0;
-    Object.keys(metrics.statusDistribution).forEach(k => metrics.statusDistribution[k] = 0);
-    Object.keys(metrics.typeDistribution).forEach(k => metrics.typeDistribution[k] = 0);
-
     for (const order of orders) {
-      metrics.counts.total += 1;
-      metrics.statusDistribution[order.status] = (metrics.statusDistribution[order.status] || 0) + 1;
-      metrics.typeDistribution[order.orderType || 'takeaway'] += 1;
-
-      if (!['delivered', 'cancelled'].includes(order.status)) {
-        metrics.counts.active += 1;
-      }
+      activeOrdersMap.set(String(order.id), {
+        branchId: bid,
+        status: order.status,
+        orderType: order.orderType || 'takeaway',
+        version: order.version || 1
+      });
     }
     
+    // Dynamic idempotent reconstruction from the authoritative map
+    rebuildBranchMetrics(bid);
+
     // 💰 Force Financial Sync from DB
     await syncFinancials(bid);
   }
@@ -258,6 +354,7 @@ async function replay(targetBranchId = null) {
 
 function reset() {
   branchMap.clear();
+  activeOrdersMap.clear();
 }
 
 // 🏥 Periodic Financial Reconciliation Job (Every 5 minutes)
@@ -273,5 +370,9 @@ module.exports = {
   reset,
   replay,
   syncFinancials,
-  getMetrics: (branchId) => branchId ? getBranchMetrics(branchId) : getGlobalMetrics(),
+  getMetrics: (branchId) => {
+    const data = branchId ? getBranchMetrics(branchId) : getGlobalMetrics();
+    if (!data) return null;
+    return { ...data, sequence: data.eventSequence };
+  },
 };

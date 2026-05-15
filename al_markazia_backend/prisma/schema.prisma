@@ -76,6 +76,8 @@ model Branch {
   address   String?
   phone     String?
   isActive  Boolean  @default(true)
+  isDeleted Boolean  @default(false)
+  deletedAt DateTime?
   country   String?  @default("JO")
   timezone  String?  @default("Africa/Cairo")
 
@@ -93,6 +95,7 @@ model Branch {
   metrics        BranchMetric?
   auditLogs      SystemAuditLog[]
   financialApprovals FinancialApproval[]
+  branchVariants BranchVariant[]
 }
 
 model BranchItem {
@@ -101,13 +104,30 @@ model BranchItem {
   itemId      Int
   isAvailable Boolean  @default(true)
 
-  branch      Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  branch      Branch   @relation(fields: [branchId], references: [id], onDelete: Restrict)
   item        Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@unique([branchId, itemId])
+  @@index([branchId])
+}
+
+model BranchVariant {
+  id            Int      @id @default(autoincrement())
+  branchId      String
+  variantId     Int
+  isAvailable   Boolean  @default(true)
+  version       Int      @default(1)
+  
+  branch        Branch      @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  variant       ItemVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([branchId, variantId])
   @@index([branchId])
 }
 
@@ -145,6 +165,7 @@ model Item {
   excludeFromStats  Boolean           @default(false)
   isDeleted         Boolean           @default(false)
   deletedAt         DateTime?
+  isGlobal          Boolean           @default(true) // 🧬 [PHASE 3] If true, appears in all branches. If false, only assigned.
   availabilitySchedule Json?     // {"mon": ["08:00","14:00"], ...}
   
   category          Category          @relation(fields: [categoryId], references: [id])
@@ -167,6 +188,7 @@ model ItemVariant {
   isDefault   Boolean  @default(false)
   isAvailable Boolean  @default(true)
   item        Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  branchVariants BranchVariant[]
 }
 
 model ModifierGroup {
@@ -207,7 +229,7 @@ model Order {
 
   // Branch Integration
   branchId         String
-  branch           Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  branch           Branch  @relation(fields: [branchId], references: [id], onDelete: Restrict)
   orderType        String
   status           String             @default("pending")
   paymentStatus    String             @default("unpaid")
@@ -355,8 +377,21 @@ model Customer {
   reviews             Review[]
   customerRewards     CustomerReward[]
   timezone            String?            @default("Africa/Cairo")
+  quietHoursStart     Int                @default(23)
+  quietHoursEnd       Int                @default(7)
+  notificationPreferences CustomerNotificationPreference[]
 
   @@index([isBlacklisted])
+}
+
+model CustomerNotificationPreference {
+  id        Int      @id @default(autoincrement())
+  customerId Int
+  category  String   // operational, financial, marketing, system
+  isEnabled Boolean  @default(true)
+  customer  Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([customerId, category])
 }
 
 model Payment {
@@ -459,19 +494,6 @@ model OrderCancellation {
   order           Order    @relation(fields: [orderId], references: [id])
 }
 
-model SystemSettings {
-  id                      Int      @id @default(autoincrement())
-  key                     String   @unique
-  value                   String
-  updatedAt               DateTime @updatedAt
-  freeCancelWindowMinutes Int      @default(5)
-  spamCancelLimit         Int      @default(3)
-  spamTimeWindowMinutes   Int      @default(30)
-  defaultDeliveryFee      Decimal  @default(1.00) @db.Decimal(10, 2)
-  businessConfig          Json?    // { maxCancellationReasonLength: 500, maxRating: 5 }
-  securityConfig          Json?    // { maxLoginAttempts: 5, lockDurationMinutes: 15, timingDelayMs: 300 }
-}
-
 model OrderAuditLog {
   id              Int      @id @default(autoincrement())
   orderId         Int
@@ -484,6 +506,7 @@ model OrderAuditLog {
   changedFields   String?
   rejectionReason String?
   integrityHash   String?
+  previousHash    String?
   createdAt       DateTime @default(now())
   order           Order    @relation(fields: [orderId], references: [id])
 
@@ -654,7 +677,7 @@ model SystemAuditLog {
   ip           String?
   userAgent    String?
   branchId     String?
-  branch       Branch?  @relation(fields: [branchId], references: [id])
+  branch       Branch?  @relation(fields: [branchId], references: [id], onDelete: Restrict)
   metadata     Json?    // Stores diffs: { before: {}, after: {} }
   createdAt    DateTime @default(now())
 
@@ -732,7 +755,7 @@ model FinancialLedger {
   metadata        Json?
   createdAt       DateTime @default(now())
 
-  branch          Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  branch          Branch   @relation(fields: [branchId], references: [id], onDelete: Restrict)
   approvals       FinancialApproval[]
   @@index([customerId])
   @@index([orderId])
@@ -751,6 +774,8 @@ model FinancialApproval {
   status          FinancialApprovalStatus @default(PENDING)
   approvedBy      Int?
   rejectionReason String?
+  amount          Decimal? @db.Decimal(10, 2)
+  riskLevel       String   @default("LOW") // HIGH, MEDIUM, LOW
   
   // Traceability Link
   ledgerEntryId   Int?
@@ -767,6 +792,7 @@ model FinancialApproval {
 
   @@index([status])
   @@index([operationType])
+  @@index([riskLevel])
 }
 
 enum FinancialApprovalStatus {
@@ -829,6 +855,7 @@ model RewardItem {
   image           String?
   pointsCost      Int
   isActive        Boolean  @default(true)
+  minTier         String   @default("SILVER") // SILVER, GOLD, PLATINUM
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   
@@ -881,6 +908,33 @@ model AwardedLoyaltyPoints {
   @@index([customerId])
 }
 
+model LoyaltyLedger {
+  id              Int      @id @default(autoincrement())
+  customerId      Int
+  type            String   // CREDIT (Points In), DEBIT (Points Out)
+  category        String   // ORDER_AWARD, REVIEW_AWARD, SOCIAL_AWARD, REDEMPTION, ADJUSTMENT
+  points          Int      // Amount of points (Saturating Integer)
+  balanceBefore   Int      // Snapshot for verification
+  balanceAfter    Int      // Snapshot for verification
+  
+  // 🛡️ [INTEGRITY] Unique Idempotency Key
+  // Format: source_type:aggregate_id:action_hash
+  idempotencyKey  String   @unique 
+  
+  // 🔗 [TRACEABILITY] Causal Links
+  referenceId     String?  // OrderNumber, ReviewId, or ActionUUID
+  description     String?
+  metadata        Json?    // { ip: "...", device: "...", version: 1 }
+  
+  createdAt       DateTime @default(now())
+  
+  customer        Customer @relation(fields: [customerId], references: [id])
+
+  @@index([customerId, createdAt(sort: Desc)])
+  @@index([category])
+  @@index([idempotencyKey])
+}
+
 model DailyFinancialSnapshot {
   id              String   @id @default(uuid())
   date            DateTime // The day this snapshot represents
@@ -895,7 +949,7 @@ model DailyFinancialSnapshot {
   isFrozen        Boolean  @default(true) // Snapshots are immutable by default
   createdAt       DateTime @default(now())
 
-  branch          Branch   @relation("BranchSnapshots", fields: [branchId], references: [id], onDelete: Cascade)
+  branch          Branch   @relation("BranchSnapshots", fields: [branchId], references: [id], onDelete: Restrict)
   
   @@unique([date, branchId])
   @@index([date])
@@ -957,15 +1011,20 @@ model UserBranchPreference {
 
 model BusinessPolicy {
   id          String   @id @default(uuid())
-  key         String   @unique // e.g., 'SLA_PREP_TIME', 'DELIVERY_BASE_FEE'
+  branchId    String?  // NULL means Global Policy
+  key         String   // e.g., 'SLA_PREP_TIME', 'DELIVERY_BASE_FEE'
   value       Json     // { val: 20, unit: 'minutes' }
-  category    String   // SLA, PRICING, CANCELLATION, SYSTEM
+  category    String   // SLA, PRICING, CANCELLATION, SYSTEM, SECURITY, LOYALTY
   description String?
   isActive    Boolean  @default(true)
   updatedAt   DateTime @updatedAt
   updatedBy   String?
 
+  branch      Branch?  @relation(fields: [branchId], references: [id])
+
+  @@unique([key, branchId])
   @@index([category])
+  @@index([branchId])
 }
 
 model IdempotencyKey {

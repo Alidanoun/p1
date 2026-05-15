@@ -2,6 +2,9 @@ const prisma = require('../lib/prisma');
 const logger = require('../utils/logger');
 const redis = require('../lib/redis');
 
+const { getRequestId, getCorrelationId } = require('../utils/context');
+const { trace } = require('@opentelemetry/api');
+
 /**
  * 📮 Outbox Service (SDS 2.0)
  * Implements Transactional Outbox with Wake-up Pulse pattern.
@@ -10,7 +13,23 @@ class OutboxService {
   /**
    * 📥 Enqueue: Save event to DB (Must be used INSIDE a transaction)
    */
-  async enqueue(tx, { type, aggregateId, aggregateType, payload, version, eventSequence, metadata = {} }) {
+  async enqueue(tx, { type, aggregateId, aggregateType, payload, version, eventSequence, metadata = {}, causationId = null }) {
+    // 📡 Context Capture: Ensure background workers have the original trace context
+    const requestId = getRequestId();
+    const correlationId = getCorrelationId();
+    const activeSpan = trace.getActiveSpan();
+    const traceId = activeSpan?.spanContext()?.traceId;
+
+    const enrichedMetadata = {
+      ...metadata,
+      requestId,
+      correlationId,
+      traceId,
+      causationId,
+      source: 'al-markazia-backend',
+      timestamp: new Date().toISOString()
+    };
+
     return tx.outboxEvent.create({
       data: {
         type,
@@ -19,7 +38,7 @@ class OutboxService {
         payload: payload || {},
         version: version || 1,
         eventSequence: eventSequence || 1,
-        metadata: metadata || {}
+        metadata: enrichedMetadata
       }
     });
   }
@@ -46,18 +65,25 @@ class OutboxService {
 
     try {
       const pending = await prisma.outboxEvent.findMany({
-        where: { status: 'PENDING' },
+        where: {
+          OR: [
+            { status: 'PENDING' },
+            { status: 'FAILED', retries: { lt: 3 } }
+          ]
+        },
         orderBy: { createdAt: 'asc' },
         take: 50
       });
 
       if (pending.length === 0) return;
 
-      const distributedBus = require('../events/distributedEventBus');
+      const streamBackbone = require('../events/streamBackbone');
+      await streamBackbone.initialize();
       
       for (const event of pending) {
         try {
-          await distributedBus.publish(event.type, event.payload, {
+          // 🛰️ Push event definitively to the Single Source of Truth Backbone Stream
+          await streamBackbone.publishToBackbone(event.type, event.payload, {
             eventId: event.id,
             aggregateId: event.aggregateId,
             aggregateType: event.aggregateType,
@@ -71,7 +97,7 @@ class OutboxService {
             data: { status: 'DISPATCHED', processedAt: new Date() }
           });
         } catch (err) {
-          logger.error(`[OutboxService] Failed to dispatch event ${event.id}`, { error: err.message });
+          logger.error(`[OutboxService] Failed to append event to stream backbone ${event.id}`, { error: err.message });
           await prisma.outboxEvent.update({
             where: { id: event.id },
             data: { status: 'FAILED', error: err.message, retries: { increment: 1 } }
@@ -82,17 +108,19 @@ class OutboxService {
       await redis.del(lockKey);
     }
   }
+
   /**
-   * ⚡ Immediate Dispatch: Manually trigger dispatch for a specific event
-   * Used for latency-sensitive operations to bypass the pulse/poll delay.
+   * ⚡ Immediate Dispatch: Manually trigger stream append for a specific confirmed outbox event
    */
   async immediateDispatch(eventId) {
     try {
       const event = await prisma.outboxEvent.findUnique({ where: { id: eventId } });
       if (!event || event.status !== 'PENDING') return;
 
-      const distributedBus = require('../events/distributedEventBus');
-      await distributedBus.publish(event.type, event.payload, {
+      const streamBackbone = require('../events/streamBackbone');
+      await streamBackbone.initialize();
+
+      await streamBackbone.publishToBackbone(event.type, event.payload, {
         eventId: event.id,
         aggregateId: event.aggregateId,
         aggregateType: event.aggregateType,
@@ -106,7 +134,7 @@ class OutboxService {
         data: { status: 'DISPATCHED', processedAt: new Date() }
       });
     } catch (err) {
-      logger.error(`[OutboxService] Immediate dispatch failed for ${eventId}`, { error: err.message });
+      logger.error(`[OutboxService] Immediate stream append failed for ${eventId}`, { error: err.message });
     }
   }
 }

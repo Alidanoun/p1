@@ -8,52 +8,77 @@ const crypto = require('crypto');
  */
 class MenuCacheService {
   constructor() {
-    this.CACHE_KEY = 'menu:snapshot:full';
-    this.ETAG_KEY = 'menu:etag';
+    this.BASE_KEY = 'menu:snapshot';
+    this.ETAG_BASE = 'menu:etag';
     this.TTL = 86400; // 24 hours
   }
 
+  _getCacheKey(branchId = 'global') {
+    return `${this.BASE_KEY}:branch:${branchId}`;
+  }
+
+  _getETagKey(branchId = 'global') {
+    return `${this.ETAG_BASE}:branch:${branchId}`;
+  }
+
   /**
-   * 💾 Set menu snapshot in Redis
+   * 💾 Set resolved menu snapshot in Redis per branch
    */
-  async setMenu(menuData) {
+  async setMenu(menuData, branchId = 'global') {
     try {
       const data = JSON.stringify(menuData);
       const etag = crypto.createHash('md5').update(data).digest('hex');
+      const cacheKey = this._getCacheKey(branchId);
+      const etagKey = this._getETagKey(branchId);
       
       await redis.pipeline()
-        .set(this.CACHE_KEY, data, 'EX', this.TTL)
-        .set(this.ETAG_KEY, etag, 'EX', this.TTL)
+        .set(cacheKey, data, 'EX', this.TTL)
+        .set(etagKey, etag, 'EX', this.TTL)
         .exec();
         
-      logger.info('[MenuCache] Snapshot updated', { etag });
+      logger.info('[MenuCache] Branch snapshot updated', { branchId, etag });
       return etag;
     } catch (err) {
-      logger.error('[MenuCache] Failed to cache menu', { error: err.message });
+      logger.error('[MenuCache] Failed to cache menu', { branchId, error: err.message });
       return null;
     }
   }
 
   /**
-   * 🔍 Get cached menu
+   * 🔍 Get resolved menu for a branch
    */
-  async getMenu() {
-    return await redis.get(this.CACHE_KEY);
+  async getMenu(branchId = 'global') {
+    return await redis.get(this._getCacheKey(branchId));
   }
 
   /**
-   * 🏷️ Get current ETag
+   * 🏷️ Get current ETag for a branch
    */
-  async getETag() {
-    return await redis.get(this.ETAG_KEY);
+  async getETag(branchId = 'global') {
+    return await redis.get(this._getETagKey(branchId));
   }
 
   /**
-   * 🗑️ Invalidate Cache
+   * 🗑️ Invalidate Cache (supports global or branch-specific)
    */
-  async invalidate() {
-    await redis.del(this.CACHE_KEY, this.ETAG_KEY);
-    logger.info('[MenuCache] Cache invalidated');
+  async invalidate(branchId = null) {
+    try {
+      if (branchId) {
+        await redis.del(this._getCacheKey(branchId), this._getETagKey(branchId));
+        logger.info('[MenuCache] Branch cache invalidated', { branchId });
+      } else {
+        // Global invalidation: find all keys and delete
+        // Note: In high-scale, use SCAN. For now, simple DEL with wildcard if supported or manual.
+        // Since we can't easily use wildcards in DEL, we'll delete the main ones
+        const keys = await redis.keys(`${this.BASE_KEY}:*`);
+        const etags = await redis.keys(`${this.ETAG_BASE}:*`);
+        if (keys.length > 0) await redis.del(...keys);
+        if (etags.length > 0) await redis.del(...etags);
+        logger.info('[MenuCache] Global cache invalidated', { keysDeleted: keys.length + etags.length });
+      }
+    } catch (err) {
+      logger.error('[MenuCache] Invalidation failed', { error: err.message });
+    }
   }
 }
 

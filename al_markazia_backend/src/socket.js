@@ -5,6 +5,8 @@ const TokenService = require('./services/tokenService');
 const SecurityPolicyService = require('./services/securityPolicyService');
 const auditService = require('./services/auditService');
 const { SOCKET_ROOMS } = require('./shared/socketEvents');
+const { getRequestId, getCorrelationId } = require('./utils/context');
+const { trace } = require('@opentelemetry/api');
 
 let io;
 let isReady = false;
@@ -178,7 +180,8 @@ module.exports = {
         socket.data = {
           authRooms: new Set(), // 🏛️ Managed Security Rooms (Zombie Room Killer)
           leaseExpiresAt: Date.now() + (60 * 1000), // ⏱️ 60s Authorization Lease
-          lastSyncSequence: 0
+          lastSyncSequence: 0,
+          consecutiveFailures: 0
         };
 
         socket.on('disconnect', () => {
@@ -212,11 +215,24 @@ module.exports = {
           if (Date.now() > socket.data.leaseExpiresAt) {
             // Lease expired, re-validate against Central Registry
             await socket.recalculateRooms();
+            socket.data.consecutiveFailures = 0; // Reset on success
           }
           next();
         } catch (err) {
-          logger.warn('[SDS 2.0] Lease validation failed, continuing in Degraded Mode', { error: err.message });
-          next(); // Allow in Degraded Mode (Tier 2 Resilience)
+          socket.data.consecutiveFailures = (socket.data.consecutiveFailures || 0) + 1;
+          logger.warn(`[SDS 2.0] Lease validation failed (${socket.data.consecutiveFailures}/3)`, { error: err.message });
+          
+          // 🔴 STRICT BOUNDED STALE LEASE: Do not permit infinite stale access
+          if (socket.data.consecutiveFailures >= 3) {
+            logger.security('[SDS 2.0] Maximum stale tolerance exceeded. Evicting socket from managed rooms forcefully.');
+            for (const room of socket.data.authRooms) {
+              socket.leave(room);
+            }
+            socket.data.authRooms.clear();
+            return next(new Error('SECURITY_LEASE_EXPIRED'));
+          }
+          
+          next(); // Allow in Degraded Mode safely within bounds
         }
       });
 
@@ -258,9 +274,24 @@ module.exports = {
           return;
         }
 
-        // 🚀 Normal Dispatch
-        socket.emit(type, SecurityPolicyService.wrapPayload(payload));
+      // 🚀 Normal Dispatch
+      const requestId = getRequestId();
+      const correlationId = getCorrelationId();
+      const activeSpan = trace.getActiveSpan();
+      const traceId = activeSpan?.spanContext()?.traceId;
+
+      const enrichedPayload = {
+        ...payload,
+        _tracing: {
+          requestId,
+          correlationId,
+          traceId,
+          emittedAt: new Date().toISOString()
+        }
       };
+
+      socket.emit(type, SecurityPolicyService.wrapPayload(enrichedPayload));
+    };
 
       socket.joinManaged = async (room) => {
         if (!room) return;
@@ -270,15 +301,28 @@ module.exports = {
 
       socket.recalculateRooms = async () => {
         try {
-          // 1. Leave all managed auth rooms (The Zombie Room Killer)
-          for (const room of socket.data.authRooms) {
-            socket.leave(room);
+          // 🛡️ Authoritative Ground Truth Security Check: Evict instantly if blocked/deleted
+          const status = await SecurityPolicyService.checkUserStatus(socket.user.id);
+          if (!status || !status.isActive || status.isBlacklisted) {
+            for (const room of socket.data.authRooms) {
+              socket.leave(room);
+            }
+            socket.data.authRooms.clear();
+            socket.disconnect(true);
+            throw new Error('USER_REVOKED');
           }
-          socket.data.authRooms.clear();
 
-          // 2. Fetch LIVE snapshot (Central Registry)
+          // 1. Fetch LIVE snapshot safely FIRST before leaving current healthy state
           const liveContext = await SecurityPolicyService.getTargetRooms(socket.user);
           
+          // 2. Leave old rooms safely only after fetching successful updates
+          for (const room of socket.data.authRooms) {
+            if (!liveContext.includes(room)) {
+              socket.leave(room);
+              socket.data.authRooms.delete(room);
+            }
+          }
+
           // 3. Re-join valid rooms
           for (const room of liveContext) {
             await socket.joinManaged(room);
@@ -287,9 +331,9 @@ module.exports = {
           socket.data.leaseExpiresAt = Date.now() + (60 * 1000); // Reset lease
           logger.debug(`[SDS 2.0] Rooms recalculated for user ${socket.user.id}`);
         } catch (err) {
-          logger.error('[SDS 2.0] Room recalculation failed', { error: err.message });
-          // 🛡️ [DEGRADED-MODE] If Redis is down, we don't kill the connection
-          // but we also don't add back any branch rooms (Fail-Safe Restricted)
+          logger.error('[SDS 2.0] Room recalculation failed, retaining existing valid room layouts safely', { error: err.message });
+          // Propagate error so lease consecutive failure counter intercepts it
+          throw err;
         }
       };
 
@@ -304,6 +348,14 @@ module.exports = {
       socket.join(SOCKET_ROOMS.CUSTOMER(userId));
       
       logger.debug(`🛡️ v2 Boundary Sync Complete for user ${userId} [${role}]`);
+
+      // 🏢 Support Global Admin Room explicitly for monitoring webboards
+      socket.on('join:admin', async () => {
+        if (['admin', 'branch_manager', 'manager'].includes(role)) {
+          await socket.join('admin');
+          logger.debug(`[Socket] User ${userId} successfully joined admin broadcast room`);
+        }
+      });
 
       // 🛰️ Join Tracking Room
       socket.on('tracking:join', async ({ orderId }) => {

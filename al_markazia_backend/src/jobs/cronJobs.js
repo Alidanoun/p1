@@ -122,7 +122,31 @@ function initCronJobs(io = null) {
     }
   }, 5000);
 
-  // 6. 🛡️ System Integrity Reconciliation - Every 2 Hours
+  // 7. 🎁 Rewards Maintenance: Cleanup Expired Rewards - Every Day at 5:00 AM
+  cron.schedule('0 5 * * *', async () => {
+    await withLock('reward_expiry_cleanup', 300, async () => {
+      try {
+        logger.info('Cron Job Trace: Starting Reward Expiry Cleanup...');
+        await MaintenanceService.cleanupExpiredRewards();
+      } catch (err) {
+        logger.error('Cron Job Failed: Reward Expiry Cleanup', { error: err.message });
+      }
+    });
+  });
+
+  // 8. 🛡️ Loyalty Integrity: Global Ledger Reconciliation - Every Day at 2:00 AM
+  cron.schedule('0 2 * * *', async () => {
+    await withLock('loyalty_reconciliation', 600, async () => {
+      try {
+        logger.info('Cron Job Trace: Starting Global Loyalty Ledger Reconciliation...');
+        await MaintenanceService.reconcileLoyaltyLedger();
+      } catch (err) {
+        logger.error('Cron Job Failed: Loyalty Reconciliation', { error: err.message });
+      }
+    });
+  });
+
+  // 9. 🛡️ System Integrity Reconciliation - Every 2 Hours
   cron.schedule('0 */2 * * *', async () => {
     await withLock('system_integrity_audit', 300, async () => {
       try {
@@ -177,6 +201,19 @@ function initCronJobs(io = null) {
         await MaintenanceService.expireFinancialApprovals();
       } catch (err) {
         logger.error('Cron Job Failed: Financial Approval Expiry', { error: err.message });
+      }
+    });
+  });
+
+  // 10. 📊 Daily Financial Snapshotting - Every Day at 1:00 AM
+  cron.schedule('0 1 * * *', async () => {
+    await withLock('financial_snapshotting', 600, async () => {
+      try {
+        logger.info('Cron Job Trace: Generating Daily Financial Snapshots...');
+        const container = require('../lib/container');
+        await container.financialSnapshotService.processNightlyBatch();
+      } catch (err) {
+        logger.error('Cron Job Failed: Financial Snapshotting', { error: err.message });
       }
     });
   });

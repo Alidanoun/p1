@@ -1,3 +1,5 @@
+const { toDecimal, Decimal } = require('../utils/number');
+
 /**
  * 🧮 Financial & Loyalty Logic Service (Centralized Integrity Layer)
  * Handles all point increments, price calculations, and ledger entries.
@@ -10,61 +12,54 @@ class FinancialService {
   }
 
   /**
-   * 🪙 Atomic Point Reward
-   * Uses Prisma's atomic increment to prevent race conditions.
+   * 🪙 Atomic Point Reward (Refactored to Ledger)
    */
   async awardPoints(customerId, amount, type, tx = null) {
-    if (amount <= 0) return null;
-    const db = tx || this.prisma;
+    const points = Math.floor(amount);
+    if (points <= 0) return null;
 
-    const result = await db.customer.update({
-      where: { id: customerId },
-      data: {
-        points: { increment: Math.floor(amount) }
-      }
-    });
+    const ledgerEntry = await this.container.loyaltyLedgerService.credit(
+      customerId,
+      points,
+      'ADJUSTMENT',
+      null,
+      `Reward: ${type}`,
+      `fin:award:${customerId}:${type}:${Date.now()}`,
+      { type },
+      tx
+    );
 
-    await this.container.auditService.log({
-      userId: result.uuid,
-      userRole: 'customer',
-      action: 'POINTS_AWARDED',
-      entityType: 'Customer',
-      entityId: customerId.toString(),
-      metadata: { amount: Math.floor(amount), reason: type }
-    });
+    // Sync projection if not in external tx (internal tx handles sync after commit in consumer/caller)
+    if (!tx) {
+      await this.container.loyaltyLedgerService.syncProjection(customerId, ledgerEntry.balanceAfter);
+    }
 
-    return result;
+    return await this.prisma.customer.findUnique({ where: { id: customerId } });
   }
 
   /**
-   * 💸 Atomic Points Deduction (with Check)
+   * 💸 Atomic Points Deduction (Refactored to Ledger)
    */
   async deductPoints(customerId, amount, tx = null) {
-    const db = tx || this.prisma;
+    const points = Math.floor(amount);
     
-    // We check balance inside the transaction if tx is provided
-    const customer = await db.customer.findUnique({ where: { id: customerId } });
-    if (!customer || customer.points < amount) {
-      throw new Error('INSUFFICIENT_POINTS');
+    const ledgerEntry = await this.container.loyaltyLedgerService.debit(
+      customerId,
+      points,
+      'ADJUSTMENT',
+      null,
+      'Point Deduction',
+      `fin:deduct:${customerId}:${Date.now()}`,
+      {},
+      tx
+    );
+
+    // Sync projection if not in external tx
+    if (!tx) {
+      await this.container.loyaltyLedgerService.syncProjection(customerId, ledgerEntry.balanceAfter);
     }
 
-    const result = await db.customer.update({
-      where: { id: customerId },
-      data: {
-        points: { decrement: Math.floor(amount) }
-      }
-    });
-
-    await this.container.auditService.log({
-      userId: result.uuid,
-      userRole: 'customer',
-      action: 'POINTS_DEDUCTED',
-      entityType: 'Customer',
-      entityId: customerId.toString(),
-      metadata: { amount: Math.floor(amount) }
-    });
-
-    return result;
+    return await this.prisma.customer.findUnique({ where: { id: customerId } });
   }
 
   /**
@@ -85,7 +80,10 @@ class FinancialService {
    * Prevents floating point errors by using Decimal.js logic via Prisma/Database.
    */
   calculatePointsFromSubtotal(subtotal, rate, multiplier = 1) {
-    return Math.floor(Number(subtotal) * rate * multiplier);
+    const subDec = toDecimal(subtotal);
+    const rateDec = toDecimal(rate);
+    const multDec = toDecimal(multiplier);
+    return subDec.times(rateDec).times(multDec).floor().toNumber();
   }
 }
 

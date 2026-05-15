@@ -10,15 +10,7 @@ const { logFinancialEvent } = require('../utils/financialLogger');
  */
 class FinancialApprovalService {
 
-  /**
-   * 🔍 Calculate Risk Level based on amount and type
-   */
-  calculateRisk(amount, type) {
-    const val = toNumber(amount);
-    if (type === 'REFUND' || val > 100) return 'HIGH';
-    if (val > 20) return 'MEDIUM';
-    return 'LOW';
-  }
+
 
   /**
    * 📋 List Pending Approvals (Isolated)
@@ -46,10 +38,7 @@ class FinancialApprovalService {
       orderBy: { createdAt: 'desc' }
     });
 
-    return approvals.map(app => ({
-      ...app,
-      riskLevel: this.calculateRisk(app.payload?.delta?.absoluteDifference || 0, app.operationType)
-    }));
+    return approvals;
   }
 
   /**
@@ -174,11 +163,21 @@ class FinancialApprovalService {
         throw new Error('CONCURRENCY_CONFLICT: This approval request has been modified or processed.');
       }
 
+      // 🛡️ [FIX] Fetch approver's internal integer ID to avoid UUID string type error
+      const approver = await tx.user.findUnique({
+        where: { uuid: adminUser.id },
+        select: { id: true }
+      });
+
+      if (!approver) {
+        throw new Error('APPROVER_IDENTITY_NOT_FOUND');
+      }
+
       await tx.financialApproval.update({
         where: { id: approvalId },
         data: {
           status: 'REJECTED',
-          approvedBy: adminUser.id,
+          approvedBy: approver.id,
           rejectionReason: reason,
           version: { increment: 1 },
           eventSequence: { increment: 1 }
@@ -212,7 +211,7 @@ class FinancialApprovalService {
     const highRisk = await prisma.financialApproval.count({
        where: { 
          status: 'PENDING',
-         operationType: 'REFUND' // Simplification for high risk count
+         riskLevel: 'HIGH'
        } 
     });
 
