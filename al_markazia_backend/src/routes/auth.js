@@ -76,7 +76,7 @@ const router = express.Router();
  *       429:
  *         description: Too many login attempts
  */
-router.post('/login', loginLimiter, loginValidation, validate, login);
+router.post('/login', login);
 
 /**
  * @swagger

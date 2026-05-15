@@ -146,6 +146,11 @@ async function syncFinancials(branchId) {
     metrics.financials.taxTotal = toMoney(metrics.financials.taxTotal + tax);
     metrics.financials.deliveryTotal = toMoney(metrics.financials.deliveryTotal + deliveryFee);
     metrics.financials.discountTotal = toMoney(metrics.financials.discountTotal + discount);
+    
+    // 🛡️ Yield to event loop every 50 orders to keep API responsive
+    if (metrics.counts.delivered % 50 === 0) {
+      await new Promise(resolve => setImmediate(resolve));
+    }
   }
 
   metrics.financials.cancelledTotal = cancelledOrders.reduce((sum, o) => toMoney(sum + toNumber(o.total)), 0);
@@ -349,6 +354,9 @@ async function replay(targetBranchId = null) {
 
     // 💰 Force Financial Sync from DB
     await syncFinancials(bid);
+
+    // 🛡️ Yield to event loop after each branch
+    await new Promise(resolve => setImmediate(resolve));
   }
 }
 
