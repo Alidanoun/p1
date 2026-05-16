@@ -60,6 +60,7 @@ class TokenService {
       pv: user.permissionVersion || 1,
       ip: context.ip || 'unknown',
       ua: context.userAgent || 'unknown',
+      fingerprint: context.fingerprint || null,
       createdAt: new Date().toISOString()
     };
 

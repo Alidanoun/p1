@@ -179,29 +179,64 @@ const login = async (req, res) => {
     const cleanPassword = typeof password === 'string' ? password.trim() : password;
 
     // Phase 1: High-Performance Search (Hashed Email)
+    const hashedEmail = hashBlind(cleanEmail);
+    const isDebug = process.env.AUTH_DEBUG === 'true';
+
     let user = await prisma.user.findUnique({ 
-      where: { emailHash: hashBlind(cleanEmail) },
+      where: { emailHash: hashedEmail },
       include: { branch: true }
     });
 
+    let userFoundByFallback = false;
+
     // Phase 2: Compatibility Fallback (Plain Email - handles seed/legacy data)
     if (!user) {
-      user = await prisma.user.findUnique({
+      user = await prisma.user.findFirst({
         where: { email: cleanEmail },
         include: { branch: true }
       });
+      if (user) userFoundByFallback = true;
+    }
+
+    // 🏥 [Auto-Heal] Synchronize emailHash if mismatch detected
+    if (user && user.emailHash !== hashedEmail) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { emailHash: hashedEmail }
+      });
+      if (isDebug) console.log(`[Auth] Auto-healed emailHash for admin user: ${cleanEmail}`);
     }
 
     let customer = null;
+    let customerFoundByFallback = false;
     if (!user) {
       customer = await prisma.customer.findUnique({ 
-        where: { emailHash: hashBlind(cleanEmail) } 
+        where: { emailHash: hashedEmail } 
       });
       if (!customer) {
-        customer = await prisma.customer.findUnique({
+        customer = await prisma.customer.findFirst({
           where: { email: cleanEmail }
         });
+        if (customer) customerFoundByFallback = true;
       }
+
+      // 🏥 [Auto-Heal] Synchronize emailHash for customer
+      if (customer && customer.emailHash !== hashedEmail) {
+        await prisma.customer.update({
+          where: { id: customer.id },
+          data: { emailHash: hashedEmail }
+        });
+        if (isDebug) console.log(`[Auth] Auto-healed emailHash for customer: ${cleanEmail}`);
+      }
+    }
+
+    if (isDebug) {
+      console.log(`[Auth] Login attempt for ${cleanEmail}:`, {
+        found: !!(user || customer),
+        type: user ? 'user' : (customer ? 'customer' : 'none'),
+        fallback: userFoundByFallback || customerFoundByFallback,
+        hashMatch: (user || customer)?.emailHash === hashedEmail
+      });
     }
 
     const account = user || customer;

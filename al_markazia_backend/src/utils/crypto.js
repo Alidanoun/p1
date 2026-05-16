@@ -1,26 +1,32 @@
 const crypto = require('crypto');
 const logger = require('./logger');
-const secretProvider = require('../config/secretProvider');
 
 /**
  * 🔒 Enterprise Encryption Utility (AES-256-CBC)
  * Used to protect PII (Personally Identifiable Information) in the database.
  */
 
-const isDevOrTest = process.env.NODE_ENV !== 'production';
-if (isDevOrTest && !process.env.ENCRYPTION_KEY) {
-  process.env.ENCRYPTION_KEY = 'almarkazia-secure-development-key-32bytes-fallback';
+const rawKey = process.env.ENCRYPTION_KEY;
+
+/**
+ * 🛡️ Validates key existence and length.
+ * This is called by the envValidator, but we also check here as a safety net.
+ */
+function getEncryptionKey() {
+  if (!rawKey || rawKey.length < 32) {
+    throw new Error('CRITICAL_SECURITY_ERROR: ENCRYPTION_KEY is missing or too weak (min 32 chars).');
+  }
+  return crypto.scryptSync(rawKey, 'salt-pepper', 32);
 }
 
-const rawKey = secretProvider.getSecretSync('ENCRYPTION_KEY');
-
-if (!rawKey || rawKey.length < 32) {
-  logger.error('❌ CRITICAL: ENCRYPTION_KEY is missing or too weak (must be at least 32 characters long).');
-  process.exit(1);
+let cachedKey = null;
+try {
+  cachedKey = getEncryptionKey();
+} catch (e) {
+  // We don't exit here to allow the envValidator to give a pretty error message first.
+  // But subsequent calls to encrypt/decrypt will fail if cachedKey is null.
 }
 
-// Load and harden key using scryptSync
-const ENCRYPTION_KEY = crypto.scryptSync(rawKey, 'salt-pepper', 32);
 const IV_LENGTH = 16;
 
 /**
@@ -31,8 +37,7 @@ const IV_LENGTH = 16;
 function encrypt(text) {
   if (!text || typeof text !== 'string') return text;
 
-  // 🛡️ [SEC-FIX] Avoid Double Encryption
-  // Check if string follows the pattern 'hex(32):hex'
+  // 🛡️ Avoid Double Encryption
   if (text.includes(':')) {
     const [ivHex] = text.split(':');
     if (ivHex.length === 32 && /^[0-9a-fA-F]+$/.test(ivHex)) {
@@ -40,21 +45,21 @@ function encrypt(text) {
     }
   }
   
-  if (!ENCRYPTION_KEY) {
-    logger.error('🚨 [CRITICAL] Encryption failed: ENCRYPTION_KEY is missing');
-    throw new Error('ENCRYPTION_KEY_MISSING');
+  if (!cachedKey) {
+    logger.error('🚨 [CRITICAL] Encryption failed: ENCRYPTION_KEY is missing or invalid');
+    throw new Error('ENCRYPTION_KEY_UNAVAILABLE');
   }
 
   try {
     const iv = crypto.randomBytes(IV_LENGTH);
-    const cipher = crypto.createCipheriv('aes-256-cbc', ENCRYPTION_KEY, iv);
+    const cipher = crypto.createCipheriv('aes-256-cbc', cachedKey, iv);
     
     let encrypted = cipher.update(text);
     encrypted = Buffer.concat([encrypted, cipher.final()]);
     
     return iv.toString('hex') + ':' + encrypted.toString('hex');
   } catch (err) {
-    logger.error('🚨 [CRITICAL] Encryption failure detected. Process halted to prevent data exposure.', { error: err.message });
+    logger.error('🚨 [CRITICAL] Encryption failure detected.', { error: err.message });
     throw new Error(`ENCRYPTION_FAILED: ${err.message}`);
   }
 }
@@ -65,6 +70,11 @@ function encrypt(text) {
 function decrypt(text) {
   if (!text || typeof text !== 'string' || !text.includes(':')) return text;
   
+  if (!cachedKey) {
+    logger.warn('[Crypto] Decryption skipped: ENCRYPTION_KEY unavailable');
+    return text;
+  }
+
   try {
     const [ivHex, encryptedHex] = text.split(':');
     if (!ivHex || !encryptedHex) return text;
@@ -72,7 +82,7 @@ function decrypt(text) {
     const iv = Buffer.from(ivHex, 'hex');
     const encryptedText = Buffer.from(encryptedHex, 'hex');
     
-    const decipher = crypto.createDecipheriv('aes-256-cbc', ENCRYPTION_KEY, iv);
+    const decipher = crypto.createDecipheriv('aes-256-cbc', cachedKey, iv);
     
     let decrypted = decipher.update(encryptedText);
     decrypted = Buffer.concat([decrypted, decipher.final()]);
@@ -92,13 +102,13 @@ function decrypt(text) {
 function hashBlind(text) {
   if (!text) return text;
   
-  if (!ENCRYPTION_KEY) {
+  if (!cachedKey) {
     logger.error('🚨 [CRITICAL] Hashing failed: ENCRYPTION_KEY is missing');
-    throw new Error('HASHING_KEY_MISSING');
+    throw new Error('HASHING_KEY_UNAVAILABLE');
   }
 
   try {
-    return crypto.createHmac('sha256', ENCRYPTION_KEY)
+    return crypto.createHmac('sha256', cachedKey)
       .update(String(text))
       .digest('hex');
   } catch (err) {
@@ -108,3 +118,4 @@ function hashBlind(text) {
 }
 
 module.exports = { encrypt, decrypt, hashBlind };
+

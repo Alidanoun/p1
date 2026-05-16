@@ -13,14 +13,15 @@ async function main() {
   await prisma.user.deleteMany();
 
   console.log('🌱 Seeding database...');
-  const adminEmail = 'admin@almarkazia.com';
+  const adminEmail = process.env.ADMIN_EMAIL || 'admin@almarkazia.com';
   const adminPassword = process.env.ADMIN_DEFAULT_PASSWORD || '123456';
   const hashedPassword = await bcrypt.hash(adminPassword, 12);
+  const emailHash = hashBlind(adminEmail);
 
   console.log(`🌱 Seeding Admin: ${adminEmail}`);
   
   const admin = await prisma.user.upsert({
-    where: { emailHash: hashBlind(adminEmail) },
+    where: { emailHash },
     update: {
       password: hashedPassword,
       isActive: true,
@@ -28,13 +29,14 @@ async function main() {
     },
     create: {
       email: encrypt(adminEmail),
-      emailHash: hashBlind(adminEmail),
-      name: encrypt('Administrator'),
+      emailHash: emailHash,
+      name: encrypt('System Administrator'),
       password: hashedPassword,
       role: 'admin',
       isActive: true
     }
   });
+
 
   const category = await prisma.category.create({
     data: {
