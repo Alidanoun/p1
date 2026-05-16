@@ -60,14 +60,16 @@ async function startServer() {
     
     logger.info('🚀 Systems Initialized: Cache, Socket, HappyHour');
 
-    // 2. 🚀 Initialize Event-Driven Architecture (AWAITED)
-    const eventSystem = require('./events/init');
-    await eventSystem.init();
+    if (process.env.NODE_ENV !== 'test') {
+      // 2. 🚀 Initialize Event-Driven Architecture (AWAITED)
+      const eventSystem = require('./events/init');
+      await eventSystem.init();
 
-    // 3. Start Background Workers
-    initCronJobs(io);
-    initOrderWorker(io);
-    initHealthWorker().catch(err => logger.error('[Startup] Health Worker failed', { error: err.message }));
+      // 3. Start Background Workers
+      initCronJobs(io);
+      initOrderWorker(io);
+      initHealthWorker().catch(err => logger.error('[Startup] Health Worker failed', { error: err.message }));
+    }
 
     // 4. Register Middleware
     const performanceMonitor = require('./middleware/performanceMonitor');
@@ -251,54 +253,57 @@ async function startServer() {
       logger.warn('🧪 Safety Alert: System started with financial integrity warnings.');
     }
 
-    server.listen(PORT, '127.0.0.1', async () => {
-      logger.info(`🚀 Backend Server is running on http://127.0.0.1:${PORT} — accepting connections.`);
+    if (process.env.NODE_ENV !== 'test') {
+      server.listen(PORT, '127.0.0.1', async () => {
+        logger.info(`🚀 Backend Server is running on http://127.0.0.1:${PORT} — accepting connections.`);
 
-      // 🔄 Background Rehydration: Runs in a non-blocking way to keep login responsive
-      // We use setImmediate to ensure the listen callback finishes and the event loop yields
-      setImmediate(async () => {
-        const analyticsProjection = require('./projections/analyticsProjection');
-        const orderProjection = require('./projections/orderProjection');
-        const SecurityPolicyService = require('./services/securityPolicyService');
+        // 🔄 Background Rehydration: Runs in a non-blocking way to keep login responsive
+        // We use setImmediate to ensure the listen callback finishes and the event loop yields
+        setImmediate(async () => {
+          const analyticsProjection = require('./projections/analyticsProjection');
+          const orderProjection = require('./projections/orderProjection');
+          const SecurityPolicyService = require('./services/securityPolicyService');
 
-        try {
-          console.log('🔄 [BackgroundSync] Starting system rehydration...');
-          console.time('🚀 [Rehydration] Total');
-          
-          await orderProjection.replay();
-          await new Promise(resolve => setTimeout(resolve, 500));
-          await analyticsProjection.replay();
-          await new Promise(resolve => setTimeout(resolve, 500));
-          await SecurityPolicyService.warmupSecurityCache();
-          
-          console.timeEnd('🚀 [Rehydration] Total');
-          logger.info('✅ Background rehydration complete — system fully primed.');
-        } catch (e) {
-          logger.error('Rehydration Failed', { error: e.message });
-        }
+          try {
+            console.log('🔄 [BackgroundSync] Starting system rehydration...');
+            console.time('🚀 [Rehydration] Total');
+            
+            await orderProjection.replay();
+            await new Promise(resolve => setTimeout(resolve, 500));
+            await analyticsProjection.replay();
+            await new Promise(resolve => setTimeout(resolve, 500));
+            await SecurityPolicyService.warmupSecurityCache();
+            
+            console.timeEnd('🚀 [Rehydration] Total');
+            logger.info('✅ Background rehydration complete — system fully primed.');
+          } catch (e) {
+            logger.error('Rehydration Failed', { error: e.message });
+          }
 
-        // 🚀 Deferred Warmup to ensure instant API availability
-        setTimeout(() => {
-          warmupService.run().catch(e => logger.error('Warmup Error', { error: e.message }));
-        }, 5000);
+          // 🚀 Deferred Warmup to ensure instant API availability
+          setTimeout(() => {
+            warmupService.run().catch(e => logger.error('Warmup Error', { error: e.message }));
+          }, 5000);
+        });
+
+        // 📊 Periodic Health Status reporting
+        setInterval(() => {
+          const mem = process.memoryUsage();
+          logger.debug(`📊 [HealthReport] Heap: ${Math.round(mem.heapUsed / 1024 / 1024)}MB | Uptime: ${Math.floor(process.uptime())}s`);
+        }, 60000);
       });
 
-      // 📊 Periodic Health Status reporting
-      setInterval(() => {
-        const mem = process.memoryUsage();
-        logger.debug(`📊 [HealthReport] Heap: ${Math.round(mem.heapUsed / 1024 / 1024)}MB | Uptime: ${Math.floor(process.uptime())}s`);
-      }, 60000);
-    });
-
-
-    server.on('error', (err) => {
-      if (err.code === 'EADDRINUSE') {
-        logger.error(`❌ CRITICAL: Port ${PORT} was snatched just before binding!`);
-      } else {
-        logger.error('❌ Server Error:', err);
-      }
-      process.exit(1);
-    });
+      server.on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+          logger.error(`❌ CRITICAL: Port ${PORT} was snatched just before binding!`);
+        } else {
+          logger.error('❌ Server Error:', err);
+        }
+        process.exit(1);
+      });
+    } else {
+      logger.info('🧪 [Startup] Bypassed TCP port binding and background rehydration in Jest test mode.');
+    }
 
   } catch (err) {
     logger.error('❌ CRITICAL STARTUP FAILURE', { error: err.message, stack: err.stack });

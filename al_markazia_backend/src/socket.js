@@ -173,7 +173,10 @@ module.exports = {
           id: userId, 
           dbId: dbIdentity?.id,
           role: dbRole, 
-          branchId: dbIdentity?.branchId || null 
+          branchId: dbIdentity?.branchId || null,
+          jti: decoded.sid || decoded.jti,
+          av: decoded.av || 1,
+          pv: decoded.pv || 1
         };
 
         // 🛡️ [SDS 2.0] Security Metadata Initialization

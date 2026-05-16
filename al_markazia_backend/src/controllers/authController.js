@@ -36,10 +36,13 @@ const sanitizeToken = (token) => {
 // ── Helper: Secure Cookie Config ──────────────────────
 const getCookiePolicy = (req) => {
   const isProd = process.env.NODE_ENV === 'production';
-  // Use 'none' for cross-subdomain/multi-site Admin access in production, otherwise 'lax'
-  const sameSite = isProd ? 'none' : 'lax';
+  // 🛡️ [SEC-FIX] Dynamic sameSite policy: 'lax' for dev stability, 'strict' for prod security
+  const sameSite = isProd ? 'strict' : 'lax';
+  
   // If sameSite is 'none', secure attribute MUST be true by browser spec
+  // In development (lax), secure can be false on HTTP. In production (strict), secure is mandatory.
   const secure = isProd || req.secure || req.headers['x-forwarded-proto'] === 'https';
+  
   return { sameSite, secure };
 };
 

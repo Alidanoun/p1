@@ -285,7 +285,7 @@ class SecurityPolicyService {
 
     if (allowedIds.includes(branchId)) return true;
 
-    logger.security('UNAUTHORIZED_BRANCH_ACCESS_DENIED', { 
+    this.logger.security('UNAUTHORIZED_BRANCH_ACCESS_DENIED', { 
       userId: user.id, 
       branchId, 
       role, 
@@ -347,7 +347,7 @@ class SecurityPolicyService {
         try {
           cached = await redis.get(cacheKey);
         } catch (err) {
-          logger.warn('[SecurityPolicy] Redis lookup failed in getTargetRooms', { error: err.message });
+          this.logger.warn('[SecurityPolicy] Redis lookup failed in getTargetRooms', { error: err.message });
         }
         if (cached) {
           JSON.parse(cached).forEach(bid => rooms.add(SOCKET_ROOMS.EXEC_BRANCH(bid)));

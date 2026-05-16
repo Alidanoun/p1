@@ -215,7 +215,11 @@ export const executeRefresh = async () => {
       const refreshData = response.data.success ? response.data.data : response.data;
       const { accessToken } = refreshData;
       tokenStore.set(accessToken);
+      processQueue(null, accessToken);
       return accessToken;
+    } catch (err) {
+      processQueue(err, null);
+      throw err;
     } finally {
       refreshPromise = null;
     }

@@ -26,6 +26,11 @@ export const SocketProvider = ({ children }) => {
   const switchTimeoutRef = useRef(null);
   const invalidationQueue = useRef(new Set());
   const invalidationTimer = useRef(null);
+  const activeBranchIdRef = useRef(selectedBranchId);
+
+  useEffect(() => {
+    activeBranchIdRef.current = selectedBranchId;
+  }, [selectedBranchId]);
 
   const fetchNotifications = useCallback(async () => {
     try {
@@ -87,13 +92,18 @@ export const SocketProvider = ({ children }) => {
     if (!socketInstance) return;
     console.log('📡 [Socket] Syncing state...');
     socketInstance.emit('join:admin'); 
-    socketInstance.emit('branch:switch', { branchId: selectedBranchId }, (res) => {
+    socketInstance.emit('branch:switch', { branchId: activeBranchIdRef.current }, (res) => {
       if (res?.success) {
-        fetchLiveMetrics();
+        // Fetch via HTTP directly using the latest branch ref
+        const url = activeBranchIdRef.current ? `/dashboard/metrics?branchId=${activeBranchIdRef.current}` : '/dashboard/metrics';
+        api.get(url).then(response => {
+          const data = unwrap(response);
+          if (data) setLiveMetrics(data);
+        }).catch(() => {});
         fetchNotifications();
       }
     });
-  }, [selectedBranchId, fetchLiveMetrics, fetchNotifications]);
+  }, [fetchNotifications]);
 
   // 🔄 Create and connect socket with the current token from MEMORY
   const connectSocket = useCallback((token) => {
@@ -166,7 +176,7 @@ export const SocketProvider = ({ children }) => {
 
     newSocket.on(SOCKET_EVENTS.DASHBOARD_METRICS_UPDATE, (metrics) => {
       console.log('📊 [Socket] Metrics Update. Queuing branchStats invalidation...');
-      const branchId = metrics.branchId || debouncedBranchId;
+      const branchId = metrics.branchId || activeBranchIdRef.current;
       if (branchId) {
         triggerDebouncedInvalidation(branchId, ['branchStats']);
       }
@@ -192,7 +202,7 @@ export const SocketProvider = ({ children }) => {
       if (isDuplicate(payload.eventId)) return;
 
       console.log('🔔 [Socket] New Order. Queuing invalidation...');
-      const branchId = order.branchId || debouncedBranchId;
+      const branchId = order.branchId || activeBranchIdRef.current;
       if (branchId) {
         triggerDebouncedInvalidation(branchId, ['orders', 'branchStats']);
       }
@@ -211,7 +221,7 @@ export const SocketProvider = ({ children }) => {
       if (isDuplicate(payload.eventId)) return;
 
       console.log('🔄 [Socket] Order Updated. Queuing invalidation...');
-      const branchId = order.branchId || debouncedBranchId;
+      const branchId = order.branchId || activeBranchIdRef.current;
       if (branchId) {
         triggerDebouncedInvalidation(branchId, ['orders', 'branchStats']);
       }
@@ -260,7 +270,7 @@ export const SocketProvider = ({ children }) => {
 
     socketRef.current = newSocket;
     setSocket(newSocket);
-  }, [fetchLiveMetrics, fetchNotifications, cleanupSocket, selectedBranchId]);
+  }, [fetchNotifications, cleanupSocket]);
 
   const debouncedBranchId = useDebounce(selectedBranchId, 300);
 
