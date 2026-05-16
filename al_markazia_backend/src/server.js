@@ -8,6 +8,11 @@ const timeout = require('connect-timeout');
 const morgan = require('morgan');
 require('dotenv').config();
 require('./config/secrets');
+const EnvValidator = require('./config/envValidator');
+
+// 🛡️ Validate Environment before anything else
+EnvValidator.validate();
+
 const { initSentry, Sentry } = require('./config/sentry');
 
 // 🛡️ Initialize Security Shield (Sentry) before any other logic
