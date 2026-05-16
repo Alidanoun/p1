@@ -22,10 +22,10 @@ class ConfigService {
     try {
       const cacheKey = branchId ? `${this.CACHE_KEY}:${branchId}` : this.CACHE_KEY;
       
-      // 🏎️ Redis Lookup with 3s Timeout
+      // 🏎️ Redis Lookup with 500ms Timeout (Fast Failover)
       const cached = await Promise.race([
         redis.get(cacheKey),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('REDIS_TIMEOUT')), 3000))
+        new Promise((_, reject) => setTimeout(() => reject(new Error('REDIS_TIMEOUT')), 500))
       ]).catch(err => {
         logger.warn('[ConfigService] Redis lookup bypassed or timed out', { error: err.message });
         return null;

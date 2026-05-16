@@ -7,7 +7,7 @@ import tailwindcss from '@tailwindcss/vite'
  * All API requests are proxied to the local backend.
  * The /api/v1 prefix is the primary versioned route.
  */
-const API_TARGET = 'http://127.0.0.1:5000';
+const API_TARGET = 'http://127.0.0.1:5010';
 
 const apiProxy = (target) => ({
   target,

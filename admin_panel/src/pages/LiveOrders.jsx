@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 import { useLocation } from 'react-router-dom';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { Clock, CheckCircle, Package, Play, XCircle, Phone, DollarSign, Timer, AlertCircle, Printer, MapPin, Star, Truck, ShoppingBag, Power, Minus, Plus, ShieldCheck } from 'lucide-react';
@@ -615,8 +616,8 @@ const LiveOrders = () => {
                     <div className={cn("w-3 h-3 rounded-full", (restaurantStatus?.isOpen && emergencyType !== 'timed' && emergencyType !== 'day') || emergencyType === 'open' ? "bg-emerald-500" : "bg-slate-600")} />
                     <div className="flex flex-col items-start">
                       <span className="font-black text-lg">مفتوح الان</span>
-                      {(!restaurantStatus?.isOpen && timeLeft) && (
-                        <span className="text-[10px] font-bold opacity-70">سيفتح تلقائياً خلال: {timeLeft}</span>
+                      {(!restaurantStatus?.isOpen && restaurantStatus?.closesAt) && (
+                        <span className="text-[10px] font-bold opacity-70">يفتح تلقائياً عند: {new Date(restaurantStatus.closesAt).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</span>
                       )}
                     </div>
                   </div>
@@ -725,7 +726,8 @@ const LiveOrders = () => {
                       });
                       
                       toast.success(isOpening ? 'تم فتح استقبال الطلبات' : 'تم إغلاق المطعم بنجاح');
-                      fetchStatus();
+                      queryClient.invalidateQueries({ queryKey: ['orders', selectedBranchId] });
+                      queryClient.invalidateQueries({ queryKey: ['branchStatus', selectedBranchId] });
                       setShowEmergencyModal(false);
                       setEmergencyPassword('');
                       setEmergencyType(null); // Reset

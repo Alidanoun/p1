@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
 import { 
   DollarSign, 
@@ -38,7 +39,6 @@ import {
   CartesianGrid
 } from 'recharts';
 import Header from '../components/Header';
-import { useAuth } from '../contexts/AuthContext';
 import { useSocket } from '../contexts/SocketContext';
 import FinancialApprovalWidget from '../components/FinancialApprovalWidget';
 
@@ -102,15 +102,6 @@ const LiveDashboard = () => {
   const { liveMetrics, metricsHistory, socket } = useSocket();
   const [selectedOrder, setSelectedOrder] = useState(null);
 
-  // 🛡️ Access Guard: Operations Center is for Admins only
-  const role = user?.role?.toLowerCase();
-  const isAdmin = role === 'admin';
-
-  if (user && !isAdmin) {
-    return <Navigate to="/orders" replace />;
-  }
-
-
   // 🛡️ RECOVERY STATUS INDICATOR
   const syncStatus = useMemo(() => {
     if (!socket?.connected) return { label: "استعادة الاتصال...", color: "amber", icon: RefreshCw };
@@ -142,6 +133,14 @@ const LiveDashboard = () => {
     if (diffPercent < -2) return { direction: 'down', value: `-${Math.abs(diffPercent).toFixed(1)}%` };
     return { direction: 'neutral', value: '0%' };
   };
+
+  // 🛡️ Access Guard: Operations Center is for Admins only
+  const role = user?.role?.toLowerCase();
+  const isAdmin = role === 'admin';
+
+  if (user && !isAdmin) {
+    return <Navigate to="/orders" replace />;
+  }
 
   // 📊 Chart Data Normalization
   const statusChartData = useMemo(() => {

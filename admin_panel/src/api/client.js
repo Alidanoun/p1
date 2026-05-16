@@ -125,7 +125,7 @@ api.interceptors.response.use(
       // 🥇 Atomic Refresh singleton
       refreshPromise = (async () => {
         try {
-          const response = await axios.post(`${BASE_URL}/auth/refresh`, {}, { withCredentials: true });
+          const response = await axios.post(`${BASE_URL}/auth/refresh`, {}, { withCredentials: true, timeout: 10000 });
           const refreshData = response.data.success ? response.data.data : response.data;
           const { accessToken } = refreshData;
 
@@ -209,7 +209,7 @@ export const executeRefresh = async () => {
   
   refreshPromise = (async () => {
     try {
-      const response = await axios.post(`${BASE_URL}/auth/refresh`, {}, { withCredentials: true });
+      const response = await axios.post(`${BASE_URL}/auth/refresh`, {}, { withCredentials: true, timeout: 10000 });
       const refreshData = response.data.success ? response.data.data : response.data;
       const { accessToken } = refreshData;
       tokenStore.set(accessToken);

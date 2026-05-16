@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import { SocketProvider } from './contexts/SocketContext';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
@@ -20,11 +20,14 @@ import DeliveryZonesManager from './pages/DeliveryZonesManager';
 import AuditLog from './pages/AuditLog';
 import BranchMenu from './pages/BranchMenu';
 import ProtectedRoute from './components/ProtectedRoute';
-
-
 import ErrorBoundary from './components/ErrorBoundary';
 
-const ProtectedLayout = ({ children }) => {
+/**
+ * 🏰 Root Protected Layout
+ * Persists the Sidebar, Socket Connection, and Theme context across all internal routes.
+ * Using <Outlet /> prevents full-page unmounting during navigation.
+ */
+const ProtectedLayout = () => {
   const { user, loading } = useAuth();
   const { theme } = useTheme();
   const location = useLocation();
@@ -37,7 +40,6 @@ const ProtectedLayout = ({ children }) => {
   );
   
   if (!user) {
-    // 🛡️ Preserve the intended destination URL
     return <Navigate to="/login" state={{ from: location.pathname }} replace />;
   }
 
@@ -45,26 +47,25 @@ const ProtectedLayout = ({ children }) => {
     <SocketProvider>
       <div className="flex bg-background w-full h-screen overflow-hidden text-text-main font-sans selection:bg-primary/20">
         <Sidebar />
-      <main className="flex-1 overflow-y-auto overflow-x-hidden relative h-full">
-        <ErrorBoundary>
-          {children}
-        </ErrorBoundary>
-      </main>
-      
-      {/* Premium Notification Toaster */}
-      <Toaster 
-        theme={theme} 
-        position="top-center" 
-        toastOptions={{
-          style: {
-            background: theme === 'dark' ? '#1e293b' : '#ffffff',
-            border: theme === 'dark' ? '1px solid rgba(255, 255, 255, 0.05)' : '1px solid rgba(0, 0, 0, 0.05)',
-            color: theme === 'dark' ? '#f8fafc' : '#0f172a',
-            fontFamily: 'Tajawal, sans-serif'
-          },
-          className: 'backdrop-blur-md shadow-2xl'
-        }} 
-      />
+        <main className="flex-1 overflow-y-auto overflow-x-hidden relative h-full">
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
+        </main>
+        
+        <Toaster 
+          theme={theme} 
+          position="top-center" 
+          toastOptions={{
+            style: {
+              background: theme === 'dark' ? '#1e293b' : '#ffffff',
+              border: theme === 'dark' ? '1px solid rgba(255, 255, 255, 0.05)' : '1px solid rgba(0, 0, 0, 0.05)',
+              color: theme === 'dark' ? '#f8fafc' : '#0f172a',
+              fontFamily: 'Tajawal, sans-serif'
+            },
+            className: 'backdrop-blur-md shadow-2xl'
+          }} 
+        />
       </div>
     </SocketProvider>
   );
@@ -75,56 +76,57 @@ function App() {
     <ThemeProvider>
       <Router>
         <Routes>
-          <Route 
-            path="/login" 
-            element={<Login />} 
-          />
+          {/* Public Routes */}
+          <Route path="/login" element={<Login />} />
           
-          <Route path="/" element={<ProtectedLayout><LiveDashboard /></ProtectedLayout>} />
-          <Route path="/orders" element={<ProtectedLayout><LiveOrders /></ProtectedLayout>} />
-          <Route path="/menu" element={<ProtectedLayout><MenuManager /></ProtectedLayout>} />
-          <Route path="/branch-menu" element={<ProtectedLayout><BranchMenu /></ProtectedLayout>} />
-          
-          <Route path="/broadcast" element={
-            <ProtectedRoute requiredRole="admin">
-              <ProtectedLayout><BroadcastNotifications /></ProtectedLayout>
-            </ProtectedRoute>
-          } />
-          
-          <Route path="/reviews" element={<ProtectedLayout><ReviewsManager /></ProtectedLayout>} />
-          
-          <Route path="/cancelled-orders" element={
-            <ProtectedRoute requiredRole="admin">
-              <ProtectedLayout><CancelledOrders /></ProtectedLayout>
-            </ProtectedRoute>
-          } />
-          
-          <Route path="/loyalty" element={<ProtectedLayout><LoyaltyManager /></ProtectedLayout>} />
-          <Route path="/rewards-store" element={<ProtectedLayout><RewardStoreManager /></ProtectedLayout>} />
-          <Route path="/delivery-zones" element={<ProtectedLayout><DeliveryZonesManager /></ProtectedLayout>} />
-          
-          <Route path="/analytics" element={
-            <ProtectedRoute requiredRole="admin">
-              <ProtectedLayout><Analytics /></ProtectedLayout>
-            </ProtectedRoute>
-          } />
-          <Route path="/reports" element={
-            <ProtectedRoute requiredRole="admin">
-              <ProtectedLayout><Reports /></ProtectedLayout>
-            </ProtectedRoute>
-          } />
-          
-          <Route path="/settings" element={
-            <ProtectedRoute requiredRole="admin">
-              <ProtectedLayout><Settings /></ProtectedLayout>
-            </ProtectedRoute>
-          } />
-          
-          <Route path="/audit" element={
-            <ProtectedRoute requiredRole="admin">
-              <ProtectedLayout><AuditLog /></ProtectedLayout>
-            </ProtectedRoute>
-          } />
+          {/* Internal Protected Routes (Nested under Layout) */}
+          <Route element={<ProtectedLayout />}>
+            <Route path="/" element={<LiveDashboard />} />
+            <Route path="/orders" element={<LiveOrders />} />
+            <Route path="/menu" element={<MenuManager />} />
+            <Route path="/branch-menu" element={<BranchMenu />} />
+            <Route path="/reviews" element={<ReviewsManager />} />
+            <Route path="/loyalty" element={<LoyaltyManager />} />
+            <Route path="/rewards-store" element={<RewardStoreManager />} />
+            <Route path="/delivery-zones" element={<DeliveryZonesManager />} />
+            
+            {/* RBAC Protected Sub-routes */}
+            <Route path="/broadcast" element={
+              <ProtectedRoute requiredRole="admin">
+                <BroadcastNotifications />
+              </ProtectedRoute>
+            } />
+            
+            <Route path="/cancelled-orders" element={
+              <ProtectedRoute requiredRole="admin">
+                <CancelledOrders />
+              </ProtectedRoute>
+            } />
+            
+            <Route path="/analytics" element={
+              <ProtectedRoute requiredRole="admin">
+                <Analytics />
+              </ProtectedRoute>
+            } />
+            
+            <Route path="/reports" element={
+              <ProtectedRoute requiredRole="admin">
+                <Reports />
+              </ProtectedRoute>
+            } />
+            
+            <Route path="/settings" element={
+              <ProtectedRoute requiredRole="admin">
+                <Settings />
+              </ProtectedRoute>
+            } />
+            
+            <Route path="/audit" element={
+              <ProtectedRoute requiredRole="admin">
+                <AuditLog />
+              </ProtectedRoute>
+            } />
+          </Route>
         </Routes>
       </Router>
     </ThemeProvider>

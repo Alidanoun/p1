@@ -153,12 +153,11 @@ async function startServer() {
         else callback(new Error('Not allowed by CORS'), false);
       },
       credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Correlation-ID', 'X-Request-Id', 'idempotency-key']
     }));
 
     app.use(helmet());
-    app.use(cookieParser());
     app.use(express.json({ limit: '10mb' }));
     app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -243,45 +242,17 @@ async function startServer() {
       process.exit(1);
     });
 
-    // --- 🔍 PORT RESOLUTION LOGIC ---
-    function checkPortAvailable(port) {
-      return new Promise((resolve) => {
-        const serverCheck = net.createServer();
-        serverCheck.once('error', (err) => {
-          if (err.code === 'EADDRINUSE') resolve(false);
-          else resolve(false);
-        });
-        serverCheck.once('listening', () => {
-          serverCheck.close();
-          resolve(true);
-        });
-        serverCheck.listen(port, '0.0.0.0');
-      });
-    }
-
-    async function findAvailablePort(startPort) {
-      const MAX_ATTEMPTS = 5;
-      for (let i = 0; i < MAX_ATTEMPTS; i++) {
-        const port = startPort + i;
-        if (await checkPortAvailable(port)) return port;
-        logger.warn(`⚠️  Port ${port} is occupied, trying next...`);
-      }
-      throw new Error(`Failed to find an available port after ${MAX_ATTEMPTS} attempts`);
-    }
-
-    const INITIAL_PORT = parseInt(process.env.PORT || 5000, 10);
-    const PORT = await findAvailablePort(INITIAL_PORT);
+    const PORT = parseInt(process.env.PORT || 5000, 10);
 
     // 🚀 Execute heavy DB rehydration BEFORE accepting incoming socket/HTTP traffic
-    // This prevents connection pool saturation deadlocks with incoming requests.
     const { runIntegrityTests } = require('./tests/financialIntegrity');
     const integrityPassed = runIntegrityTests();
     if (!integrityPassed) {
       logger.warn('🧪 Safety Alert: System started with financial integrity warnings.');
     }
 
-    server.listen(PORT, '0.0.0.0', async () => {
-      logger.info(`🚀 Backend Server is running on port ${PORT} — accepting connections.`);
+    server.listen(PORT, '127.0.0.1', async () => {
+      logger.info(`🚀 Backend Server is running on http://127.0.0.1:${PORT} — accepting connections.`);
 
       // 🔄 Background Rehydration: Runs in a non-blocking way to keep login responsive
       // We use setImmediate to ensure the listen callback finishes and the event loop yields
