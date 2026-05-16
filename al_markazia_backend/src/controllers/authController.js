@@ -254,7 +254,17 @@ const login = async (req, res) => {
     const systemConfig = await configService.getFullConfig();
     const { maxLoginAttempts, lockDurationMinutes, timingDelayMs } = systemConfig.security;
 
+    // 🛡️ [SEC-FIX] Unified Timing Attack Guard
+    // Apply delay for BOTH "account not found" and "password mismatch"
+    const applySecurityDelay = async () => {
+      const elapsed = Date.now() - start;
+      if (elapsed < timingDelayMs) {
+        await new Promise(r => setTimeout(r, timingDelayMs - elapsed));
+      }
+    };
+
     if (!account || !account.password) {
+      await applySecurityDelay();
       return response.error(res, 'بيانات الدخول غير صحيحة', 'INVALID_CREDENTIALS', 401);
     }
 
@@ -262,29 +272,24 @@ const login = async (req, res) => {
     const match = await bcrypt.compare(cleanPassword, account.password);
     
     if (!match) {
-      if (account) {
-        const newAttempts = (account.failedAttempts || 0) + 1;
-        const lockUntil = newAttempts >= maxLoginAttempts 
-          ? new Date(Date.now() + lockDurationMinutes * 60 * 1000) 
-          : null;
-        
-        const table = user ? prisma.user : prisma.customer;
-        await table.update({ where: { id: account.id }, data: { failedAttempts: newAttempts, lockUntil } });
-
-        await auditService.log({
-          userId: account.uuid,
-          userRole: account.role || 'customer',
-          action: 'LOGIN_FAIL',
-          status: 'FAIL',
-          severity: newAttempts >= maxLoginAttempts ? 'CRITICAL' : 'WARN',
-          req
-        });
-      }
-
-      // ⏱️ Timing Attack Protection
-      const elapsed = Date.now() - start;
-      if (elapsed < timingDelayMs) await new Promise(r => setTimeout(r, timingDelayMs - elapsed));
+      const newAttempts = (account.failedAttempts || 0) + 1;
+      const lockUntil = newAttempts >= maxLoginAttempts 
+        ? new Date(Date.now() + lockDurationMinutes * 60 * 1000) 
+        : null;
       
+      const table = user ? prisma.user : prisma.customer;
+      await table.update({ where: { id: account.id }, data: { failedAttempts: newAttempts, lockUntil } });
+
+      await auditService.log({
+        userId: account.uuid,
+        userRole: account.role || 'customer',
+        action: 'LOGIN_FAIL',
+        status: 'FAIL',
+        severity: newAttempts >= maxLoginAttempts ? 'CRITICAL' : 'WARN',
+        req
+      });
+
+      await applySecurityDelay();
       return response.error(res, 'بيانات الدخول غير صحيحة', 'INVALID_CREDENTIALS', 401);
     }
 
