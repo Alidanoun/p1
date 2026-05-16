@@ -2,6 +2,8 @@ import { ShoppingBag, AlertCircle, Zap, Star } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { motion } from 'framer-motion';
 import { usePermissions } from '../hooks/usePermissions';
+import { useAuth } from '../contexts/AuthContext';
+import { useBranchStats } from '../hooks/queries/useBranchStats';
 
 const BranchStats = () => {
   const { selectedBranchId } = useAuth();

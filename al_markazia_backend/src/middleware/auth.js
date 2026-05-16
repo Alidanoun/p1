@@ -54,12 +54,33 @@ const authenticateToken = async (req, res, next) => {
     const currentFingerprint = generateFingerprint(req);
     const session = validation.session || {}; // Only available if Redis hit
     
+    // Safely extract the fingerprint hash supporting raw string, JSON-stringified object, or parsed object formats
+    let sessionFingerprintHash = null;
+    if (session.fingerprint) {
+      if (typeof session.fingerprint === 'string') {
+        if (session.fingerprint.trim().startsWith('{')) {
+          try {
+            const parsed = JSON.parse(session.fingerprint);
+            sessionFingerprintHash = parsed.hash || parsed;
+          } catch (e) {
+            sessionFingerprintHash = session.fingerprint;
+          }
+        } else {
+          sessionFingerprintHash = session.fingerprint;
+        }
+      } else if (typeof session.fingerprint === 'object') {
+        sessionFingerprintHash = session.fingerprint.hash || session.fingerprint;
+      }
+    }
+
     // Permit biometric hardware trusted sessions to bypass strict sec-ch-ua browser string matching
-    const isBiometricTrust = session.fingerprint === 'biometric-hardware-trusted';
-    if (!isBiometricTrust && session.fingerprint && session.fingerprint !== currentFingerprint.hash) {
+    const isBiometricTrust = sessionFingerprintHash === 'biometric-hardware-trusted';
+    if (!isBiometricTrust && sessionFingerprintHash && sessionFingerprintHash !== currentFingerprint.hash) {
       logger.security('[SESSION_HIJACKING_DETECTED] Identity mismatch', { 
         userId: decoded.id, 
-        ip: req.ip 
+        ip: req.ip,
+        sessionFingerprint: sessionFingerprintHash,
+        currentFingerprint: currentFingerprint.hash
       });
       return responseError(res, 'تنبيه أمني: محاولة وصول من جهاز غير معروف', 'SECURITY_BREACH', 401);
     }
