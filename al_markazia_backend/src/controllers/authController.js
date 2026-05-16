@@ -86,6 +86,12 @@ const refreshToken = async (req, res) => {
   const rawToken = req.cookies?.refreshToken || req.body?.refreshToken;
   const token = sanitizeToken(rawToken);
 
+  logger.debug('[Auth] Refresh token processing', { 
+    source: req.cookies?.refreshToken ? 'cookie' : (req.body?.refreshToken ? 'body' : 'none'),
+    isSanitized: !!token,
+    rawLength: rawToken?.length
+  });
+
   if (!token) {
     logger.security('[REFRESH_BLOCKED] Corrupt or missing token received.', { 
       type: typeof rawToken, 
@@ -97,15 +103,10 @@ const refreshToken = async (req, res) => {
   }
 
   try {
-    logger.debug('Refresh attempt received', { 
-      hasCookie: !!req.cookies?.refreshToken, 
-      cookieKeys: Object.keys(req.cookies || {}),
-      ip: req.ip 
-    });
-
     const clientIp = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
     const currentFingerprint = generateFingerprint(req);
     
+    logger.debug('[Auth] Invoking TokenService.validateAndRotate', { clientIp });
     const { accessToken, newRefreshToken, user } = await TokenService.validateAndRotate(token, clientIp, currentFingerprint);
 
     // 🛡️ Cookie Hardening (Dual HttpOnly Cookies)
@@ -124,6 +125,7 @@ const refreshToken = async (req, res) => {
       refreshToken: newRefreshToken.token
     });
   } catch (error) {
+    logger.warn('[Auth] Refresh failed', { error: error.message, stack: error.stack });
     clearAuthCookies(req, res);
 
     if (error.message === 'TOKEN_REUSE_DETECTED' || error.message === 'SECURITY_BREACH') {

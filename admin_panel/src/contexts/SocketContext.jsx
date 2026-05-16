@@ -11,7 +11,7 @@ import { SOCKET_EVENTS } from '../constants/socketEvents';
 
 const SocketContext = createContext();
 
-const SOCKET_URL = import.meta.env.VITE_API_URL || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5000');
+const SOCKET_URL = import.meta.env.VITE_API_URL || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5010');
 
 export const SocketProvider = ({ children }) => {
   const { user, selectedBranchId } = useAuth();
@@ -24,6 +24,8 @@ export const SocketProvider = ({ children }) => {
   const socketRef = useRef(null);
   const abortControllerRef = useRef(null);
   const switchTimeoutRef = useRef(null);
+  const invalidationQueue = useRef(new Set());
+  const invalidationTimer = useRef(null);
 
   const fetchNotifications = useCallback(async () => {
     try {
@@ -133,8 +135,6 @@ export const SocketProvider = ({ children }) => {
 
     // 🧠 [SDS-SCALING] Backpressure Control: Debounced Invalidation
     // Prevents "Refetch Storms" by batching multiple socket events into a single API call.
-    const invalidationQueue = useRef(new Set());
-    const invalidationTimer = useRef(null);
 
     const triggerDebouncedInvalidation = (branchId, keys = ['orders', 'branchStats']) => {
       if (!branchId) return;

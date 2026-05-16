@@ -42,10 +42,10 @@ const syncRoutes = require('./sync');
 // ─── Route Mounting ─────────────────────────────────────────
 // Core Business
 const authBiometricRoutes = require('./authBiometric');
-router.use('/auth/biometric', governorGuard('MISSION_CRITICAL'), authBiometricRoutes);
-router.use('/auth', governorGuard('MISSION_CRITICAL'), authRoutes);
-router.use('/orders', governorGuard('MISSION_CRITICAL'), IdempotencyService.guard(), orderRoutes);
-router.use('/order-modifications', governorGuard('MISSION_CRITICAL'), IdempotencyService.guard(), orderModificationRoutes);
+router.use('/auth/biometric', authBiometricRoutes);
+router.use('/auth', authRoutes);
+router.use('/orders', IdempotencyService.guard(), orderRoutes);
+router.use('/order-modifications', IdempotencyService.guard(), orderModificationRoutes);
 router.use('/items', itemRoutes);
 router.use('/categories', categoryRoutes);
 router.use('/customers', customerRoutes);

@@ -35,33 +35,51 @@ export const AuthProvider = ({ children }) => {
     if (initialized.current) return;
     initialized.current = true;
 
-    const bootstrap = async () => {
-      // 🟢 Level 1: Optimistic Boot (Fast)
-      const cachedUser = localStorage.getItem('user_cache');
-      if (cachedUser) {
-        try {
-          setUser(JSON.parse(cachedUser));
-        } catch (e) {
-          localStorage.removeItem('user_cache');
-        }
-      }
-
-      try {
-        // 🟢 Level 2: Server-side validation (Truth)
-        await executeRefresh();
-
-        // 🟢 Level 3: Final state sync
-        const meResponse = await api.get('/auth/me');
-        const finalUser = meResponse.data.data;
-        setUser(finalUser);
-        localStorage.setItem('user_cache', JSON.stringify(finalUser));
-      } catch (err) {
-        console.warn('Session rehydration failed:', err.response?.data?.error || err.message);
-        tokenStore.clear();
-        setUser(null);
-        localStorage.removeItem('user_cache');
-      } finally {
+    // 🛡️ Safety Guard: Force loading to false after 5s to prevent infinite hang
+    const safetyTimer = setTimeout(() => {
+      if (loading) {
+        console.warn('🧪 [AuthBootstrap] Safety timeout triggered. Forcing UI release.');
         setLoading(false);
+      }
+    }, 5000);
+
+    const bootstrap = async () => {
+      try {
+        console.log('🧪 [AuthBootstrap] Phase 1: Checking cache...');
+        const cachedUser = localStorage.getItem('user_cache');
+        if (cachedUser) {
+          try {
+            setUser(JSON.parse(cachedUser));
+            console.log('🧪 [AuthBootstrap] Optimistic user loaded');
+          } catch (e) {
+            localStorage.removeItem('user_cache');
+          }
+        }
+
+        try {
+          console.log('🧪 [AuthBootstrap] Phase 2: Server-side validation...');
+          await executeRefresh();
+          console.log('🧪 [AuthBootstrap] Refresh successful');
+
+          console.log('🧪 [AuthBootstrap] Phase 3: Fetching profile...');
+          const meResponse = await api.get('/auth/me');
+          const finalUser = meResponse.data.data;
+          setUser(finalUser);
+          localStorage.setItem('user_cache', JSON.stringify(finalUser));
+          console.log('🧪 [AuthBootstrap] Profile sync complete');
+        } catch (err) {
+          console.warn('🧪 [AuthBootstrap] FAILED:', err.response?.data?.error || err.message);
+          tokenStore.clear();
+          setUser(null);
+          localStorage.removeItem('user_cache');
+        } finally {
+          console.log('🧪 [AuthBootstrap] Phase 4: Setting loading to false');
+          setLoading(false);
+          clearTimeout(safetyTimer);
+        }
+      } catch (criticalError) {
+        setLoading(false);
+        clearTimeout(safetyTimer);
       }
     };
 
@@ -75,8 +93,13 @@ export const AuthProvider = ({ children }) => {
   const login = async (email, password) => {
     try {
       const { data: response } = await api.post('/auth/login', { email, password });
+      console.log('🧪 [AuthDebug] Login Response Data:', response);
       const authData = response.success ? response.data : response;
       const { accessToken, user } = authData;
+
+      if (!accessToken || !user) {
+        console.error('❌ [AuthDebug] Missing token or user in response:', authData);
+      }
 
       tokenStore.set(accessToken);
       setUser(user);
@@ -85,8 +108,14 @@ export const AuthProvider = ({ children }) => {
       changeBranch(null);
       sessionStorage.removeItem('selectedBranchId');
 
+      console.log('✅ [AuthDebug] Login Success. User:', user.email);
       return { success: true };
     } catch (error) {
+      console.error('🚨 [AuthDebug] Login Attempt Failed:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      });
       const message = error.response?.data?.error?.message || error.response?.data?.error || 'Login failed';
       return { success: false, error: typeof message === 'string' ? message : JSON.stringify(message) };
     }
