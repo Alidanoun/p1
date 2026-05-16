@@ -76,7 +76,7 @@ const router = express.Router();
  *       429:
  *         description: Too many login attempts
  */
-router.post('/login', login);
+router.post('/login', loginLimiter, login);
 
 /**
  * @swagger
@@ -192,7 +192,7 @@ router.post('/logout', authenticateToken, logout);
  *       401:
  *         description: Not authenticated
  */
-router.get('/me', authenticateToken, getMe);
+router.get('/me', apiLimiter, authenticateToken, getMe);
 
 /**
  * @swagger
@@ -207,7 +207,7 @@ router.get('/me', authenticateToken, getMe);
  *       200:
  *         description: List of active sessions
  */
-router.get('/sessions', authenticateToken, getSessions);
+router.get('/sessions', apiLimiter, authenticateToken, getSessions);
 
 module.exports = router;
 

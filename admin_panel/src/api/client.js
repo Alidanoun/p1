@@ -122,27 +122,29 @@ api.interceptors.response.use(
 
       originalRequest._retry = true;
       
-      // 🥇 Atomic Refresh singleton
-      refreshPromise = (async () => {
-        try {
-          const response = await axios.post(`${BASE_URL}/auth/refresh`, {}, { withCredentials: true, timeout: 10000 });
-          const refreshData = response.data.success ? response.data.data : response.data;
-          const { accessToken } = refreshData;
+      // 🥇 Atomic Refresh singleton (Safe guard against double-invocation)
+      if (!refreshPromise) {
+        refreshPromise = (async () => {
+          try {
+            const response = await axios.post(`${BASE_URL}/auth/refresh`, {}, { withCredentials: true, timeout: 10000 });
+            const refreshData = response.data.success ? response.data.data : response.data;
+            const { accessToken } = refreshData;
 
-          tokenStore.set(accessToken);
-          processQueue(null, accessToken);
-          return accessToken;
-        } catch (err) {
-          processQueue(err, null);
-          if (err.response?.status === 401 || err.response?.status === 403 || err.response?.status === 429) {
-            tokenStore.clear();
-            forceLogout();
+            tokenStore.set(accessToken);
+            processQueue(null, accessToken);
+            return accessToken;
+          } catch (err) {
+            processQueue(err, null);
+            if (err.response?.status === 401 || err.response?.status === 403 || err.response?.status === 429) {
+              tokenStore.clear();
+              forceLogout();
+            }
+            throw err;
+          } finally {
+            refreshPromise = null;
           }
-          throw err;
-        } finally {
-          refreshPromise = null;
-        }
-      })();
+        })();
+      }
 
       const accessToken = await refreshPromise;
       originalRequest.headers['Authorization'] = `Bearer ${accessToken}`;

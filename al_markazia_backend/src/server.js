@@ -42,8 +42,8 @@ const app = express();
 const server = http.createServer(app);
 
 // 🛡️ [SEC-FIX] Trust Proxy Configuration
-// Enable trusting the immediate proxy (like Nginx/loopback) to get the real client IP
-app.set('trust proxy', 'loopback');
+// Enable trusting the immediate proxy (like Nginx/Vite/loopback) to get the real client IP
+app.set('trust proxy', 1);
 
 async function startServer() {
   try {

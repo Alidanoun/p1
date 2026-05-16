@@ -12,6 +12,7 @@ const API_TARGET = 'http://127.0.0.1:5010';
 const apiProxy = (target) => ({
   target,
   changeOrigin: true,
+  xfwd: true,
   onProxyRes: (proxyRes, req, res) => {
     // Prevent proxy from hanging on certain errors
   },

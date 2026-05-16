@@ -89,9 +89,10 @@ function decrypt(text) {
     
     return decrypted.toString();
   } catch (err) {
-    // If decryption fails, it might be plain text (legacy data)
-    logger.debug('[Crypto] Decryption failed (possibly plain text)', { error: err.message });
-    return text;
+    // 🛡️ [SEC-FIX] Strict Decryption Enforcement
+    // Never fallback to plain text in production to prevent PII exposure
+    logger.error('🚨 [CRITICAL] Decryption failure detected. Data may be corrupt or key mismatch.', { error: err.message });
+    throw new Error(`DECRYPTION_FAILED: ${err.message}`);
   }
 }
 
