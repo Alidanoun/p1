@@ -78,6 +78,13 @@ async function startServer() {
     app.use(performanceMonitor);
     app.use(shadowMirrorMiddleware);
     
+    // Inject service container into all requests for controller dependency injection
+    const container = require('./lib/container');
+    app.use((req, res, next) => {
+      req.container = container;
+      next();
+    });
+    
     // 🛡️ [SEC-FIX] Robust CSP & Security Headers
     app.use(helmet({ 
       crossOriginResourcePolicy: { policy: "cross-origin" },
