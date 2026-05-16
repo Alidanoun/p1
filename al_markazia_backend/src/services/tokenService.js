@@ -235,8 +235,15 @@ class TokenService {
     const { id: userId, sid: jti, av: tokenAv, pv: tokenPv } = decoded;
 
     try {
-      // 1. 🏎️ Fast Track (Redis)
-      const cached = await redis.get(`session:${userId}:${jti}`).catch(() => null);
+      // 1. 🏎️ Fast Track (Redis) with 500ms Timeout Fast Failover
+      const cached = await Promise.race([
+        redis.get(`session:${userId}:${jti}`),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('REDIS_TIMEOUT')), 500))
+      ]).catch(err => {
+        logger.warn('[TokenService] Redis session lookup bypassed or timed out', { userId, jti, error: err.message });
+        return null;
+      });
+
       if (cached) {
         const session = JSON.parse(cached);
         // Version Drift Detection

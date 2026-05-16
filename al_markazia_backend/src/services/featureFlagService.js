@@ -12,21 +12,36 @@ class FeatureFlagService {
    */
   async isEnabled(flagKey, context = {}, defaultVal = false) {
     try {
+      // High-performance batch lookup using MGET with 500ms timeout
+      const keys = [
+        'feature_flags:emergency_mode',
+        `feature_flags:override:${flagKey}`,
+        `feature_flags:rollout:${flagKey}`
+      ];
+
+      const values = await Promise.race([
+        redis.mget(...keys),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('REDIS_TIMEOUT')), 500))
+      ]).catch(err => {
+        logger.warn('[FeatureFlagService] Redis flags batch lookup bypassed or timed out', { flagKey, error: err.message });
+        return [null, null, null];
+      });
+
+      const [emergencyMode, adminOverride, rolloutValueRaw] = values;
+
       // 🚨 1. Global Emergency Kill-Switch (System Tier)
-      const emergencyMode = await redis.get('feature_flags:emergency_mode');
       if (emergencyMode === 'true') {
         logger.warn(`[FeatureFlags] 🛑 Emergency Kill-Switch active. Blocking flag: ${flagKey}`);
         return false;
       }
 
       // 👤 2. Admin Override (Admin Tier)
-      const adminOverride = await redis.get(`feature_flags:override:${flagKey}`);
       if (adminOverride !== null) {
         return adminOverride === 'true';
       }
 
       // 🎢 3. Gradual Rollout (Logic: Hash-based variance)
-      const rolloutValue = await redis.get(`feature_flags:rollout:${flagKey}`) || '0';
+      const rolloutValue = rolloutValueRaw || '0';
       const percentage = parseInt(rolloutValue);
       
       if (percentage === 0) return defaultVal;
