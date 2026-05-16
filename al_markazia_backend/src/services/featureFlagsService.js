@@ -19,7 +19,14 @@ class FeatureFlagsService {
     }
 
     try {
-      const flag = await this.redis.get(`feature:${flagName}`);
+      // Redis flag lookup with 500ms Timeout Fast Failover
+      const flag = await Promise.race([
+        this.redis.get(`feature:${flagName}`),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('REDIS_TIMEOUT')), 500))
+      ]).catch(err => {
+        this.logger.warn('[FeatureFlags] Redis flag lookup bypassed or timed out', { flagName, error: err.message });
+        return null;
+      });
       let data = flag ? JSON.parse(flag) : null;
       
       const defaults = {
