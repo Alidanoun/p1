@@ -52,6 +52,10 @@ class TokenService {
     );
 
     const sessionKey = `session:${userId}:${jti}`;
+    const resolvedFingerprint = typeof context.fingerprint === 'object' && context.fingerprint !== null
+      ? context.fingerprint.hash
+      : (context.fingerprint || null);
+
     const sessionData = {
       sid: jti,
       uid: userId,
@@ -61,7 +65,7 @@ class TokenService {
       pv: user.permissionVersion || 1,
       ip: context.ip || 'unknown',
       ua: context.userAgent || 'unknown',
-      fingerprint: context.fingerprint || null,
+      fingerprint: resolvedFingerprint,
       createdAt: new Date().toISOString()
     };
 
@@ -90,7 +94,7 @@ class TokenService {
           role,
           jti,
           tokenFamily: family,
-          fingerprint: context.fingerprint ? JSON.stringify(context.fingerprint) : null,
+          fingerprint: resolvedFingerprint,
           expiresAt: new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS)
         }
       });
