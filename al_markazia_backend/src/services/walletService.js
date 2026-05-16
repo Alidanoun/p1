@@ -1,7 +1,7 @@
 const prisma = require('../lib/prisma');
 const logger = require('../utils/logger');
 const eventBus = require('../events/eventBus');
-const { toNumber } = require('../utils/number');
+const { toNumber, toDecimal } = require('../utils/number');
 
 /**
  * 💳 Wallet & Ledger Service (Refined)

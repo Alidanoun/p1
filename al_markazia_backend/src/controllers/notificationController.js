@@ -338,3 +338,31 @@ exports.manageTopicSubscription = async (req, res) => {
     res.status(500).json({ success: false, error: 'Subscription transport failure' });
   }
 };
+
+/**
+ * 11. sendSingleNotification Non-Blocking Diagnostic Helper
+ */
+exports.sendSingleNotification = async (req, res) => {
+  try {
+    const { userId, type, payload } = req.body;
+    const customer = await prisma.customer.findUnique({
+      where: { uuid: userId || '' },
+      select: { fcmToken: true }
+    });
+    
+    if (customer?.fcmToken) {
+      FirebaseService.sendNotification({
+        token: customer.fcmToken,
+        type: type || 'order_ready',
+        payload
+      }).catch(err => {
+        logger.warn('[NotificationController] sendSingleNotification non-blocking transport fault', { error: err.message });
+      });
+    }
+    
+    res.status(200).json({ success: true, message: 'Notification delivery dispatched' });
+  } catch (error) {
+    logger.error('sendSingleNotification endpoint error', { error: error.message });
+    res.status(200).json({ success: true, message: 'Notification delivery skipped' });
+  }
+};

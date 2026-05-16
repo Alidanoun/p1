@@ -45,13 +45,18 @@ const requestTracing = (req, res, next) => {
   // 🥈 Trace Lifecycle - Exit (Calculates Response Time)
   res.on('finish', () => {
     const duration = Date.now() - startTime;
-    logger.info(`< [ReqEnd] ${req.method} ${req.url} | ${res.statusCode} | ${duration}ms | Region: ${region}`, { 
-      requestId, 
-      correlationId,
-      region,
-      statusCode: res.statusCode, 
-      duration: `${duration}ms`
-    });
+    const isError = res.statusCode >= 400;
+
+    if (isSampled || isError) {
+      logger.info(`< [ReqEnd] ${req.method} ${req.url} | ${res.statusCode} | ${duration}ms | Region: ${region}`, { 
+        requestId, 
+        correlationId,
+        region,
+        statusCode: res.statusCode, 
+        duration: `${duration}ms`,
+        isError
+      });
+    }
   });
 
   // Run downstream logic within the storage context

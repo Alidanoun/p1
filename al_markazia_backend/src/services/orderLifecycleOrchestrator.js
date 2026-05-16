@@ -28,7 +28,7 @@ class OrderLifecycleOrchestrator {
     // 1. Fetch Latest State
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      include: { customer: true, items: true }
+      include: { customer: true, orderItems: true }
     });
 
     if (!order) throw new Error('ORDER_NOT_FOUND');

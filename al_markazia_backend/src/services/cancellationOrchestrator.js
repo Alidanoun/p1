@@ -117,6 +117,7 @@ class CancellationOrchestrator {
             orderId: order.id,
             total: updated.total,
             customerId: updated.customerId,
+            paymentMethod: updated.paymentMethod,
             pointsDiscount: updated.discount,
             pointsAwarded: updated.pointsAwarded,
             branchId: updated.branchId,

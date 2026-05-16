@@ -25,6 +25,7 @@ class TokenService {
         role: user.role || 'customer',
         branchId: user.branchId || null,
         sid: jti, 
+        jti,
         av: user.authVersion || 1, 
         pv: user.permissionVersion || 1, 
         iat: Math.floor(Date.now() / 1000)
@@ -81,17 +82,29 @@ class TokenService {
     }
 
     // 🛡️ Permanent DB Registry (Source of Truth)
-    await prisma.refreshToken.create({
-      data: {
-        token,
-        userId,
-        role,
-        jti,
-        tokenFamily: family,
-        fingerprint: context.fingerprint ? JSON.stringify(context.fingerprint) : null,
-        expiresAt: new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS)
-      }
-    }).catch(e => logger.error('[TokenService] DB token creation failed', { error: e.message }));
+    try {
+      await prisma.refreshToken.create({
+        data: {
+          token,
+          userId,
+          role,
+          jti,
+          tokenFamily: family,
+          fingerprint: context.fingerprint ? JSON.stringify(context.fingerprint) : null,
+          expiresAt: new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS)
+        }
+      });
+    } catch (dbErr) {
+      logger.error('[TokenService] DB token creation failed. Rolling back Redis session.', { error: dbErr.message, userId, jti });
+      
+      // 🔄 Compensating Rollback: Remove from Redis to maintain consistency
+      await Promise.all([
+        redis.del(sessionKey),
+        redis.srem(`user_sessions:${userId}`, jti)
+      ]).catch(rErr => logger.error('[TokenService] Redis rollback failed', { error: rErr.message }));
+      
+      throw new Error('SESSION_CREATION_FAILED');
+    }
 
     return { token, jti, family };
   }
@@ -231,15 +244,21 @@ class TokenService {
 
       // 2. 🛡️ Authority Fallback (DB)
       const tokenRecord = await prisma.refreshToken.findUnique({
-        where: { jti },
-        include: { user: true, customer: true }
+        where: { jti }
       });
 
       if (!tokenRecord || tokenRecord.isRevoked || tokenRecord.isUsed) {
         return { valid: false, reason: 'STATE_INVALIDATED' };
       }
 
-      const account = tokenRecord.user || tokenRecord.customer;
+      // Query account based on role and userId
+      let account = null;
+      if (tokenRecord.role === 'customer') {
+        account = await prisma.customer.findUnique({ where: { uuid: tokenRecord.userId } });
+      } else {
+        account = await prisma.user.findUnique({ where: { uuid: tokenRecord.userId } });
+      }
+
       if (!account || (account.isActive === false) || (account.isBlacklisted === true)) {
         return { valid: false, reason: 'USER_INACTIVE' };
       }

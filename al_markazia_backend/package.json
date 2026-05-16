@@ -26,16 +26,17 @@
     "testMatch": [
       "**/tests/**/*.test.js"
     ],
-    "transformIgnorePatterns": [
-      "/node_modules/(?!(uuid)/)"
-    ],
+    "transformIgnorePatterns": [],
     "coveragePathIgnorePatterns": [
       "/node_modules/",
       "/prisma/generated/"
     ],
     "setupFilesAfterEnv": [
       "<rootDir>/tests/jest.setup.js"
-    ]
+    ],
+    "moduleNameMapper": {
+      "^uuid$": "<rootDir>/tests/mocks/uuid.js"
+    }
   },
   "keywords": [],
   "author": "",

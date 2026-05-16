@@ -34,9 +34,23 @@ const notificationEngineConsumer = new StreamConsumerGroup(
       }
 
       // 2. Map evaluation target mapping
-      const EXEC_EVENTS = ['order_created', 'order_cancelled', 'status_change', 'order_updated', 'order_assigned'];
-      const MONITOR_EVENTS = ['order_created', 'order_cancelled', 'status_change', 'order_updated'];
-      const CUSTOMER_EVENTS = ['order_created', 'status_change', 'order_cancelled', 'payment_status', 'delivery_updated'];
+      const EXEC_EVENTS = [
+        'order.created', 'order_created', 
+        'order.cancelled', 'order_cancelled', 
+        'order.status.changed', 'status_change', 'order_updated', 
+        'order_assigned'
+      ];
+      const MONITOR_EVENTS = [
+        'order.created', 'order_created', 
+        'order.cancelled', 'order_cancelled', 
+        'order.status.changed', 'status_change', 'order_updated'
+      ];
+      const CUSTOMER_EVENTS = [
+        'order.created', 'order_created', 
+        'order.status.changed', 'status_change', 
+        'order.cancelled', 'order_cancelled', 
+        'payment_status', 'delivery_updated'
+      ];
       
       const target = {
         isToAdmin: EXEC_EVENTS.includes(type) || MONITOR_EVENTS.includes(type),

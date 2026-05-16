@@ -3,6 +3,8 @@ const container = require('../../lib/container');
 const logger = require('../../utils/logger');
 const redis = require('../../lib/redis');
 
+const eventTypes = require('../eventTypes');
+
 /**
  * 🥈 Priority 2 Stream Consumer: Inventory Restock Consumer
  * Revenue Integrity & Restocking Reconciliation Layer.
@@ -21,9 +23,21 @@ const inventoryRestockConsumer = new StreamConsumerGroup(
         return;
       }
 
-      // 🛡️ Distributed Idempotency Guard
+      // 🛡️ Distributed Idempotency Guard (Resilient 5-minute lease limit)
       const idempotencyKey = `idempotency:inventory_restock:${orderId}`;
-      const acquired = await redis.set(idempotencyKey, 'PROCESSING', 'NX', 'EX', 86400);
+      const currentStatus = await redis.get(idempotencyKey);
+      
+      if (currentStatus === 'COMPLETED') {
+        logger.info(`[InventoryRestockConsumer] Event for #${orderId} already completed. Skipping.`);
+        return;
+      }
+      
+      if (currentStatus === 'PROCESSING') {
+        logger.warn(`[InventoryRestockConsumer] Event for #${orderId} is currently being processed or previous attempt crashed. Skipping for retry.`);
+        return;
+      }
+
+      const acquired = await redis.set(idempotencyKey, 'PROCESSING', 'NX', 'EX', 300);
       if (!acquired) return;
 
       try {

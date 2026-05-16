@@ -1,6 +1,6 @@
 const express = require('express');
 const { login, register, verifyRegistration, forgotPassword, resetPassword, refreshToken, logout, getMe, getSessions } = require('../controllers/authController');
-const { loginLimiter, otpLimiter, refreshTokenLimiter } = require('../middleware/advancedRateLimiter');
+const { loginLimiter, otpLimiter, refreshTokenLimiter, apiLimiter } = require('../middleware/advancedRateLimiter');
 const { authenticateToken } = require('../middleware/auth');
 
 const { loginValidation, registerValidation } = require('../validators/authValidator');

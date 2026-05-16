@@ -25,7 +25,7 @@ const financialRollbackConsumer = new StreamConsumerGroup(
       try {
         await container.prisma.$transaction(async (tx) => {
           // 1. 💳 Wallet Refund
-          if (total > 0) {
+          if (payload.paymentMethod === 'wallet' && total > 0) {
              await container.walletService.credit(
               customerId,
               total,
@@ -35,6 +35,8 @@ const financialRollbackConsumer = new StreamConsumerGroup(
               `cancel_wallet_refund:${orderId}`,
               tx
             );
+          } else if (total > 0) {
+             logger.info(`[FinancialRollbackConsumer] Order #${orderId} payment method was '${payload.paymentMethod || 'unknown'}'. Skipping wallet refund.`);
           }
 
           // 2. 🎁 Loyalty Reversal (Clawback awarded points)
