@@ -43,4 +43,12 @@ if (require.main === module) {
   simulateConcurrentRequests(keyArg, countArg);
 }
 
+if (typeof describe !== 'undefined') {
+  describe('Idempotency Load Simulation', () => {
+    test('should expose simulation function', () => {
+      expect(typeof simulateConcurrentRequests).toBe('function');
+    });
+  });
+}
+
 module.exports = { simulateConcurrentRequests };

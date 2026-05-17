@@ -18,6 +18,10 @@ class UIFeedback {
     _showSnackBar(context, message, DesignSystem.warning, Icons.warning_amber_rounded);
   }
 
+  static void showInfo(BuildContext context, String message) {
+    _showSnackBar(context, message, DesignSystem.primary, Icons.info_outline);
+  }
+
   static void _showSnackBar(BuildContext context, String message, Color color, IconData icon) {
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(

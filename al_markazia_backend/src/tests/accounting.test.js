@@ -63,4 +63,13 @@ if (require.main === module) {
   runAccountingTests();
 }
 
+if (typeof describe !== 'undefined') {
+  describe('Accounting Service Property-Based Tests', () => {
+    test('should extract tax and check immutability', () => {
+      const passed = runAccountingTests();
+      expect(passed).toBe(true);
+    });
+  });
+}
+
 module.exports = { runAccountingTests };

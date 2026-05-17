@@ -8,7 +8,7 @@ const socketInit = require('../socket');
 const admin = require('firebase-admin');
 const { v4: uuidv4 } = require('uuid');
 
-const healthQueue = new Queue('healthQueue', { connection: redis });
+const healthQueue = new Queue('healthQueue', { connection: redis.options });
 const instanceId = uuidv4();
 
 /**
@@ -134,7 +134,7 @@ const initHealthWorker = async () => {
     
     return await performHealthChecks();
   }, { 
-    connection: redis,
+    connection: redis.options,
     concurrency: 1, 
   });
 
