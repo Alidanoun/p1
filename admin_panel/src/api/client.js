@@ -81,17 +81,26 @@ api.interceptors.request.use((config) => {
     config.headers['Authorization'] = `Bearer ${token}`;
   }
 
-  // 2. Attach Branch Context (Multi-tenancy isolation)
-  const selectedBranchId = localStorage.getItem('selectedBranchId');
+  // 2. Attach Branch Context (Multi-tenancy isolation) - Admin only!
+  try {
+    const userCache = JSON.parse(localStorage.getItem('user_cache') || '{}');
+    const isAdmin = userCache.role?.toUpperCase() === 'ADMIN';
 
-  if (isValidBranchId(selectedBranchId)) {
-    // ✅ Add as query param (for backward compatibility)
-    config.params = {
-      ...config.params,
-      branchId: selectedBranchId
-    };
-    // ✅ Add as custom header (for robustness and unified context passing)
-    config.headers['X-Branch-Context'] = selectedBranchId;
+    if (isAdmin) {
+      const selectedBranchId = localStorage.getItem('selectedBranchId');
+
+      if (isValidBranchId(selectedBranchId)) {
+        // ✅ Add as query param (for backward compatibility)
+        config.params = {
+          ...config.params,
+          branchId: selectedBranchId
+        };
+        // ✅ Add as custom header (for robustness and unified context passing)
+        config.headers['X-Branch-Context'] = selectedBranchId;
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to parse user cache or inject branch context:', err);
   }
 
   return config;
