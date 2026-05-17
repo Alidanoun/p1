@@ -1,8 +1,21 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Building2, ChevronDown, Check } from 'lucide-react';
 import api, { unwrap } from '../api/client';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
+
+const getSafeSelectedBranch = (branches, selectedId) => {
+  if (!branches || branches.length === 0) {
+    return { id: 'all', name: 'كل الفروع', isVirtual: true };
+  }
+  const found = branches.find(b => b.id === selectedId);
+  if (found) return found;
+
+  const allOption = branches.find(b => b.id === 'all');
+  if (allOption) return allOption;
+
+  return branches[0] || { id: 'all', name: 'كل الفروع', isVirtual: true };
+};
 
 const BranchSwitcher = ({ selectedBranchId, onBranchChange }) => {
   const [branches, setBranches] = useState([]);
@@ -17,6 +30,7 @@ const BranchSwitcher = ({ selectedBranchId, onBranchChange }) => {
         setBranches([{ id: 'all', name: 'كل الفروع' }, ...branchesList]);
       } catch (err) {
         console.error('Failed to fetch branches', err);
+        setBranches([{ id: 'all', name: 'كل الفروع' }]);
       } finally {
         setLoading(false);
       }
@@ -24,7 +38,10 @@ const BranchSwitcher = ({ selectedBranchId, onBranchChange }) => {
     fetchBranches();
   }, []);
 
-  const selectedBranch = branches.find(b => b.id === (selectedBranchId || 'all')) || branches[0];
+  const selectedBranch = useMemo(() => 
+    getSafeSelectedBranch(branches, selectedBranchId || 'all'), 
+    [branches, selectedBranchId]
+  );
 
   if (loading && branches.length === 0) return (
     <div className="w-48 h-10 bg-white/5 rounded-full animate-pulse" />
