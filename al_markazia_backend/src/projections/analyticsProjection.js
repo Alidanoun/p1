@@ -243,7 +243,8 @@ function handleCreated(payload) {
     branchId: order.branchId,
     status: order.status || 'pending',
     orderType: order.orderType || 'takeaway',
-    version: incomingVersion
+    version: incomingVersion,
+    processedAt: Date.now()
   });
 
   rebuildBranchMetrics(order.branchId);
@@ -267,7 +268,8 @@ async function handleModified(payload) {
     branchId: order.branchId || existing?.branchId,
     status: order.status || existing?.status || 'pending',
     orderType: order.orderType || existing?.orderType || 'takeaway',
-    version: incomingVersion || existing?.version || 1
+    version: incomingVersion || existing?.version || 1,
+    processedAt: Date.now()
   });
 
   rebuildBranchMetrics(order.branchId || existing?.branchId);
@@ -297,7 +299,8 @@ async function handleStatusChange(payload) {
     branchId: order.branchId || existing?.branchId,
     status: order.status,
     orderType: order.orderType || existing?.orderType || 'takeaway',
-    version: incomingVersion
+    version: incomingVersion,
+    processedAt: Date.now()
   });
 
   rebuildBranchMetrics(order.branchId || existing?.branchId);
@@ -345,7 +348,8 @@ async function replay(targetBranchId = null) {
         branchId: bid,
         status: order.status,
         orderType: order.orderType || 'takeaway',
-        version: order.version || 1
+        version: order.version || 1,
+        processedAt: Date.now()
       });
     }
     
@@ -366,10 +370,31 @@ function reset() {
 }
 
 // 🏥 Periodic Financial Reconciliation Job (Every 5 minutes)
-setInterval(() => {
+const reconciliationInterval = setInterval(() => {
   console.log('🔄 [FinancialEngine] Running periodic reconciliation...');
   replay().catch(err => console.error('[FinancialEngine] Reconciliation failed', err));
 }, 5 * 60 * 1000);
+if (reconciliationInterval.unref) {
+  reconciliationInterval.unref();
+}
+
+function periodicCleanup() {
+  const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+  const now = Date.now();
+  for (const [orderId, record] of activeOrdersMap.entries()) {
+    if (now - (record.processedAt || 0) > maxAge) {
+      activeOrdersMap.delete(orderId);
+    }
+  }
+}
+
+// 🧹 Periodic Memory In-Memory Map Cleanup (Every hour to prevent memory leaks)
+const cleanupInterval = setInterval(() => {
+  periodicCleanup();
+}, 60 * 60 * 1000);
+if (cleanupInterval.unref) {
+  cleanupInterval.unref();
+}
 
 module.exports = {
   handleCreated,
@@ -378,6 +403,7 @@ module.exports = {
   reset,
   replay,
   syncFinancials,
+  periodicCleanup,
   getMetrics: (branchId) => {
     const data = branchId ? getBranchMetrics(branchId) : getGlobalMetrics();
     if (!data) return null;
