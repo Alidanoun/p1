@@ -17,15 +17,15 @@ const financialRollbackConsumer = new StreamConsumerGroup(
       const { payload } = event;
       const { orderId, total, customerId, pointsDiscount, pointsAwarded, branchId, items, actor } = payload;
 
-      if (!orderId || !customerId) {
-        logger.warn('[FinancialRollbackConsumer] Missing payload details. Skipping.');
+      if (!orderId) {
+        logger.warn('[FinancialRollbackConsumer] Missing orderId. Skipping.');
         return;
       }
 
       try {
         await container.prisma.$transaction(async (tx) => {
           // 1. 💳 Wallet Refund
-          if (payload.paymentMethod === 'wallet' && total > 0) {
+          if (customerId && payload.paymentMethod === 'wallet' && total > 0) {
              await container.walletService.credit(
               customerId,
               total,
@@ -40,7 +40,7 @@ const financialRollbackConsumer = new StreamConsumerGroup(
           }
 
           // 2. 🎁 Loyalty Reversal (Clawback awarded points)
-          if (pointsAwarded) {
+          if (customerId && pointsAwarded) {
             await container.loyaltyLedgerService.debit(
               customerId,
               pointsAwarded,
@@ -59,7 +59,7 @@ const financialRollbackConsumer = new StreamConsumerGroup(
           }
 
           // 3. 🎁 Redemption Refund (Credit back spent points)
-          if (pointsDiscount > 0) {
+          if (customerId && pointsDiscount > 0) {
             const redemption = await tx.loyaltyLedger.findFirst({
               where: { customerId, category: 'REDEMPTION', referenceId: String(orderId) }
             });

@@ -127,18 +127,32 @@ class CancellationOrchestrator {
           }
         });
 
+        const cancelledEvent = await this.container.outboxService.enqueue(tx, {
+          type: eventTypes.ORDER_CANCELLED,
+          aggregateId: order.id,
+          aggregateType: 'Order',
+          payload: { 
+            order: mapOrderResponse(updated),
+            previousStatus: lockedOrder.status,
+            reason: reason || `Cancelled via ${source}`,
+            cancelledAt: new Date()
+          }
+        });
+
         // 📝 Audit logging inside transaction
         await this._logAtomicAudit(tx, order.id, actor, { 
           action: 'CANCELLATION_INITIATED', 
-          details: { source, reason, previousStatus: lockedOrder.status, sagaId: sagaStartEvent.id } 
+          details: { source, reason, previousStatus: lockedOrder.status, sagaId: sagaStartEvent.id, cancelledEventId: cancelledEvent.id } 
         });
 
-        return { updated, outboxId: sagaStartEvent.id };
+        return { updated, outboxIds: [sagaStartEvent.id, cancelledEvent.id] };
       }, { timeout: 10000 });
 
       // 4. 🚀 Post-Commit Immediate Dispatch
-      if (result.outboxId) {
-        this.container.outboxService.immediateDispatch(result.outboxId).catch(() => {});
+      if (result.outboxIds && result.outboxIds.length > 0) {
+        for (const outboxId of result.outboxIds) {
+          this.container.outboxService.immediateDispatch(outboxId).catch(() => {});
+        }
       }
 
       const finalizedOrder = mapOrderResponse(result.updated);

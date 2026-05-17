@@ -767,7 +767,11 @@ class OrderService {
 
     if (!isAdmin && !isManager) throw new Error('UNAUTHORIZED');
 
-    return await this._executeFinalCancellation(order, user, order.cancellation.reason);
+    return await this.container.cancellationOrchestrator.execute(orderId, user, {
+      reason: order.cancellation.reason,
+      source: 'ADMIN_APPROVAL',
+      skipPasswordCheck: true
+    });
   }
 
   /**
