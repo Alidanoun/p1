@@ -95,6 +95,12 @@ const authenticateToken = async (req, res, next) => {
       pv: decoded.pv
     };
 
+    // 🛡️ Resolve and unify Requested Branch Context (Header > Query > Body)
+    const contextBranch = req.headers['x-branch-context'] || req.query?.branchId || req.body?.branchId;
+    if (contextBranch && contextBranch !== 'null' && contextBranch !== 'undefined' && contextBranch !== '') {
+      req.user.requestedBranchId = contextBranch;
+    }
+
     const { runInContext } = require('../utils/securityContext');
     runInContext(req.user, () => next());
 
