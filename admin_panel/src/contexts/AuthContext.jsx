@@ -5,6 +5,12 @@ import { toast } from 'sonner';
 
 const AuthContext = createContext();
 
+export const isValidBranchId = (id) => {
+  if (id === null || id === undefined) return false;
+  const strId = String(id).trim();
+  return !['null', 'undefined', ''].includes(strId);
+};
+
 export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider = ({ children }) => {
@@ -14,13 +20,14 @@ export const AuthProvider = ({ children }) => {
 
   const [selectedBranchId, setBranchIdState] = useState(() => {
     const saved = sessionStorage.getItem('selectedBranchId');
-    return saved && saved !== 'null' ? saved : null;
+    return isValidBranchId(saved) ? saved : null;
   });
 
   const setSelectedBranchId = (id) => {
-    setBranchIdState(id);
-    if (id && id !== 'all' && id !== null) {
-      sessionStorage.setItem('selectedBranchId', id);
+    const validId = isValidBranchId(id) ? String(id) : null;
+    setBranchIdState(validId);
+    if (validId && validId !== 'all') {
+      sessionStorage.setItem('selectedBranchId', validId);
     } else {
       sessionStorage.removeItem('selectedBranchId');
     }
