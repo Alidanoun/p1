@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { Search, Filter, CheckCircle2, XCircle, Info, Loader2, UtensilsCrossed, RefreshCw } from 'lucide-react';
+import { Search, Filter, CheckCircle2, XCircle, Info, Loader2, UtensilsCrossed, RefreshCw, Building2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import api, { unwrap } from '../api/client';
@@ -82,6 +82,49 @@ const BranchMenu = () => {
                          (filterStatus === 'unavailable' && !item.isAvailable);
     return matchesSearch && matchesCategory && matchesStatus;
   });
+
+  const branchId = selectedBranchId || user?.branchId;
+
+  if (!branchId) {
+    return (
+      <div className="p-8 max-w-[1600px] mx-auto animate-in fade-in duration-500 text-right" dir="rtl">
+        {/* Header Section */}
+        <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10">
+          <div>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="p-2 bg-primary/10 rounded-lg">
+                <UtensilsCrossed className="w-5 h-5 text-primary" />
+              </div>
+              <h1 className="text-3xl font-bold text-text-main">منيو الفرع</h1>
+            </div>
+            <p className="text-text-muted">إدارة توفر الوجبات والأصناف لفرعك الحالي بشكل لحظي</p>
+          </div>
+        </header>
+
+        <div className="h-[450px] flex flex-col items-center justify-center gap-6 bg-card/20 rounded-3xl border border-dashed border-border-subtle p-8 text-center">
+          <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center text-primary mb-2 shadow-[0_0_30px_rgba(249,115,22,0.15)]">
+            <Building2 className="w-10 h-10 animate-bounce" />
+          </div>
+          <div>
+            <h3 className="text-2xl font-black text-white mb-2">يجب اختيار فرع أولاً</h3>
+            <p className="text-text-muted text-sm max-w-md mx-auto leading-relaxed">
+              يرجى اختيار فرع محدد من قائمة الفروع العلوية للتمكن من إدارة وتفعيل الأصناف والوجبات الخاصة بهذا الفرع.
+            </p>
+          </div>
+          <button 
+            onClick={() => {
+              const switcher = document.querySelector('.relative button');
+              if (switcher) switcher.click();
+            }}
+            className="mt-2 px-6 py-3 bg-primary hover:bg-primary/95 text-white font-bold rounded-xl shadow-lg shadow-primary/20 transition-all active:scale-95 flex items-center gap-2"
+          >
+            <Search className="w-4 h-4" />
+            تحديد الفرع الآن
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-8 max-w-[1600px] mx-auto animate-in fade-in duration-500 text-right" dir="rtl">
