@@ -3,6 +3,7 @@
  * The single source of truth for all authorization and data isolation logic.
  */
 const NodeCache = require('node-cache');
+const { BRANCH_ISOLATED_MODELS } = require('../config/branchIsolation');
 const localBranchCache = new NodeCache({ stdTTL: 30, maxKeys: 1000 });
 const inFlightBranches = new Map();
 
@@ -62,7 +63,7 @@ class SecurityPolicyService {
       const filter = modelsWithSoftDelete.includes(modelName) ? { isDeleted: false } : {};
       
       // 🛡️ Apply manual branch isolation if requested
-      if (user.requestedBranchId && ['Order', 'BranchItem', 'FinancialLedger', 'DailyFinancialSnapshot'].includes(modelName)) {
+      if (user.requestedBranchId && BRANCH_ISOLATED_MODELS.has(modelName)) {
         filter.branchId = user.requestedBranchId;
       } else if (user.requestedBranchId && modelName === 'Branch') {
         filter.id = user.requestedBranchId;
@@ -80,12 +81,7 @@ class SecurityPolicyService {
     const authoritativeBranchId = getBranchId();
     
     if (authoritativeBranchId && normalizedRole !== 'admin') {
-      const branchScopedModels = [
-        'Order', 'BranchItem', 'FinancialLedger', 'DailyFinancialSnapshot', 
-        'FinancialApproval', 'BranchMetric', 'SystemAuditLog', 'DeliveryZone'
-      ];
-      
-      if (branchScopedModels.includes(modelName)) {
+      if (BRANCH_ISOLATED_MODELS.has(modelName)) {
         filter.branchId = authoritativeBranchId;
       } else if (modelName === 'Branch') {
         filter.id = authoritativeBranchId;
@@ -239,8 +235,7 @@ class SecurityPolicyService {
     }
 
     // Apply branch filters based on model type
-    const branchIsolationModels = ['Order', 'BranchItem', 'FinancialLedger', 'DailyFinancialSnapshot', 'SystemAuditLog', 'FinancialApproval', 'BranchMetric'];
-    if (branchIsolationModels.includes(modelName)) {
+    if (BRANCH_ISOLATED_MODELS.has(modelName)) {
       filter.branchId = { in: targetBranchIds };
     } else if (modelName === 'Branch') {
       filter.id = { in: targetBranchIds };
