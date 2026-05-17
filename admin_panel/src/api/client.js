@@ -77,14 +77,17 @@ api.interceptors.request.use((config) => {
 
   // 2. Attach Branch Context (Multi-tenancy isolation)
   const selectedBranchId = sessionStorage.getItem('selectedBranchId');
-  const hasBranchInParams = config.params && config.params.branchId;
-  const hasBranchInUrl = config.url && config.url.includes('branchId=');
+  const validBranchId = selectedBranchId && !['null', 'undefined', ''].includes(selectedBranchId) 
+    ? selectedBranchId : null;
 
-  if (selectedBranchId && selectedBranchId !== 'null' && !hasBranchInParams && !hasBranchInUrl) {
+  if (validBranchId) {
+    // ✅ Add as query param (for backward compatibility)
     config.params = {
       ...config.params,
-      branchId: selectedBranchId
+      branchId: validBranchId
     };
+    // ✅ Add as custom header (for robustness and unified context passing)
+    config.headers['X-Branch-Context'] = validBranchId;
   }
 
   return config;
