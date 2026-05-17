@@ -17,7 +17,7 @@ export const AuthProvider = ({ children }) => {
   const initialized = useRef(false);
 
   const [selectedBranchId, setBranchIdState] = useState(() => {
-    const saved = localStorage.getItem('selectedBranchId');
+    const saved = localStorage.getItem('selectedBranchId') || sessionStorage.getItem('selectedBranchId');
     return isValidBranchId(saved) ? saved : null;
   });
 
@@ -26,8 +26,10 @@ export const AuthProvider = ({ children }) => {
     setBranchIdState(validId);
     if (validId && validId !== 'all') {
       localStorage.setItem('selectedBranchId', validId);
+      sessionStorage.setItem('selectedBranchId', validId);
     } else {
       localStorage.removeItem('selectedBranchId');
+      sessionStorage.removeItem('selectedBranchId');
     }
   };
 
@@ -139,14 +141,11 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const handleStorageChange = (e) => {
       if (e.key === 'selectedBranchId') {
-        const newValue = e.newValue;
-        const validId = isValidBranchId(newValue) ? newValue : null;
-        
-        // Update state only if the value actually changed
-        setBranchIdState(prev => prev !== validId ? validId : prev);
+        const newId = e.newValue && isValidBranchId(e.newValue) ? e.newValue : null;
+        setBranchIdState(prev => prev !== newId ? newId : prev);
       }
     };
-
+    
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);

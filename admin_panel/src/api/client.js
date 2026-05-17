@@ -85,7 +85,8 @@ api.interceptors.request.use((config) => {
     const isAdmin = userCache.role?.toUpperCase() === 'ADMIN';
 
     if (isAdmin) {
-      const selectedBranchId = localStorage.getItem('selectedBranchId');
+      // ✅ Check both localStorage and sessionStorage
+      const selectedBranchId = localStorage.getItem('selectedBranchId') || sessionStorage.getItem('selectedBranchId');
 
       if (isValidBranchId(selectedBranchId)) {
         const hasUrlBranch = config.url && (config.url.indexOf('branchId=') !== -1 || config.url.indexOf('branchId%3D') !== -1);

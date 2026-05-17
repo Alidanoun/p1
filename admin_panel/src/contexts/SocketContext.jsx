@@ -260,10 +260,10 @@ export const SocketProvider = ({ children }) => {
     newSocket.on('force:branch:reset', ({ reason, branchId }) => {
       console.error('[Socket] ACCESS REVOKED:', reason);
       
-      // ✅ Step 1: Clean localStorage immediately
+      // ✅ تنظيف التخزين قبل أي شيء
       localStorage.removeItem('selectedBranchId');
+      sessionStorage.removeItem('selectedBranchId');
       
-      // ✅ Step 2: Update Auth State
       if (!branchId || selectedBranchId === branchId) {
         setSelectedBranchId(null);
       }
@@ -272,17 +272,21 @@ export const SocketProvider = ({ children }) => {
       abortControllerRef.current?.abort();
       
       // ✅ Step 4: Notify the User
-      toast.error(`تم سحب صلاحية الوصول: ${reason || 'تم سحب صلاحية الوصول لهذا الفرع'}`, {
-        description: 'سيتم توجيهك الآن إلى لوحة التحكم الرئيسية خلال 3 ثوانٍ.',
-        duration: 3000
+      toast.error(`تم سحب الصلاحية: ${reason || 'سبب غير محدد'}`, {
+        autoClose: 3000,
+        onClose: () => {
+          window.location.href = '/dashboard';
+        }
       });
       
       setLiveMetrics(null);
       
-      // ✅ Step 5: Safe redirect after toast duration
+      // Safe fallback redirect in case onClose doesn't trigger
       setTimeout(() => {
-        window.location.href = '/dashboard';
-      }, 3000);
+        if (window.location.pathname !== '/dashboard') {
+          window.location.href = '/dashboard';
+        }
+      }, 3500);
     });
 
     socketRef.current = newSocket;
