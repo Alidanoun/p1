@@ -49,6 +49,27 @@ const prisma = basePrisma.$extends({
   query: {
     $allModels: {
       async $allOperations({ model, operation, args, query }) {
+        args = args || {};
+
+        // 🛡️ Admin bypass or skip soft delete filter
+        if (args.skipSoftDelete) {
+          delete args.skipSoftDelete;
+          return query(args);
+        }
+
+        // 🔍 Automatically append isDeleted: false on find operations
+        const SOFT_DELETE_MODELS = [
+          'FinancialLedger', 'LoyaltyLedger', 'SystemAuditLog', 
+          'Order', 'OrderItem', 'BranchItem'
+        ];
+        
+        if (SOFT_DELETE_MODELS.includes(model)) {
+          if (['findUnique', 'findFirst', 'findMany', 'count'].includes(operation)) {
+            args.where = args.where || {};
+            args.where.isDeleted = false;
+          }
+        }
+
         // 🔒 Automatic Encryption on Write
         const writeActions = ['create', 'update', 'upsert', 'createMany', 'updateMany'];
         if (writeActions.includes(operation) && args.data) {
