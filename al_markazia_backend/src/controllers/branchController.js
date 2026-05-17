@@ -67,9 +67,26 @@ exports.toggleItemAvailability = async (req, res) => {
 
     // Idempotency check: No need to update if state is identical
     if (existing && existing.isAvailable === isAvailable) {
+      // ✅ Log event even if state is identical (Idempotent call tracking)
+      await auditService.logSync({
+        action: 'ITEM_TOGGLE_IDEMPOTENT',
+        userId: user.id,
+        userRole: user.role,
+        metadata: {
+          itemId: item.id,
+          itemName: item.title,
+          branchId: targetBranchId,
+          requestedValue: isAvailable,
+          currentValue: existing.isAvailable,
+          reason: 'No state transition required'
+        },
+        req
+      });
+
       return response.success(res, { 
-        message: 'الحالة لم تتغير', 
-        data: existing 
+        message: 'الحالة بالفعل كما هو مطلوب (لم تتغير)', 
+        data: existing,
+        idempotent: true
       });
     }
 
