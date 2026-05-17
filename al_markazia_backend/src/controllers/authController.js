@@ -346,6 +346,12 @@ const login = async (req, res) => {
  * 🚪 Secure Logout (Revoke & Clear)
  */
 const logout = async (req, res) => {
+  const jti = req.user?.jti;
+  if (jti) {
+    const tokenBlacklistService = require('../services/tokenBlacklistService');
+    await tokenBlacklistService.blacklist(jti, req.user.id, 'LOGOUT').catch(() => {});
+  }
+
   const token = req.cookies?.refreshToken || req.body?.refreshToken;
   
   if (token) {
@@ -664,6 +670,14 @@ const resetPassword = async (req, res) => {
         }
       });
     });
+
+    // 🔥 Blacklist all old user sessions in Redis immediately due to password change
+    try {
+      const tokenBlacklistService = require('../services/tokenBlacklistService');
+      await tokenBlacklistService.blacklistUserSessions(updatedAccount.uuid, 'PASSWORD_CHANGED');
+    } catch (blacklistErr) {
+      logger.warn('[Auth] Token session blacklisting failed on password reset', { error: blacklistErr.message });
+    }
 
     logger.security('Password reset — all sessions revoked', { email: cleanEmail, uuid: updatedAccount.uuid });
 
