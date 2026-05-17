@@ -95,8 +95,8 @@ const authenticateToken = async (req, res, next) => {
       pv: decoded.pv
     };
 
-    // 🛡️ Resolve and unify Requested Branch Context (Header > Query > Body)
-    const contextBranch = req.headers['x-branch-context'] || req.query?.branchId || req.body?.branchId;
+    // 🛡️ Resolve and unify Requested Branch Context (Query > Body > Header)
+    const contextBranch = req.query?.branchId || req.body?.branchId || req.headers['x-branch-context'];
     if (contextBranch && contextBranch !== 'null' && contextBranch !== 'undefined' && contextBranch !== '') {
       req.user.requestedBranchId = contextBranch;
     }

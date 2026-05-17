@@ -3,9 +3,7 @@ import axiosRetry from 'axios-retry';
 import { tokenStore } from './tokenStore';
 
 export const isValidBranchId = (id) => {
-  if (id === null || id === undefined) return false;
-  const strId = String(id).trim();
-  return !['null', 'undefined', ''].includes(strId);
+  return id && typeof id === 'string' && !['null', 'undefined', ''].includes(id.trim());
 };
 
 const getBaseUrl = () => {
@@ -90,11 +88,16 @@ api.interceptors.request.use((config) => {
       const selectedBranchId = localStorage.getItem('selectedBranchId');
 
       if (isValidBranchId(selectedBranchId)) {
-        // ✅ Add as query param (for backward compatibility)
-        config.params = {
-          ...config.params,
-          branchId: selectedBranchId
-        };
+        const hasUrlBranch = config.url && (config.url.indexOf('branchId=') !== -1 || config.url.indexOf('branchId%3D') !== -1);
+        const hasParamBranch = config.params && ('branchId' in config.params);
+        
+        if (!hasUrlBranch && !hasParamBranch) {
+          // ✅ Add as query param (for backward compatibility)
+          config.params = {
+            ...config.params,
+            branchId: selectedBranchId
+          };
+        }
         // ✅ Add as custom header (for robustness and unified context passing)
         config.headers['X-Branch-Context'] = selectedBranchId;
       }

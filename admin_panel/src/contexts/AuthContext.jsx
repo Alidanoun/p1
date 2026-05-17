@@ -6,9 +6,7 @@ import { toast } from 'sonner';
 const AuthContext = createContext();
 
 export const isValidBranchId = (id) => {
-  if (id === null || id === undefined) return false;
-  const strId = String(id).trim();
-  return !['null', 'undefined', ''].includes(strId);
+  return id && typeof id === 'string' && !['null', 'undefined', ''].includes(id.trim());
 };
 
 export const useAuth = () => useContext(AuthContext);
@@ -74,6 +72,12 @@ export const AuthProvider = ({ children }) => {
           const finalUser = meResponse.data.data;
           setUser(finalUser);
           localStorage.setItem('user_cache', JSON.stringify(finalUser));
+          
+          // Auto-set branchId for manager/branch_manager
+          const role = finalUser.role?.toLowerCase();
+          if ((role === 'branch_manager' || role === 'manager') && finalUser.branchId) {
+            setSelectedBranchId(finalUser.branchId);
+          }
           console.log('🧪 [AuthBootstrap] Profile sync complete');
         } catch (err) {
           console.warn('🧪 [AuthBootstrap] FAILED:', err.response?.data?.error || err.message);
@@ -122,7 +126,12 @@ export const AuthProvider = ({ children }) => {
     };
     
     if (user?.id) {
-      validateBranchOnLoad();
+      const role = user.role?.toLowerCase();
+      if (role === 'admin') {
+        validateBranchOnLoad();
+      } else if ((role === 'branch_manager' || role === 'manager') && user.branchId) {
+        setSelectedBranchId(user.branchId);
+      }
     }
   }, [user]);
 
@@ -161,8 +170,13 @@ export const AuthProvider = ({ children }) => {
       setUser(user);
       localStorage.setItem('user_cache', JSON.stringify(user));
       
-      changeBranch(null);
-      localStorage.removeItem('selectedBranchId');
+      const role = user.role?.toLowerCase();
+      if ((role === 'branch_manager' || role === 'manager') && user.branchId) {
+        setSelectedBranchId(user.branchId);
+      } else {
+        changeBranch(null);
+        localStorage.removeItem('selectedBranchId');
+      }
 
       console.log('✅ [AuthDebug] Login Success. User:', user.email);
       return { success: true };

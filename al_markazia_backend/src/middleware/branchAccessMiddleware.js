@@ -44,10 +44,10 @@ const BranchAccessMiddleware = async (req, res, next) => {
       authoritativeBranchId = approval.branchId;
     }
 
-    // 🎯 PILLAR C: Request-Level Branch Resolution (Header/Query/Body)
+    // 🎯 PILLAR C: Request-Level Branch Resolution (Query/Body/Header)
     // If no specific entity ID was found, check for branchId in request
     if (!authoritativeBranchId) {
-      authoritativeBranchId = req.headers['x-branch-context'] || req.query.branchId || req.body?.branchId;
+      authoritativeBranchId = req.query?.branchId || req.body?.branchId || req.headers['x-branch-context'];
     }
 
     // 🛡️ [SECURITY-FIX] For Managers: Always override or validate branchId
