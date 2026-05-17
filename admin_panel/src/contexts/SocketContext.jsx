@@ -289,7 +289,7 @@ export const SocketProvider = ({ children }) => {
     setSocket(newSocket);
   }, [fetchNotifications, cleanupSocket]);
 
-  const debouncedBranchId = useDebounce(selectedBranchId, 300);
+  const debouncedBranchId = useDebounce(selectedBranchId, 150);
 
   useEffect(() => {
     // 🛡️ Only trigger if we have a valid debounced ID (null is valid for 'All Branches')
