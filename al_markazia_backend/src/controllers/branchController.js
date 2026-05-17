@@ -253,3 +253,36 @@ exports.deleteBranch = async (req, res) => {
     return response.error(res, 'حدث خطأ أثناء حذف الفرع', 'SERVER_ERROR', 500);
   }
 };
+
+/**
+ * 🔍 Validate Branch Access
+ * Checks if the current authenticated user is authorized to access a branch.
+ * Prevents IDOR by using req.user from JWT context.
+ */
+exports.validateBranchAccess = async (req, res) => {
+  try {
+    const { branchId } = req.body;
+    const user = req.user;
+
+    if (!branchId) {
+      return res.json({ success: true, canAccess: false, message: 'Branch ID is required' });
+    }
+
+    // Standardize branchId (prevent stringified nulls/undefined)
+    if (branchId === 'null' || branchId === 'undefined') {
+      return res.json({ success: true, canAccess: false, message: 'Invalid Branch ID' });
+    }
+
+    // Call SecurityPolicyService to check access
+    const SecurityPolicyService = require('../services/securityPolicyService');
+    const canAccess = await SecurityPolicyService.canAccessBranch(user, branchId, 'read');
+
+    return res.json({
+      success: true,
+      canAccess
+    });
+  } catch (error) {
+    logger.error('Validate branch access error', { error: error.message });
+    return res.status(500).json({ success: false, error: 'Internal Server Error' });
+  }
+};

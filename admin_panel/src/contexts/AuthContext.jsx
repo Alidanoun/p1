@@ -1,6 +1,7 @@
 import { createContext, useState, useEffect, useContext, useRef } from 'react';
 import api, { executeRefresh } from '../api/client';
 import { tokenStore } from '../api/tokenStore';
+import { toast } from 'sonner';
 
 const AuthContext = createContext();
 
@@ -85,6 +86,38 @@ export const AuthProvider = ({ children }) => {
 
     bootstrap();
   }, []);
+
+  // 🛡️ Secure Session Bootstrapping: Validate savedBranchId on load or user change
+  useEffect(() => {
+    const validateBranchOnLoad = async () => {
+      const savedBranch = sessionStorage.getItem('selectedBranchId');
+      
+      if (savedBranch && savedBranch !== 'null' && user?.role?.toUpperCase() === 'ADMIN') {
+        try {
+          // Check backend to make sure the branch is still valid & accessible
+          const { data } = await api.post('/branch/validate', { 
+            branchId: savedBranch
+          });
+          
+          if (!data.success || !data.canAccess) {
+            // Clear invalid branch selection
+            sessionStorage.removeItem('selectedBranchId');
+            setBranchIdState(null);
+            toast.warning('تم تحديث صلاحيات الفروع، يرجى الاختيار مجدداً');
+          }
+        } catch (error) {
+          console.warn('Failed to validate branch access:', error);
+          // Fail-safe: clear branch selection on error
+          sessionStorage.removeItem('selectedBranchId');
+          setBranchIdState(null);
+        }
+      }
+    };
+    
+    if (user?.id) {
+      validateBranchOnLoad();
+    }
+  }, [user]);
 
   const changeBranch = (branchId) => {
     setSelectedBranchId(branchId);

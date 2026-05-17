@@ -24,6 +24,9 @@ router.post('/items/toggle',
 // 🔄 Switch Branch Context (Audit Logged)
 router.post('/switch', authenticateToken, branchController.switchBranch);
 
+// 🔍 Validate Branch Access
+router.post('/validate', authenticateToken, branchController.validateBranchAccess);
+
 // 🗑️ Soft-Delete Branch (Admin Only)
 router.delete('/:id', authenticateToken, isAdmin, branchController.deleteBranch);
 
