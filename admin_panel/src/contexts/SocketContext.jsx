@@ -260,8 +260,8 @@ export const SocketProvider = ({ children }) => {
     newSocket.on('force:branch:reset', ({ reason, branchId }) => {
       console.error('[Socket] ACCESS REVOKED:', reason);
       
-      // ✅ Step 1: Clean sessionStorage immediately
-      sessionStorage.removeItem('selectedBranchId');
+      // ✅ Step 1: Clean localStorage immediately
+      localStorage.removeItem('selectedBranchId');
       
       // ✅ Step 2: Update Auth State
       if (!branchId || selectedBranchId === branchId) {

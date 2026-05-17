@@ -82,7 +82,7 @@ api.interceptors.request.use((config) => {
   }
 
   // 2. Attach Branch Context (Multi-tenancy isolation)
-  const selectedBranchId = sessionStorage.getItem('selectedBranchId');
+  const selectedBranchId = localStorage.getItem('selectedBranchId');
 
   if (isValidBranchId(selectedBranchId)) {
     // ✅ Add as query param (for backward compatibility)

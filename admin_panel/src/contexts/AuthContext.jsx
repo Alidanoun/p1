@@ -19,7 +19,7 @@ export const AuthProvider = ({ children }) => {
   const initialized = useRef(false);
 
   const [selectedBranchId, setBranchIdState] = useState(() => {
-    const saved = sessionStorage.getItem('selectedBranchId');
+    const saved = localStorage.getItem('selectedBranchId');
     return isValidBranchId(saved) ? saved : null;
   });
 
@@ -27,9 +27,9 @@ export const AuthProvider = ({ children }) => {
     const validId = isValidBranchId(id) ? String(id) : null;
     setBranchIdState(validId);
     if (validId && validId !== 'all') {
-      sessionStorage.setItem('selectedBranchId', validId);
+      localStorage.setItem('selectedBranchId', validId);
     } else {
-      sessionStorage.removeItem('selectedBranchId');
+      localStorage.removeItem('selectedBranchId');
     }
   };
 
@@ -97,7 +97,7 @@ export const AuthProvider = ({ children }) => {
   // 🛡️ Secure Session Bootstrapping: Validate savedBranchId on load or user change
   useEffect(() => {
     const validateBranchOnLoad = async () => {
-      const savedBranch = sessionStorage.getItem('selectedBranchId');
+      const savedBranch = localStorage.getItem('selectedBranchId');
       
       if (savedBranch && savedBranch !== 'null' && user?.role?.toUpperCase() === 'ADMIN') {
         try {
@@ -108,14 +108,14 @@ export const AuthProvider = ({ children }) => {
           
           if (!data.success || !data.canAccess) {
             // Clear invalid branch selection
-            sessionStorage.removeItem('selectedBranchId');
+            localStorage.removeItem('selectedBranchId');
             setBranchIdState(null);
             toast.warning('تم تحديث صلاحيات الفروع، يرجى الاختيار مجدداً');
           }
         } catch (error) {
           console.warn('Failed to validate branch access:', error);
           // Fail-safe: clear branch selection on error
-          sessionStorage.removeItem('selectedBranchId');
+          localStorage.removeItem('selectedBranchId');
           setBranchIdState(null);
         }
       }
@@ -125,6 +125,22 @@ export const AuthProvider = ({ children }) => {
       validateBranchOnLoad();
     }
   }, [user]);
+
+  // 🔄 Multi-Tab Synchronization: Sync active branch selection across open tabs
+  useEffect(() => {
+    const handleStorageChange = (e) => {
+      if (e.key === 'selectedBranchId') {
+        const newValue = e.newValue;
+        const validId = isValidBranchId(newValue) ? newValue : null;
+        
+        // Update state only if the value actually changed
+        setBranchIdState(prev => prev !== validId ? validId : prev);
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
 
   const changeBranch = (branchId) => {
     setSelectedBranchId(branchId);
@@ -146,7 +162,7 @@ export const AuthProvider = ({ children }) => {
       localStorage.setItem('user_cache', JSON.stringify(user));
       
       changeBranch(null);
-      sessionStorage.removeItem('selectedBranchId');
+      localStorage.removeItem('selectedBranchId');
 
       console.log('✅ [AuthDebug] Login Success. User:', user.email);
       return { success: true };
