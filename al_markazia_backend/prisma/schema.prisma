@@ -682,12 +682,14 @@ model SystemAuditLog {
   branch       Branch?  @relation(fields: [branchId], references: [id], onDelete: Restrict)
   metadata     Json?    // Stores diffs: { before: {}, after: {} }
   createdAt    DateTime @default(now())
+  isDeleted    Boolean  @default(false)
 
   @@index([userId])
   @@index([action])
   @@index([branchId])
   @@index([entityType, entityId])
   @@index([createdAt])
+  @@index([isDeleted])
 }
 
 model RestaurantSettings {
@@ -756,6 +758,9 @@ model FinancialLedger {
   description     String?
   metadata        Json?
   createdAt       DateTime @default(now())
+  isDeleted       Boolean  @default(false)
+  deletedAt       DateTime?
+  deletedBy       String?
 
   branch          Branch   @relation(fields: [branchId], references: [id], onDelete: Restrict)
   approvals       FinancialApproval[]
@@ -764,6 +769,7 @@ model FinancialLedger {
   @@index([branchId])
   @@index([createdAt])
   @@index([branchId, type, createdAt])
+  @@index([isDeleted, branchId])
 }
 
 model FinancialApproval {
@@ -929,12 +935,15 @@ model LoyaltyLedger {
   metadata        Json?    // { ip: "...", device: "...", version: 1 }
   
   createdAt       DateTime @default(now())
+  isDeleted       Boolean  @default(false)
+  deletedAt       DateTime?
   
-  customer        Customer @relation(fields: [customerId], references: [id])
+  customer        Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
 
   @@index([customerId, createdAt(sort: Desc)])
   @@index([category])
   @@index([idempotencyKey])
+  @@index([isDeleted])
 }
 
 model DailyFinancialSnapshot {
