@@ -2,6 +2,12 @@ import axios from 'axios';
 import axiosRetry from 'axios-retry';
 import { tokenStore } from './tokenStore';
 
+export const isValidBranchId = (id) => {
+  if (id === null || id === undefined) return false;
+  const strId = String(id).trim();
+  return !['null', 'undefined', ''].includes(strId);
+};
+
 const getBaseUrl = () => {
   if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
   if (import.meta.env.PROD) throw new Error('CRITICAL: VITE_API_URL is missing in production');
@@ -77,17 +83,15 @@ api.interceptors.request.use((config) => {
 
   // 2. Attach Branch Context (Multi-tenancy isolation)
   const selectedBranchId = sessionStorage.getItem('selectedBranchId');
-  const validBranchId = selectedBranchId && !['null', 'undefined', ''].includes(selectedBranchId) 
-    ? selectedBranchId : null;
 
-  if (validBranchId) {
+  if (isValidBranchId(selectedBranchId)) {
     // ✅ Add as query param (for backward compatibility)
     config.params = {
       ...config.params,
-      branchId: validBranchId
+      branchId: selectedBranchId
     };
     // ✅ Add as custom header (for robustness and unified context passing)
-    config.headers['X-Branch-Context'] = validBranchId;
+    config.headers['X-Branch-Context'] = selectedBranchId;
   }
 
   return config;
