@@ -14,7 +14,7 @@ const SocketContext = createContext();
 const SOCKET_URL = import.meta.env.VITE_API_URL || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5010');
 
 export const SocketProvider = ({ children }) => {
-  const { user, selectedBranchId } = useAuth();
+  const { user, selectedBranchId, setSelectedBranchId } = useAuth();
   const queryClient = useQueryClient();
   const [socket, setSocket] = useState(null);
   const [notifications, setNotifications] = useState([]);
@@ -257,15 +257,32 @@ export const SocketProvider = ({ children }) => {
     });
 
     // 🚫 Access Revoked Handler
-    newSocket.on('force:branch:reset', ({ reason }) => {
+    newSocket.on('force:branch:reset', ({ reason, branchId }) => {
       console.error('[Socket] ACCESS REVOKED:', reason);
-      toast.error('تم سحب صلاحية الوصول لهذا الفرع', {
-        description: 'سيتم تحويلك الآن إلى الواجهة الرئيسية.',
-        duration: 8000
+      
+      // ✅ Step 1: Clean sessionStorage immediately
+      sessionStorage.removeItem('selectedBranchId');
+      
+      // ✅ Step 2: Update Auth State
+      if (!branchId || selectedBranchId === branchId) {
+        setSelectedBranchId(null);
+      }
+      
+      // ✅ Step 3: Abort any pending HTTP requests for this branch
+      abortControllerRef.current?.abort();
+      
+      // ✅ Step 4: Notify the User
+      toast.error(`تم سحب صلاحية الوصول: ${reason || 'تم سحب صلاحية الوصول لهذا الفرع'}`, {
+        description: 'سيتم توجيهك الآن إلى لوحة التحكم الرئيسية خلال 3 ثوانٍ.',
+        duration: 3000
       });
+      
       setLiveMetrics(null);
-      // Logic to redirect or reset branch state in UI could go here
-      window.location.reload(); // Hard reset for safety
+      
+      // ✅ Step 5: Safe redirect after toast duration
+      setTimeout(() => {
+        window.location.href = '/dashboard';
+      }, 3000);
     });
 
     socketRef.current = newSocket;
