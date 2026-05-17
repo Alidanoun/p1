@@ -32,13 +32,16 @@ class Validators {
     return null;
   }
 
-  /// Validates password security
-  static String? validatePassword(String? value, String errorMsgEmpty, String errorMsgShort) {
+  /// Validates password security (matching the backend's strict regex requirements)
+  static String? validatePassword(String? value, String errorMsgEmpty, String errorMsgInvalid) {
     if (value == null || value.trim().isEmpty) {
       return errorMsgEmpty;
     }
-    if (value.trim().length < 6) {
-      return errorMsgShort; // E.g., 'Password must be at least 6 characters'
+    
+    // Requirements: Min 8 chars, 1 Uppercase, 1 Lowercase, 1 Number, 1 Special Char
+    final passwordRegex = RegExp(r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#_\-])[A-Za-z\d@$!%*?&#_\-]{8,}$');
+    if (!passwordRegex.hasMatch(value)) {
+      return errorMsgInvalid;
     }
     return null;
   }

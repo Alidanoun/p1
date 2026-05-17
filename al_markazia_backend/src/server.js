@@ -261,8 +261,8 @@ async function startServer() {
     }
 
     if (process.env.NODE_ENV !== 'test') {
-      server.listen(PORT, '127.0.0.1', async () => {
-        logger.info(`🚀 Backend Server is running on http://127.0.0.1:${PORT} — accepting connections.`);
+      server.listen(PORT, '0.0.0.0', async () => {
+        logger.info(`🚀 Backend Server is running on http://0.0.0.0:${PORT} — accepting connections.`);
 
         // 🔄 Background Rehydration: Runs in a non-blocking way to keep login responsive
         // We use setImmediate to ensure the listen callback finishes and the event loop yields
