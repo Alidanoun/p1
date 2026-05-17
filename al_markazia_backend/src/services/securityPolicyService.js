@@ -492,6 +492,14 @@ class SecurityPolicyService {
         return { outboxId: outboxEvent.id };
       });
 
+      // ✅ Step 1.5: Add active sessions of user to blacklist for instant revocation
+      try {
+        const tokenBlacklistService = require('./tokenBlacklistService');
+        await tokenBlacklistService.blacklistUserSessions(userId, 'ADMIN_REVOKED');
+      } catch (blacklistErr) {
+        logger.warn('[SecurityPolicy] Token session blacklisting failed', { error: blacklistErr.message });
+      }
+
       // ✅ Step 2: Clear local cache (Safe side effect)
       const cacheKey = `user:branches:${userId}`;
       try {

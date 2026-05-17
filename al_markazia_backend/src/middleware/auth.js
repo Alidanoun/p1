@@ -95,6 +95,17 @@ const authenticateToken = async (req, res, next) => {
       pv: decoded.pv
     };
 
+    // 5. 🛡️ JWT Blacklist Check (Instant Revocation Guard)
+    const { checkTokenNotBlacklisted } = require('./tokenBlacklistCheck');
+    let isBlacklistedResult = false;
+    await checkTokenNotBlacklisted(req, res, (err) => {
+      if (err) {
+        logger.error('Error in checkTokenNotBlacklisted', { error: err.message });
+      }
+      isBlacklistedResult = true;
+    });
+    if (!isBlacklistedResult || res.headersSent) return;
+
     // 🛡️ Resolve and unify Requested Branch Context (Query > Body > Header)
     const contextBranch = req.query?.branchId || req.body?.branchId || req.headers['x-branch-context'];
     if (contextBranch && contextBranch !== 'null' && contextBranch !== 'undefined' && contextBranch !== '') {
