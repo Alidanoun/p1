@@ -30,7 +30,10 @@ const RATE_LIMIT_SCRIPT = `
 
 // 🛡️ Ultra-strict short-window local fallback map for Auth endpoints during Redis outage
 const fallbackMemoryLimiter = new Map();
-setInterval(() => fallbackMemoryLimiter.clear(), 60000);
+const fallbackMemoryCleanup = setInterval(() => fallbackMemoryLimiter.clear(), 60000);
+if (fallbackMemoryCleanup.unref) {
+  fallbackMemoryCleanup.unref();
+}
 
 class DistributedRateLimiter {
   constructor(options = {}) {
@@ -91,6 +94,7 @@ class DistributedRateLimiter {
     const windowSecs = Math.ceil(this.config.windowMs / 1000);
     const requestId = req?.headers?.['x-request-id'] || `req-${Math.random().toString(36).substr(2, 6)}`;
 
+    let timerId;
     try {
       if (!this.redis || typeof this.redis.eval !== 'function') {
         throw new Error('Redis Client Unavailable');
@@ -106,9 +110,13 @@ class DistributedRateLimiter {
         now,
         requestId
       );
-      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Execution Timeout')), 500));
+      
+      const timeoutPromise = new Promise((_, reject) => {
+        timerId = setTimeout(() => reject(new Error('Execution Timeout')), 500);
+      });
 
       const [allowed, currentCount] = await Promise.race([evalPromise, timeoutPromise]);
+      clearTimeout(timerId); // ✅ Clean up active timer immediately on success!
 
       const isAllowed = allowed === 1;
       const result = {
@@ -122,6 +130,8 @@ class DistributedRateLimiter {
       trackCheck(this.scope, isAllowed, false, req);
       return result;
     } catch (error) {
+      clearTimeout(timerId); // ✅ Clean up active timer on error as well!
+
       if (logger && typeof logger.error === 'function') {
         logger.error('[RateLimiter] Redis cluster anomaly during threshold evaluation', { error: error.message, key, scope: this.scope });
       }
