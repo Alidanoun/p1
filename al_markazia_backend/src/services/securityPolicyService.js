@@ -453,36 +453,46 @@ class SecurityPolicyService {
     const redis = this.redis;
     const prisma = this.prisma;
     const logger = this.logger;
-    const { publishEvent } = require('../events/eventPublisher');
+    const container = getContainer();
 
     logger.warn('[SECURITY] Initializing Distributed Permission Invalidation', { userId });
 
     try {
-      // 1. 🏛️ Authority Update: Increment Version in DB
-      let updatedUser = await prisma.user.update({
-        where: { uuid: userId },
-        data: { permissionVersion: { increment: 1 } },
-        select: { id: true, role: true }
-      }).catch(() => null);
-
-      if (!updatedUser) {
-        // Try customer table if user not found
-        await prisma.customer.update({
+      // ✅ Step 1: Wrap DB Update & Outbox event in same transaction
+      const result = await prisma.$transaction(async (tx) => {
+        // A. 🏛️ Authority Update: Increment Version in DB
+        let updatedUser = await tx.user.update({
           where: { uuid: userId },
-          data: { permissionVersion: { increment: 1 } }
+          data: { permissionVersion: { increment: 1 } },
+          select: { id: true, role: true }
         }).catch(() => null);
-      }
 
-      // 2. 🛰️ FIRST: Guarantee distributed propagation (Event is the Source of Truth)
-      await publishEvent({
-        type: 'USER_PERMISSIONS_CHANGED',
-        aggregateId: null,
-        payload: { userId, reason: 'ADMIN_ACTION' },
-        version: Date.now(),
-        isCritical: true
+        if (!updatedUser) {
+          // Try customer table if user not found
+          await tx.customer.update({
+            where: { uuid: userId },
+            data: { permissionVersion: { increment: 1 } }
+          }).catch(() => null);
+        }
+
+        // B. 🛰️ Enqueue outbox event atomically
+        const outboxEvent = await container.outboxService.enqueue(tx, {
+          type: 'USER_PERMISSIONS_CHANGED',
+          aggregateId: String(userId),
+          aggregateType: 'User',
+          payload: { userId, reason: 'ADMIN_ACTION' },
+          version: 1,
+          eventSequence: 1,
+          metadata: {
+            createdAt: new Date(),
+            source: 'securityPolicyService.invalidate'
+          }
+        });
+
+        return { outboxId: outboxEvent.id };
       });
 
-      // 3. 🧹 SECOND: Best-effort cache cleanup (NOT authoritative)
+      // ✅ Step 2: Clear local cache (Safe side effect)
       const cacheKey = `user:branches:${userId}`;
       try {
         localBranchCache.del(cacheKey);
@@ -490,6 +500,14 @@ class SecurityPolicyService {
       } catch (cacheErr) {
         logger.warn('[SecurityPolicy] Cache invalidation failed (non-critical optimization drop)', { error: cacheErr.message });
       }
+
+      // ✅ Step 3: Trigger Outbox Pulse & Immediate Dispatch
+      if (result?.outboxId) {
+        await container.outboxService.immediateDispatch(result.outboxId).catch(() => {});
+      }
+      setImmediate(() => {
+        container.outboxService?.pulse?.().catch(() => {});
+      });
 
       logger.info('[SECURITY] Distributed Invalidation Dispatch Success', { userId });
       return true;
