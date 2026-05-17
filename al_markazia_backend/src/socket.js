@@ -303,9 +303,16 @@ module.exports = {
       };
 
       socket.recalculateRooms = async () => {
+        const transitionId = (socket.data.transitionId || 0) + 1;
+        socket.data.transitionId = transitionId;
+        socket.data.recalcInProgress = true;
+
         try {
           // 🛡️ Authoritative Ground Truth Security Check: Evict instantly if blocked/deleted
           const status = await SecurityPolicyService.checkUserStatus(socket.user.id);
+          
+          if (socket.data.transitionId !== transitionId) return;
+
           if (!status || !status.isActive || status.isBlacklisted) {
             for (const room of socket.data.authRooms) {
               socket.leave(room);
@@ -318,9 +325,15 @@ module.exports = {
           // 1. Fetch LIVE snapshot safely FIRST before leaving current healthy state
           const liveContext = await SecurityPolicyService.getTargetRooms(socket.user);
           
+          // ✅ Verify that this call is still the latest transition
+          if (socket.data.transitionId !== transitionId) {
+            return; // Stale execution, discard safely
+          }
+
           // 2. Leave old rooms safely only after fetching successful updates
+          const targetSet = new Set(liveContext);
           for (const room of socket.data.authRooms) {
-            if (!liveContext.includes(room)) {
+            if (!targetSet.has(room)) {
               socket.leave(room);
               socket.data.authRooms.delete(room);
             }
@@ -337,6 +350,10 @@ module.exports = {
           logger.error('[SDS 2.0] Room recalculation failed, retaining existing valid room layouts safely', { error: err.message });
           // Propagate error so lease consecutive failure counter intercepts it
           throw err;
+        } finally {
+          if (socket.data.transitionId === transitionId) {
+            socket.data.recalcInProgress = false;
+          }
         }
       };
 
@@ -484,6 +501,15 @@ module.exports = {
       socket.on('sync:full', async (ack) => {
         try {
           logger.info(`[Socket] 🔄 Sync requested by user ${userId} [${role}]`);
+
+          // ✅ Debounce/throttle duplicate sync calls during quick connection cycles
+          if (socket.data.recalcInProgress) {
+            await new Promise(resolve => setTimeout(resolve, 150));
+            if (socket.data.recalcInProgress) {
+              if (ack) ack({ success: true, timestamp: Date.now() });
+              return;
+            }
+          }
 
           // 1. Refresh User State
           const prisma = require('./lib/prisma');
