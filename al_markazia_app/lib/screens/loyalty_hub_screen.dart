@@ -353,7 +353,7 @@ class _LoyaltyHubScreenState extends State<LoyaltyHubScreen> {
   }
 
   void _triggerReferralEngagement() {
-    final String inviteCode = _profile != null ? 'REF-${_profile!.name.hashCode.abs().toString().substring(0, 4)}' : 'MARKAZIA-VIP';
+    final String inviteCode = _profile != null ? 'REF-${(_profile!.points.toString() + _profile!.tier).hashCode.abs().toString().substring(0, 4)}' : 'MARKAZIA-VIP';
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(

@@ -12,6 +12,10 @@ class CircuitBreakerService {
   }
 
   async getState(serviceName) {
+    // 🛡️ [GUARD] Prevent circular dependency: do NOT query Redis when checking state of Redis itself
+    if (serviceName === 'redis') {
+      return this.states.get(serviceName) || 'CLOSED';
+    }
     try {
       const state = await this.redis.get(`circuit:${serviceName}:state`);
       return state || this.states.get(serviceName) || 'CLOSED';
@@ -43,7 +47,9 @@ class CircuitBreakerService {
     this.logger.error(`[CircuitBreaker] 🚨 OPENING CIRCUIT for ${serviceName}.`);
     this.states.set(serviceName, 'OPEN');
     try {
-      await this.redis.set(`circuit:${serviceName}:state`, 'OPEN', 'PX', this.config.resetTimeout);
+      if (serviceName !== 'redis') {
+        await this.redis.set(`circuit:${serviceName}:state`, 'OPEN', 'PX', this.config.resetTimeout);
+      }
     } catch (err) {
       this.logger.logError('CircuitBreaker.openCircuit', err, { serviceName });
     }
@@ -59,7 +65,11 @@ class CircuitBreakerService {
     if (state !== 'OPEN') return;
     this.logger.info(`[CircuitBreaker] 🟡 HALF-OPEN transition for ${serviceName}`);
     this.states.set(serviceName, 'HALF_OPEN');
-    try { await this.redis.set(`circuit:${serviceName}:state`, 'HALF_OPEN'); } catch (err) {
+    try {
+      if (serviceName !== 'redis') {
+        await this.redis.set(`circuit:${serviceName}:state`, 'HALF_OPEN');
+      }
+    } catch (err) {
       this.logger.logError('CircuitBreaker.halfOpenCircuit', err, { serviceName });
     }
   }
@@ -68,7 +78,11 @@ class CircuitBreakerService {
     this.logger.info(`[CircuitBreaker] ✅ CLOSING CIRCUIT for ${serviceName}.`);
     this.states.set(serviceName, 'CLOSED');
     this.failureCounters.set(serviceName, 0);
-    try { await this.redis.del(`circuit:${serviceName}:state`); } catch (err) {
+    try {
+      if (serviceName !== 'redis') {
+        await this.redis.del(`circuit:${serviceName}:state`);
+      }
+    } catch (err) {
       this.logger.logError('CircuitBreaker.closeCircuit', err, { serviceName });
     }
   }

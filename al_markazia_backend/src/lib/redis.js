@@ -17,11 +17,11 @@ const createRetryStrategy = (clientLabel) => (times) => {
   return Math.min(baseDelay + jitter, 2000);
 };
 
-// 💎 DB 0: Primary Cache & Shared State
-const cache = new Redis({ ...baseConfig, db: 0, retryStrategy: createRetryStrategy('Cache') });
+// 💎 DB 0: Primary Cache & Shared State (with fail-fast protection)
+const cache = new Redis({ ...baseConfig, db: 0, commandTimeout: 3000, retryStrategy: createRetryStrategy('Cache') });
 
 // 📡 DB 1: Distributed Event Bus (Pub/Sub)
-const publisher = new Redis({ ...baseConfig, db: 1, retryStrategy: createRetryStrategy('Pub') });
+const publisher = new Redis({ ...baseConfig, db: 1, commandTimeout: 3000, retryStrategy: createRetryStrategy('Pub') });
 const subscriber = new Redis({ ...baseConfig, db: 1, enableReadyCheck: false, retryStrategy: createRetryStrategy('Sub') });
 const socketSubscriber = new Redis({ ...baseConfig, db: 1, enableReadyCheck: false, retryStrategy: createRetryStrategy('Socket') });
 
@@ -39,6 +39,23 @@ clients.forEach((client, index) => {
 });
 
 const createSubscriber = () => new Redis({ ...baseConfig, db: 1, enableReadyCheck: false, retryStrategy: createRetryStrategy('Sub') });
+
+// 🛡️ Shield child/cloned connections (like in BullMQ or custom workers) from inheriting commandTimeout
+const originalOptions = cache.options;
+Object.defineProperty(cache, 'options', {
+  get() {
+    const opts = { ...originalOptions };
+    delete opts.commandTimeout;
+    return opts;
+  },
+  configurable: true,
+  enumerable: true
+});
+
+const originalDuplicate = cache.duplicate.bind(cache);
+cache.duplicate = (overrideOptions) => {
+  return originalDuplicate({ commandTimeout: undefined, ...overrideOptions });
+};
 
 /**
  * 🛰️ Hybrid Redis Export

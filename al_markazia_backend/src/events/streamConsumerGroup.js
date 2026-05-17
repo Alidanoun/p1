@@ -27,6 +27,14 @@ class StreamConsumerGroup {
     // Ensure backbone is initialized
     await streamBackbone.initialize();
 
+    // 🛡️ Create a dedicated Redis client for blocking reads to avoid clogging the main shared connection
+    const Redis = require('ioredis');
+    const readConfig = {
+      ...redis.options,
+      commandTimeout: undefined // Disable command timeout for blocking reads so they can block safely
+    };
+    this.readClient = new Redis(readConfig);
+
     this.isRunning = true;
     logger.info(`[StreamConsumerGroup] 🟢 Consumer daemon active: ${this.groupName}:${this.consumerName}`);
 
@@ -43,6 +51,9 @@ class StreamConsumerGroup {
   stop() {
     this.isRunning = false;
     if (this.claimInterval) clearInterval(this.claimInterval);
+    if (this.readClient) {
+      this.readClient.quit().catch(() => {});
+    }
     logger.info(`[StreamConsumerGroup] 🔴 Consumer daemon stopped: ${this.groupName}:${this.consumerName}`);
   }
 
@@ -52,8 +63,8 @@ class StreamConsumerGroup {
   async _listenLoop() {
     while (this.isRunning) {
       try {
-        // Block up to 2 seconds waiting for new unassigned stream elements
-        const response = await redis.xreadgroup(
+        // Block up to 2 seconds waiting for new unassigned stream elements using the dedicated read client
+        const response = await this.readClient.xreadgroup(
           'GROUP', this.groupName, this.consumerName,
           'BLOCK', 2000,
           'COUNT', 10,
