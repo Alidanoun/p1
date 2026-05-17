@@ -35,6 +35,52 @@ if (fallbackMemoryCleanup.unref) {
   fallbackMemoryCleanup.unref();
 }
 
+class LocalCircuitBreaker {
+  constructor({ failureThreshold = 3, resetTimeout = 30000 } = {}) {
+    this.failureThreshold = failureThreshold;
+    this.resetTimeout = resetTimeout;
+    this.failures = 0;
+    this.lastFailureTime = null;
+    this.state = 'CLOSED'; // CLOSED, OPEN, HALF_OPEN
+    this.timerId = null;
+  }
+
+  recordSuccess() {
+    this.failures = 0;
+    this.state = 'CLOSED';
+    if (this.timerId) {
+      clearTimeout(this.timerId);
+      this.timerId = null;
+    }
+  }
+
+  recordFailure() {
+    this.failures += 1;
+    this.lastFailureTime = Date.now();
+    
+    if (this.failures >= this.failureThreshold) {
+      this.state = 'OPEN';
+      if (this.timerId) {
+        clearTimeout(this.timerId);
+      }
+      // Schedule half-open transition
+      const timer = setTimeout(() => {
+        this.state = 'HALF_OPEN';
+      }, this.resetTimeout);
+      if (timer.unref) {
+        timer.unref(); // Ensure Jest tests don't leak handles!
+      }
+      this.timerId = timer;
+    }
+  }
+
+  isOpen() {
+    if (this.state === 'CLOSED') return false;
+    if (this.state === 'HALF_OPEN') return false; // Permit single probe request
+    return true;
+  }
+}
+
 class DistributedRateLimiter {
   constructor(options = {}) {
     this.scope = options.scope || 'global';
@@ -53,6 +99,9 @@ class DistributedRateLimiter {
     };
 
     this.whitelist = new Set(options.whitelist || []);
+    
+    // ✅ Initialize Local Circuit Breaker for this scope/instance
+    this.circuitBreaker = new LocalCircuitBreaker();
   }
 
   // ✅ 2️⃣ Key Naming Strategy & Compression
@@ -89,10 +138,53 @@ class DistributedRateLimiter {
     return `${this.config.keyPrefix}ip:${ip}:${endpoint}`;
   }
 
+  _executeFallback(key, now, req) {
+    // 🔴 STRICT ROUTE-SPECIFIC DEGRADATION: Never fail open freely on authentication/uploads
+    if (this.scope === 'auth' || this.scope === 'upload') {
+      const fallbackCount = (fallbackMemoryLimiter.get(key) || 0) + 1;
+      fallbackMemoryLimiter.set(key, fallbackCount);
+      
+      // Tight local limit: Max 2 requests per minute for auth endpoints during degraded outage
+      const strictMax = this.scope === 'auth' ? 2 : 5;
+      const isAllowed = fallbackCount <= strictMax;
+      
+      const fallbackResult = {
+        allowed: isAllowed,
+        current: fallbackCount,
+        remaining: isAllowed ? strictMax - fallbackCount : 0,
+        resetAt: now + 60000,
+        fallback: true
+      };
+      trackCheck(this.scope, isAllowed, true, req);
+      return fallbackResult;
+    }
+
+    // 🟢 Safe Fail-Open for pure read APIs / search
+    const fallbackResult = {
+      allowed: true,
+      current: 0,
+      remaining: this.config.maxRequests,
+      resetAt: now + this.config.windowMs,
+      fallback: true
+    };
+
+    trackCheck(this.scope, true, true, req);
+    return fallbackResult;
+  }
+
   async _checkLimit(key, req = null) {
+    const cb = this.circuitBreaker;
     const now = Date.now();
     const windowSecs = Math.ceil(this.config.windowMs / 1000);
     const requestId = req?.headers?.['x-request-id'] || `req-${Math.random().toString(36).substr(2, 6)}`;
+
+    // ✅ Circuit Breaker: If open, instantly fall back local memory to protect connection pool
+    if (cb.isOpen()) {
+      if (logger && typeof logger.debug === 'function') {
+        logger.debug('[CircuitBreakerOpen]', { scope: this.scope, key });
+      }
+      return this._executeFallback(key, now, req);
+    }
 
     let timerId;
     try {
@@ -118,6 +210,9 @@ class DistributedRateLimiter {
       const [allowed, currentCount] = await Promise.race([evalPromise, timeoutPromise]);
       clearTimeout(timerId); // ✅ Clean up active timer immediately on success!
 
+      // ✅ Record successful Redis connection to reset circuit breaker failures
+      cb.recordSuccess();
+
       const isAllowed = allowed === 1;
       const result = {
         allowed: isAllowed,
@@ -132,41 +227,19 @@ class DistributedRateLimiter {
     } catch (error) {
       clearTimeout(timerId); // ✅ Clean up active timer on error as well!
 
+      // ✅ Record failure to update circuit breaker state (trips OPEN after 3 failures)
+      cb.recordFailure();
+
       if (logger && typeof logger.error === 'function') {
-        logger.error('[RateLimiter] Redis cluster anomaly during threshold evaluation', { error: error.message, key, scope: this.scope });
+        logger.error('[RateLimiter] Redis cluster anomaly during threshold evaluation', { 
+          error: error.message, 
+          key, 
+          scope: this.scope,
+          circuitState: cb.state
+        });
       }
 
-      // 🔴 STRICT ROUTE-SPECIFIC DEGRADATION: Never fail open freely on authentication/uploads
-      if (this.scope === 'auth' || this.scope === 'upload') {
-        const fallbackCount = (fallbackMemoryLimiter.get(key) || 0) + 1;
-        fallbackMemoryLimiter.set(key, fallbackCount);
-        
-        // Tight local limit: Max 2 requests per minute for auth endpoints during degraded outage
-        const strictMax = this.scope === 'auth' ? 2 : 5;
-        const isAllowed = fallbackCount <= strictMax;
-        
-        const fallbackResult = {
-          allowed: isAllowed,
-          current: fallbackCount,
-          remaining: isAllowed ? strictMax - fallbackCount : 0,
-          resetAt: now + 60000,
-          fallback: true
-        };
-        trackCheck(this.scope, isAllowed, true, req);
-        return fallbackResult;
-      }
-
-      // 🟢 Safe Fail-Open for pure read APIs / search
-      const fallbackResult = {
-        allowed: true,
-        current: 0,
-        remaining: this.config.maxRequests,
-        resetAt: now + this.config.windowMs,
-        fallback: true
-      };
-
-      trackCheck(this.scope, true, true, req);
-      return fallbackResult;
+      return this._executeFallback(key, now, req);
     }
   }
 
