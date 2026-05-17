@@ -432,9 +432,11 @@ class _AuthScreenState extends State<AuthScreen>
                   onPressed: () => setState(() => _regPasswordVisible = !_regPasswordVisible),
                 ),
               ),
-              validator: (val) => (val == null || val.length < 8)
-                  ? 'كلمة المرور يجب أن تكون 8 أحرف على الأقل'
-                  : null,
+              validator: (val) => Validators.validatePassword(
+                val,
+                'كلمة المرور مطلوبة',
+                'يجب أن تكون 8 خانات على الأقل وبها حرف كبير، حرف صغير، رقم، ورمز خاص (@\$!%*?&#_-)',
+              ),
               onSaved: (val) => regPassword = val!,
             ),
             const SizedBox(height: 32),
@@ -624,10 +626,11 @@ class _AuthScreenState extends State<AuthScreen>
                         onPressed: () => setSheetState(() => passVisible = !passVisible),
                       ),
                     ),
-                    validator: (val) {
-                      if (val == null || val.length < 8) return 'يجب أن تكون 8 أحرف على الأقل';
-                      return null;
-                    },
+                    validator: (val) => Validators.validatePassword(
+                      val,
+                      'كلمة المرور مطلوبة',
+                      'يجب أن تكون 8 خانات على الأقل وبها حرف كبير، حرف صغير، رقم، ورمز خاص (@\$!%*?&#_-)',
+                    ),
                   ),
                   const SizedBox(height: 12),
 
