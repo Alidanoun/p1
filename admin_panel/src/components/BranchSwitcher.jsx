@@ -50,6 +50,7 @@ const BranchSwitcher = ({ selectedBranchId, onBranchChange }) => {
   return (
     <div className="relative">
       <button
+        id="branch-switcher-btn"
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center gap-3 bg-background border border-slate-700/50 pl-4 pr-3 py-1.5 rounded-full hover:border-primary/50 transition-all group"
       >

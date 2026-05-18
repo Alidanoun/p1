@@ -113,7 +113,7 @@ const BranchMenu = () => {
           </div>
           <button 
             onClick={() => {
-              const switcher = document.querySelector('.relative button');
+              const switcher = document.getElementById('branch-switcher-btn');
               if (switcher) switcher.click();
             }}
             className="mt-2 px-6 py-3 bg-primary hover:bg-primary/95 text-white font-bold rounded-xl shadow-lg shadow-primary/20 transition-all active:scale-95 flex items-center gap-2"

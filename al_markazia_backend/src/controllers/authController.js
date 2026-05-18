@@ -332,7 +332,8 @@ const login = async (req, res) => {
         id: account.uuid,
         email: decrypt(account.email), 
         name: decrypt(account.name),
-        role: account.role || 'customer'
+        role: account.role || 'customer',
+        branchId: account.branchId || null
       } 
     });
 
