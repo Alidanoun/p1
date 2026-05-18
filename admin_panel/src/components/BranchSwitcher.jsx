@@ -59,11 +59,22 @@ const BranchSwitcher = ({ selectedBranchId, onBranchChange }) => {
         </div>
         <div className="text-right">
           <p className="text-[10px] font-black text-text-muted uppercase tracking-widest leading-none mb-1">الفرع الحالي</p>
-          <p className="text-xs font-bold text-white leading-none">{selectedBranch?.name || 'تحميل...'}</p>
+          <div className="flex items-center gap-1.5 justify-end">
+            {selectedBranch?.id !== 'all' && selectedBranch?.id !== undefined ? (
+              selectedBranch?.isActive ? (
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_#10b981] animate-pulse" />
+              ) : (
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shadow-[0_0_6px_#f43f5e]" />
+              )
+            ) : (
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shadow-[0_0_6px_#3b82f6]" />
+            )}
+            <p className="text-xs font-bold text-white leading-none">{selectedBranch?.name || 'تحميل...'}</p>
+          </div>
         </div>
         <ChevronDown className={cn("w-4 h-4 text-text-muted transition-transform duration-300", isOpen && "rotate-180")} />
       </button>
-
+ 
       <AnimatePresence>
         {isOpen && (
           <motion.div
@@ -87,7 +98,18 @@ const BranchSwitcher = ({ selectedBranchId, onBranchChange }) => {
                       : "text-slate-400 hover:bg-white/5 hover:text-white"
                   )}
                 >
-                  <span>{branch.name}</span>
+                  <div className="flex items-center gap-2">
+                    {branch.id !== 'all' ? (
+                      branch.isActive ? (
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981] animate-pulse" />
+                      ) : (
+                        <span className="w-2 h-2 rounded-full bg-rose-500 shadow-[0_0_8px_#f43f5e]" />
+                      )
+                    ) : (
+                      <span className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_8px_#3b82f6]" />
+                    )}
+                    <span>{branch.name}</span>
+                  </div>
                   {(selectedBranchId === branch.id || (!selectedBranchId && branch.id === 'all')) && <Check className="w-4 h-4" />}
                 </button>
               ))}

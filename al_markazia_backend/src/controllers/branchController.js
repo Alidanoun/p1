@@ -146,20 +146,21 @@ exports.toggleItemAvailability = async (req, res) => {
 exports.getAllBranches = async (req, res) => {
   try {
     const user = req.user;
-    const where = { isActive: true, isDeleted: false };
-
+    const where = { isDeleted: false };
+ 
     // 🛡️ [SEC-FIX] Branch Isolation for Managers
     if (user?.role?.toUpperCase() === 'BRANCH_MANAGER' && user?.branchId) {
       where.id = user.branchId;
     }
-
+ 
     const branches = await prisma.branch.findMany({
       where,
       select: {
         id: true,
         name: true,
         address: true,
-        phone: true
+        phone: true,
+        isActive: true
       },
       orderBy: { name: 'asc' }
     });
