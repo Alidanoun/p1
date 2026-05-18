@@ -20,3 +20,7 @@ firebase-service-account.json
 scratch/
 *.log
 test_security.js
+
+# Cryptographic Keys
+al_markazia_backend/src/config/keys/
+
