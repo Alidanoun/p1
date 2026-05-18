@@ -133,7 +133,7 @@ class AuditService {
       const cleanMetadata = sanitizeForAudit(tracingMetadata);
 
       const logEntry = {
-        userId,
+        userId: userId !== undefined && userId !== null ? String(userId) : null,
         userEmail: params.userEmail || req?.user?.email || null,
         userRole,
         action,

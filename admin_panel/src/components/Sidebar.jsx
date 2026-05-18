@@ -17,7 +17,7 @@ const Sidebar = () => {
     { name: 'مركز العمليات', icon: LayoutDashboard, path: '/', isLive: true, show: isAdmin || isBranchManager },
     { name: 'الطلبات الحية', icon: ListOrdered, path: '/orders', show: true },
     { name: 'إدارة القائمة', icon: MenuSquare, path: '/menu', show: isAdmin },
-    { name: 'منيو الفرع', icon: Utensils, path: '/branch-menu', show: isBranchManager },
+    { name: 'منيو الفرع', icon: Utensils, path: '/branch-menu', show: isAdmin || isBranchManager },
 
     { name: 'بث الإشعارات', icon: Send, path: '/broadcast', show: isAdmin },
     { name: 'إدارة التقييمات', icon: Star, path: '/reviews', show: isAdmin },
