@@ -225,6 +225,6 @@ input[type=number] {
 
 /* 🏢 Prevent Transition/Theme flicker when switching or opening branch switcher dropdown */
 .branch-switcher-container {
-  contain: layout style paint;
+  contain: layout style;
   will-change: transform;
 }
