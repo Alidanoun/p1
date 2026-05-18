@@ -99,35 +99,140 @@ class SystemValidator {
   }
 
   /**
-   * 🛡️ Cancellation Refund Audit
+   * 🛡️ Cancellation Refund Audit (Optimized N+1 Fix)
    * Cross-references cancelled orders with the ledger to ensure refunds happened.
    */
-  async validateCancellations() {
-    const cancelledWalletOrders = await prisma.order.findMany({
-      where: {
-        status: 'cancelled',
-        paymentMethod: 'wallet',
-        updatedAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } // Last 24h
-      }
+  async validateCancellations(last24Hours) {
+    const targetTime = last24Hours instanceof Date ? last24Hours : new Date(last24Hours || Date.now() - 24 * 60 * 60 * 1000);
+    const start = Date.now();
+
+    // 1. جلب الطلبات الملغاة
+    const cancelledOrders = await prisma.order.findMany({
+      where: { 
+        status: { in: ['CANCELLED', 'cancelled'] },
+        cancelledAt: { gte: targetTime },
+        isDeleted: false  // ✅ احترام Soft Delete
+      },
+      select: { id: true, total: true, branchId: true, orderNumber: true }  // ✅ جلب الحقول المطلوبة فقط
     });
 
-    const issues = [];
-    for (const order of cancelledWalletOrders) {
-      const refundEntry = await prisma.financialLedger.findFirst({
-        where: {
-          orderId: order.id,
-          type: 'CREDIT',
-          reason: { contains: 'استرداد' }
-        }
+    if (cancelledOrders.length === 0) {
+      logger.info('[ValidationComplete]', { duration: Date.now() - start, issuesFound: 0 });
+      return [];
+    }
+
+    const batchIssues = await this._validateBatch(cancelledOrders);
+
+    const duration = Date.now() - start;
+    logger.info('[ValidationComplete]', {
+      duration,
+      issuesFound: batchIssues.length
+    });
+
+    return batchIssues;
+  }
+
+  /**
+   * 🔄 Paginated Validation for Large Datasets
+   */
+  async validateCancellationsPaginated(last24Hours, batchSize = 500) {
+    const targetTime = last24Hours instanceof Date ? last24Hours : new Date(last24Hours || Date.now() - 24 * 60 * 60 * 1000);
+    let cursor = null;
+    const allIssues = [];
+
+    do {
+      const batch = await prisma.order.findMany({
+        where: { 
+          status: { in: ['CANCELLED', 'cancelled'] },
+          cancelledAt: { gte: targetTime },
+          isDeleted: false
+        },
+        select: { id: true, total: true, branchId: true, orderNumber: true },
+        take: batchSize,
+        skip: cursor ? 1 : 0,
+        cursor: cursor ? { id: cursor } : undefined,
+        orderBy: { id: 'asc' }
       });
 
-      if (!refundEntry) {
-        logger.error(`[Integrity] Missing refund entry for cancelled Order #${order.orderNumber}`);
-        issues.push(order.id);
+      if (batch.length === 0) break;
+
+      // معالجة الدفعة الحالية
+      const batchIssues = await this._validateBatch(batch);
+      allIssues.push(...batchIssues);
+      
+      cursor = batch[batch.length - 1]?.id;
+      
+      // منع إجهاد الذاكرة بين الدفعات
+      await new Promise(resolve => setImmediate(resolve));
+      
+    } while (cursor);
+
+    return allIssues;
+  }
+
+  /**
+   * 🔒 Private Helper: Validate a single batch of cancelled orders
+   */
+  async _validateBatch(cancelledOrders) {
+    if (!cancelledOrders || cancelledOrders.length === 0) return [];
+
+    const orderIds = cancelledOrders.map(o => o.id);
+    
+    // 2. ✅ جلب جميع قيود الاسترداد دفعة واحدة
+    const refundEntries = await prisma.financialLedger.findMany({
+      where: {
+        orderId: { in: orderIds },
+        type: { in: ['REFUND', 'CREDIT', 'refund', 'credit'] },
+        isDeleted: false
+      },
+      select: { orderId: true, amount: true, status: true }
+    });
+
+    // 3. بناء خريطة للبحث السريع (O(1) lookup)
+    const refundMap = new Map();
+    for (const entry of refundEntries) {
+      if (!refundMap.has(entry.orderId)) {
+        refundMap.set(entry.orderId, []);
+      }
+      refundMap.get(entry.orderId).push(entry);
+    }
+
+    // 4. المزامنة في الذاكرة (بدون استعلامات إضافية)
+    const issues = [];
+    for (const order of cancelledOrders) {
+      const refunds = refundMap.get(order.id) || [];
+      
+      if (refunds.length === 0) {
+        logger.error(`[Integrity] Missing refund entry for cancelled Order #${order.orderNumber || order.id}`);
+        issues.push({ 
+          orderId: order.id, 
+          issue: 'MISSING_REFUND',
+          severity: 'HIGH'
+        });
+        continue;
+      }
+
+      // التحقق من مطابقة المبالغ (مجموع الاستردادات = قيمة الطلب)
+      const totalRefunded = refunds
+        .filter(r => !r.status || r.status === 'COMPLETED' || r.status === 'completed')
+        .reduce((sum, r) => sum + toNumber(r.amount), 0);
+      
+      if (Math.abs(totalRefunded - toNumber(order.total)) > 0.01) {  // ✅ هامش خطأ 1 قرش
+        logger.warn(`[Integrity] Financial refund mismatch for Order #${order.orderNumber || order.id}`, {
+          expected: order.total,
+          actual: totalRefunded
+        });
+        issues.push({
+          orderId: order.id,
+          issue: 'REFUND_AMOUNT_MISMATCH',
+          expected: toNumber(order.total),
+          actual: totalRefunded,
+          severity: 'MEDIUM'
+        });
       }
     }
 
-    return { totalChecked: cancelledWalletOrders.length, issuesFound: issues.length, issues };
+    return issues;
   }
 }
 
