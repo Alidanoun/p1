@@ -53,7 +53,7 @@ const router = express.Router();
 
 // Allow guests (app) to create orders while identifying registered customers
 // 🛡️ Gateway handles idempotency + system mode + circuit breaker
-router.post('/', guestOrderLimiter, optionalAuth, validateOrderBranch, healthGuard('db'), workingHoursGuard, orderLimiter, validateOrderCreate, priceValidation, createOrder);
+router.post('/', guestOrderLimiter, optionalAuth, validateOrderBranch, healthGuard('db'), workingHoursGuard, orderLimiter, priceValidation, validateOrderCreate, createOrder);
 
 // New Secure Identity Route: Get orders for the authenticated customer
 router.get('/my-orders', authMiddleware, getMyOrders);

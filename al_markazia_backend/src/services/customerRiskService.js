@@ -24,7 +24,7 @@ class CustomerRiskService {
    */
   getEffectiveExpiry(customer) {
     if (!customer) return null;
-    return customer.blacklistExpiresAt || customer.blacklistUntil;
+    return customer.blacklistExpiresAt;
   }
 
   async evaluateCustomerStatus(customerId) {
@@ -114,7 +114,6 @@ class CustomerRiskService {
           isBlacklisted: true,
           blacklistedAt: new Date(),
           blacklistExpiresAt: expiresAt,
-          blacklistUntil: expiresAt, // Compatibility layer
           blacklistReason: reason,
           blacklistReasonCode: reasonCode,
           blacklistSeverity: severity,
@@ -163,7 +162,6 @@ class CustomerRiskService {
         data: {
           isBlacklisted: false,
           blacklistExpiresAt: null,
-          blacklistUntil: null, // Compatibility layer
           blacklistReason: null,
           blacklistReasonCode: null,
           blacklistSource: null,

@@ -58,6 +58,13 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 }
 
 void main() async {
+  // 🛡️ Production Build Guard: Prevent execution in production without explicit SERVER_IP parameter
+  const isProd = bool.fromEnvironment('dart.vm.product');
+  const serverIp = String.fromEnvironment('SERVER_IP');
+  if (isProd && serverIp.isEmpty) {
+    throw StateError('CRITICAL: SERVER_IP must be explicitly specified for production builds.');
+  }
+
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
   

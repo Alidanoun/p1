@@ -18,7 +18,7 @@ class OrderApi {
     final response = await http.post(
       Uri.parse('$baseUrl/orders'),
       headers: headers,
-      body: json.encode(order.toJson()),
+      body: json.encode(order.toCreatePayloadJson()),
     ).timeout(const Duration(seconds: 10));
 
     _checkAuth(response);

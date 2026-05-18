@@ -26,11 +26,13 @@ class OrderModel {
   final double totalPrice;
   final double? subtotal;
   final double? deliveryFee;
+  final double? discount;
   final double? tax;
   int? rating;
   String? ratingText;
   String? ratingComment;
   final String? branch;
+  final String? branchId;
   final String? deliveryZoneId;
   final int version; // 🛡️ Sequence Version for ordering logic
   final bool usePoints;
@@ -59,11 +61,13 @@ class OrderModel {
     required this.totalPrice,
     this.subtotal,
     this.deliveryFee,
+    this.discount,
     this.tax,
     this.rating,
     this.ratingText,
     this.ratingComment,
     this.branch,
+    this.branchId,
     this.deliveryZoneId,
     this.version = 1,
     this.usePoints = false,
@@ -132,11 +136,13 @@ class OrderModel {
       totalPrice: double.tryParse((json['totalPrice'] ?? json['total'])?.toString() ?? '0') ?? 0.0,
       subtotal: double.tryParse(json['subtotal']?.toString() ?? '0'),
       deliveryFee: double.tryParse(json['deliveryFee']?.toString() ?? '0'),
+      discount: double.tryParse(json['discount']?.toString() ?? '0'),
       tax: double.tryParse(json['tax']?.toString() ?? '0'),
       rating: json['rating'],
       ratingText: json['ratingText'],
       ratingComment: json['ratingComment'],
-      branch: json['branch'],
+      branch: json['branch']?.toString() ?? json['branchId']?.toString(),
+      branchId: json['branchId']?.toString(),
       deliveryZoneId: json['deliveryZoneId'],
       version: json['version'] ?? 1,
       usePoints: json['usePoints'] ?? false,
@@ -164,14 +170,27 @@ class OrderModel {
     'totalPrice': totalPrice,
     'subtotal': subtotal,
     'deliveryFee': deliveryFee,
+    'discount': discount,
     'tax': tax,
     'rating': rating,
     'ratingText': ratingText,
     'ratingComment': ratingComment,
     'branch': branch,
-    'branchId': branch,
+    'branchId': branchId,
     'deliveryZoneId': deliveryZoneId,
     'version': version,
+    'usePoints': usePoints,
+  };
+
+  Map<String, dynamic> toCreatePayloadJson() => {
+    'customerName': customerName,
+    'customerPhone': customerPhone,
+    'orderType': orderType,
+    'address': address,
+    'notes': notes,
+    'cartItems': cartItems.map((e) => e.toJson()).toList(),
+    'branchId': branchId, // UUID الحقيقي
+    'deliveryZoneId': deliveryZoneId,
     'usePoints': usePoints,
   };
 }

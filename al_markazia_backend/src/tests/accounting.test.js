@@ -63,7 +63,7 @@ if (require.main === module) {
   runAccountingTests();
 }
 
-if (typeof describe !== 'undefined') {
+if (typeof describe !== 'undefined' && process.env.IS_RUNNING_SERVER !== 'true') {
   describe('Accounting Service Property-Based Tests', () => {
     test('should extract tax and check immutability', () => {
       const passed = runAccountingTests();

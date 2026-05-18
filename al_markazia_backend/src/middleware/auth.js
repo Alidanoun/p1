@@ -160,14 +160,79 @@ const isAdmin = requireRoles(['admin']);
 const isManager = requireRoles(['admin', 'branch_manager', 'manager']);
 
 /**
- * 🛡️ Optional Authentication
- * Tries to authenticate the user but proceeds as guest if no token is present.
+ * 🛡️ Optional Authentication (Refined v3)
+ * Tries to authenticate the user but proceeds as guest if no token is present, invalid, or expired.
  */
 const optionalAuth = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = (authHeader && authHeader.split(' ')[1]) || req.cookies?.accessToken;
-  if (!token) return next(); // Proceed as guest
-  return authenticateToken(req, res, next);
+  if (!token) {
+    req.user = null;
+    const { runInContext } = require('../utils/securityContext');
+    return runInContext(null, () => next());
+  }
+
+  try {
+    // 1. 🛡️ JWT Standard Verification
+    const decoded = TokenService.verifyAccessToken(token);
+    if (!decoded) throw new Error('INVALID_TOKEN');
+
+    // 2. 🛡️ Session & Version Validation
+    const validation = await TokenService.validateSessionState(decoded);
+    if (!validation.valid) throw new Error(validation.reason);
+
+    // 3. 🛡️ Device Binding Check
+    const currentFingerprint = generateFingerprint(req);
+    const session = validation.session || {};
+    
+    let sessionFingerprintHash = null;
+    if (session.fingerprint) {
+      if (typeof session.fingerprint === 'string') {
+        if (session.fingerprint.trim().startsWith('{')) {
+          try {
+            const parsed = JSON.parse(session.fingerprint);
+            sessionFingerprintHash = parsed.hash || parsed;
+          } catch (e) {
+            sessionFingerprintHash = session.fingerprint;
+          }
+        } else {
+          sessionFingerprintHash = session.fingerprint;
+        }
+      } else if (typeof session.fingerprint === 'object') {
+        sessionFingerprintHash = session.fingerprint.hash || session.fingerprint;
+      }
+    }
+
+    const isBiometricTrust = sessionFingerprintHash === 'biometric-hardware-trusted';
+    if (!isBiometricTrust && sessionFingerprintHash && sessionFingerprintHash !== currentFingerprint.hash) {
+      throw new Error('SESSION_HIJACKED');
+    }
+
+    // 4. 🏢 Populate Request Context
+    req.user = {
+      id: decoded.id,
+      role: (session.role || decoded.role || '').toLowerCase(),
+      branchId: session.branchId || decoded.branchId || null,
+      jti: decoded.sid,
+      av: decoded.av,
+      pv: decoded.pv
+    };
+
+    // 🛡️ Resolve and unify Requested Branch Context (Query > Body > Header)
+    const contextBranch = req.query?.branchId || req.body?.branchId || req.headers['x-branch-context'];
+    if (contextBranch && contextBranch !== 'null' && contextBranch !== 'undefined' && contextBranch !== '') {
+      req.user.requestedBranchId = contextBranch;
+    }
+
+    const { runInContext } = require('../utils/securityContext');
+    return runInContext(req.user, () => next());
+
+  } catch (error) {
+    logger.debug(`[OptionalAuth] Invalid or expired token: ${error.message}. Treating user as Guest.`, { ip: req.ip });
+    req.user = null;
+    const { runInContext } = require('../utils/securityContext');
+    return runInContext(null, () => next());
+  }
 };
 
 module.exports = { 

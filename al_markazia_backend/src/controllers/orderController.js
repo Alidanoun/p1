@@ -2,6 +2,7 @@ const container = require('../lib/container');
 const logger = container.logger;
 const orderService = container.orderService;
 const contractGateway = container.contractGateway;
+const response = require('../utils/response');
 
 /**
  * 🥡 Order Controller (Performance Optimized)
@@ -26,8 +27,10 @@ exports.getMyOrders = async (req, res) => {
     });
   } catch (error) {
     logger.error('Fetch my orders error', { error: error.message });
-    if (error.message === 'CUSTOMER_NOT_FOUND') return res.status(404).json({ error: 'ملف الزبون غير موجود' });
-    res.status(500).json({ error: 'Failed to fetch orders' });
+    if (error.message === 'CUSTOMER_NOT_FOUND') {
+      return response.error(res, 'ملف الزبون غير موجود', 'CUSTOMER_NOT_FOUND', 404);
+    }
+    return response.error(res, 'Failed to fetch orders', 'FETCH_ERROR', 500);
   }
 };
 
@@ -53,7 +56,7 @@ exports.getOrders = async (req, res) => {
     });
   } catch (error) {
     logger.error('Fetch admin orders error', { error: error.message });
-    res.status(500).json({ error: 'Failed to fetch orders' });
+    return response.error(res, 'Failed to fetch orders', 'FETCH_ERROR', 500);
   }
 };
 
@@ -74,7 +77,7 @@ exports.getOrdersReport = async (req, res) => {
     });
   } catch (error) {
     logger.error('Report fetch error', { error: error.message });
-    res.status(500).json({ error: 'Failed to fetch report data' });
+    return response.error(res, 'Failed to fetch report data', 'REPORT_ERROR', 500);
   }
 };
 
@@ -84,16 +87,22 @@ exports.getOrdersReport = async (req, res) => {
 exports.getOrderById = async (req, res) => {
   try {
     const orderId = parseInt(req.params.id);
-    if (isNaN(orderId)) return res.status(400).json({ error: 'معرف طلب غير صحيح' });
+    if (isNaN(orderId)) {
+      return response.error(res, 'معرف طلب غير صحيح', 'INVALID_ID', 400);
+    }
 
     const order = await orderService.getOrderById(orderId, req.user);
-    if (!order) return res.status(404).json({ error: 'الطلب غير موجود' });
+    if (!order) {
+      return response.error(res, 'الطلب غير موجود', 'NOT_FOUND', 404);
+    }
 
     res.json({ success: true, data: order });
   } catch (error) {
     logger.error('Fetch order by ID error', { error: error.message, orderId: req.params.id });
-    if (error.message === 'ORDER_FORBIDDEN') return res.status(404).json({ error: 'الطلب غير موجود' });
-    res.status(500).json({ success: false, error: 'Failed to fetch order' });
+    if (error.message === 'ORDER_FORBIDDEN') {
+      return response.error(res, 'الطلب غير موجود', 'NOT_FOUND', 404);
+    }
+    return response.error(res, 'Failed to fetch order', 'FETCH_ERROR', 500);
   }
 };
 
@@ -107,7 +116,7 @@ exports.createOrder = async (req, res) => {
   try {
     const authUser = req.user;
     if (!authUser && !req.body.phone) {
-      return res.status(400).json({ success: false, error: 'رقم الهاتف مطلوب لإتمام الطلب كضيف' });
+      return response.error(res, 'رقم الهاتف مطلوب لإتمام الطلب كضيف', 'MISSING_FIELD', 400);
     }
 
     const validatedBranchId = req.validatedBranch?.id || req.body?.branchId || req.body?.branch;
@@ -124,46 +133,46 @@ exports.createOrder = async (req, res) => {
       authUser || { id: `guest_${req.ip}`, role: 'customer' }
     );
 
-    res.status(201).json({ success: true, data: newOrder });
+    return response.success(res, newOrder, 201);
   } catch (error) {
     logger.error('Order Creation Error', { error: error.message });
     
     // 🛡️ Security Error Handling
     if (error.message === 'UNAUTHORIZED_GUEST_ORDER_TYPE') {
-      return res.status(403).json({ success: false, error: 'نوع الطلب غير مسموح للزوار' });
+      return response.error(res, 'نوع الطلب غير مسموح للزوار', 'UNAUTHORIZED_GUEST_ORDER_TYPE', 403);
     }
     if (error.message === 'BRANCH_ACCESS_DENIED') {
-      return res.status(403).json({ success: false, error: 'غير مصرح لك بإنشاء طلبات في هذا الفرع' });
+      return response.error(res, 'غير مصرح لك بإنشاء طلبات في هذا الفرع', 'BRANCH_ACCESS_DENIED', 403);
     }
     if (error.message.startsWith('BRANCH_CLOSED') || error.message.startsWith('BRANCH_NOT_OPERATIONAL')) {
-      return res.status(400).json({ success: false, error: 'الفرع مغلق حالياً، يرجى اختيار فرع آخر' });
+      return response.error(res, 'الفرع مغلق حالياً، يرجى اختيار فرع آخر', 'BRANCH_CLOSED', 400);
     }
     if (error.message.includes('INVALID_BRANCH') || error.message.startsWith('BRANCH_NOT_FOUND') || error.message.startsWith('BRANCH_ID_REQUIRED')) {
-      return res.status(400).json({ success: false, error: 'الفرع المحدد غير موجود أو غير متاح' });
+      return response.error(res, 'الفرع المحدد غير موجود أو غير متاح', 'INVALID_BRANCH', 400);
     }
     if (error.message.startsWith('CONTRACT_VIOLATION')) {
-      return res.status(400).json({ success: false, error: 'بيانات الطلب غير مكتملة أو غير صالحة' });
+      return response.error(res, 'بيانات الطلب غير مكتملة أو غير صالحة', 'CONTRACT_VIOLATION', 400);
     }
     if (error.message === 'CUSTOMER_BLACKLISTED') {
-      return res.status(403).json({ success: false, error: 'تم حظر حسابك مؤقتاً بسبب نشاط مشبوه' });
+      return response.error(res, 'تم حظر حسابك مؤقتاً بسبب نشاط مشبوه', 'CUSTOMER_BLACKLISTED', 403);
     }
     if (error.message === 'SPAM_LIMIT_EXCEEDED') {
-      return res.status(429).json({ success: false, error: 'تجاوزت الحد المسموح من الطلبات. حاول لاحقاً' });
+      return response.error(res, 'تجاوزت الحد المسموح من الطلبات. حاول لاحقاً', 'SPAM_LIMIT_EXCEEDED', 429);
     }
     if (error.message === 'EMPTY_ORDER_NOT_ALLOWED') {
-      return res.status(400).json({ success: false, error: 'لا يمكن إنشاء طلب فارغ' });
+      return response.error(res, 'لا يمكن إنشاء طلب فارغ', 'EMPTY_ORDER_NOT_ALLOWED', 400);
     }
     if (error.message.includes('SYSTEM_LOCKED')) {
-      return res.status(503).json({ success: false, error: 'النظام في وضع الصيانة، حاول لاحقاً' });
+      return response.error(res, 'النظام في وضع الصيانة، حاول لاحقاً', 'SYSTEM_LOCKED', 503);
     }
     if (error.message.includes('SYSTEM_DEGRADED')) {
-      return res.status(503).json({ success: false, error: 'النظام تحت ضغط، حاول بعد 30 ثانية' });
+      return response.error(res, 'النظام تحت ضغط، حاول بعد 30 ثانية', 'SYSTEM_DEGRADED', 503);
     }
     if (error.message.includes('SYSTEM_BUSY')) {
-      return res.status(429).json({ success: false, error: 'طلب مماثل قيد المعالجة' });
+      return response.error(res, 'طلب مماثل قيد المعالجة', 'SYSTEM_BUSY', 429);
     }
     
-    res.status(500).json({ success: false, error: 'فشل إنشاء الطلب' });
+    return response.error(res, 'فشل إنشاء الطلب', 'CREATE_FAILED', 500);
   }
 };
 
@@ -185,15 +194,15 @@ exports.acceptAllNewOrders = async (req, res) => {
   } catch (error) {
     logger.error('Batch accept error', { error: error.message });
     if (error.message === 'UNAUTHORIZED_BATCH_ACCEPT') {
-      return res.status(403).json({ error: 'غير مصرح لك بهذه العملية' });
+      return response.error(res, 'غير مصرح لك بهذه العملية', 'UNAUTHORIZED_BATCH_ACCEPT', 403);
     }
     if (error.message.startsWith('BATCH_TOO_LARGE')) {
-      return res.status(400).json({ error: error.message });
+      return response.error(res, error.message, 'BATCH_TOO_LARGE', 400);
     }
     if (error.message.includes('SYSTEM_LOCKED')) {
-      return res.status(503).json({ error: 'النظام في وضع الصيانة' });
+      return response.error(res, 'النظام في وضع الصيانة', 'SYSTEM_LOCKED', 503);
     }
-    res.status(500).json({ error: 'Batch operation failed' });
+    return response.error(res, 'Batch operation failed', 'BATCH_FAILED', 500);
   }
 };
 
@@ -204,7 +213,7 @@ exports.syncOrders = async (req, res) => {
     res.json(result);
   } catch (error) {
     logger.error('Sync orders error', { error: error.message });
-    res.status(500).json({ error: error.message });
+    return response.error(res, error.message, 'SYNC_FAILED', 500);
   }
 };
 
@@ -215,7 +224,7 @@ exports.updateOrderStatus = async (req, res) => {
     const idempotencyKey = req.headers['idempotency-key'];
 
     if (isNaN(orderId)) {
-      return res.status(400).json({ error: 'معرف الطلب غير صحيح' });
+      return response.error(res, 'معرف الطلب غير صحيح', 'INVALID_ID', 400);
     }
 
     const contractGateway = require('../services/contractGateway');
@@ -226,7 +235,7 @@ exports.updateOrderStatus = async (req, res) => {
     }, req.user);
 
     if (!result) {
-      return res.status(400).json({ error: 'فشل تحديث الحالة' });
+      return response.error(res, 'فشل تحديث الحالة', 'UPDATE_FAILED', 400);
     }
     
     return res.json(result);
@@ -234,14 +243,14 @@ exports.updateOrderStatus = async (req, res) => {
     logger.error('updateOrderStatus error', { error: error.message });
     
     if (error.message.includes('Invalid status transition')) {
-      return res.status(400).json({ error: 'انتقال غير صالح لحالة الطلب' });
+      return response.error(res, 'انتقال غير صالح لحالة الطلب', 'INVALID_TRANSITION', 400);
     }
     
     if (error.message === 'CONCURRENCY_CONFLICT') {
-      return res.status(409).json({ error: 'تم تحديث الطلب من قبل موظف آخر. يرجى تحديث الصفحة' });
+      return response.error(res, 'تم تحديث الطلب من قبل موظف آخر. يرجى تحديث الصفحة', 'CONCURRENCY_CONFLICT', 409);
     }
 
-    return res.status(500).json({ error: 'فشل تحديث حالة الطلب' });
+    return response.error(res, 'فشل تحديث حالة الطلب', 'SERVER_ERROR', 500);
   }
 };
 
@@ -254,11 +263,13 @@ exports.updateOrderTimer = async (req, res) => {
     const { estimatedReadyAt } = req.body;
     const idempotencyKey = req.headers['idempotency-key'] || `timer_${orderId}_${Date.now()}`;
 
-    if (isNaN(orderId)) return res.status(400).json({ error: 'معرف الطلب غير صحيح' });
+    if (isNaN(orderId)) {
+      return response.error(res, 'معرف الطلب غير صحيح', 'INVALID_ID', 400);
+    }
 
     // 🛡️ Early validation — prevent unnecessary lock acquisition on invalid input
     if (!estimatedReadyAt || isNaN(new Date(estimatedReadyAt).getTime())) {
-      return res.status(400).json({ error: 'تاريخ غير صالح', code: 'INVALID_DATE' });
+      return response.error(res, 'تاريخ غير صالح', 'INVALID_DATE', 400);
     }
 
     const contractGateway = require('../services/contractGateway');
@@ -270,11 +281,13 @@ exports.updateOrderTimer = async (req, res) => {
     res.json(result);
   } catch (error) {
     logger.error('updateOrderTimer error', { error: error.message });
-    if (error.message === 'INVALID_DATE') return res.status(400).json({ error: 'تاريخ غير صالح' });
-    if (error.message === 'ORDER_FORBIDDEN' || error.message === 'UNAUTHORIZED_ORDER_ACCESS') {
-      return res.status(403).json({ error: 'غير مصرح لك بتعديل هذا الطلب' });
+    if (error.message === 'INVALID_DATE') {
+      return response.error(res, 'تاريخ غير صالح', 'INVALID_DATE', 400);
     }
-    res.status(500).json({ error: 'Failed to update timer' });
+    if (error.message === 'ORDER_FORBIDDEN' || error.message === 'UNAUTHORIZED_ORDER_ACCESS') {
+      return response.error(res, 'غير مصرح لك بتعديل هذا الطلب', 'FORBIDDEN', 403);
+    }
+    return response.error(res, 'Failed to update timer', 'SERVER_ERROR', 500);
   }
 };
 
@@ -287,7 +300,9 @@ exports.submitOrderRating = async (req, res) => {
     const { rating, comment } = req.body;
     const idempotencyKey = req.headers['x-idempotency-key'] || req.headers['idempotency-key'] || `rate_${orderId}_${req.user.id}`;
 
-    if (isNaN(orderId)) return res.status(400).json({ error: 'معرف طلب غير صحيح' });
+    if (isNaN(orderId)) {
+      return response.error(res, 'معرف طلب غير صحيح', 'INVALID_ID', 400);
+    }
 
     const contractGateway = require('../services/contractGateway');
     const result = await contractGateway.execute(orderId, 'SUBMIT_RATING', {
@@ -299,12 +314,16 @@ exports.submitOrderRating = async (req, res) => {
     res.json(result);
   } catch (error) {
     logger.error('submitOrderRating error', { error: error.message });
-    if (error.message === 'INVALID_RATING') return res.status(400).json({ error: 'التقييم يجب أن يكون رقماً بين 1 و 5' });
-    if (error.message === 'ORDER_NOT_FOUND') return res.status(404).json({ error: 'الطلب غير موجود' });
-    if (error.message === 'ORDER_FORBIDDEN' || error.message === 'UNAUTHORIZED_ORDER_ACCESS') {
-      return res.status(403).json({ error: 'غير مصرح لك بتقييم هذا الطلب' });
+    if (error.message === 'INVALID_RATING') {
+      return response.error(res, 'التقييم يجب أن يكون رقماً بين 1 و 5', 'INVALID_RATING', 400);
     }
-    res.status(500).json({ error: 'Failed to submit rating' });
+    if (error.message === 'ORDER_NOT_FOUND') {
+      return response.error(res, 'الطلب غير موجود', 'ORDER_NOT_FOUND', 404);
+    }
+    if (error.message === 'ORDER_FORBIDDEN' || error.message === 'UNAUTHORIZED_ORDER_ACCESS') {
+      return response.error(res, 'غير مصرح لك بتقييم هذا الطلب', 'FORBIDDEN', 403);
+    }
+    return response.error(res, 'Failed to submit rating', 'SERVER_ERROR', 500);
   }
 };
 
@@ -319,7 +338,7 @@ exports.cancelOrder = async (req, res) => {
     const maxLen = systemConfig.business.maxCancellationReasonLength;
 
     if (reason && reason.length > maxLen) {
-      return res.status(400).json({ error: `سبب الإلغاء يتجاوز الحد المسموح (${maxLen} حرف)` });
+      return response.error(res, `سبب الإلغاء يتجاوز الحد المسموح (${maxLen} حرف)`, 'REASON_TOO_LONG', 400);
     }
 
     const contractGateway = require('../services/contractGateway');
@@ -332,10 +351,16 @@ exports.cancelOrder = async (req, res) => {
     res.json(result);
   } catch (error) {
     logger.error('cancelOrder error', { error: error.message });
-    if (error.message === 'ORDER_NOT_FOUND') return res.status(404).json({ error: 'الطلب غير موجود' });
-    if (error.message === 'ORDER_FORBIDDEN') return res.status(403).json({ error: 'غير مصرح لك بإلغاء هذا الطلب' });
-    if (error.message === 'CANCELLATION_ALREADY_REQUESTED') return res.status(400).json({ error: 'تم إرسال طلب إلغاء مسبقاً' });
-    res.status(500).json({ error: 'فشل عملية الإلغاء' });
+    if (error.message === 'ORDER_NOT_FOUND') {
+      return response.error(res, 'الطلب غير موجود', 'ORDER_NOT_FOUND', 404);
+    }
+    if (error.message === 'ORDER_FORBIDDEN') {
+      return response.error(res, 'غير مصرح لك بإلغاء هذا الطلب', 'FORBIDDEN', 403);
+    }
+    if (error.message === 'CANCELLATION_ALREADY_REQUESTED') {
+      return response.error(res, 'تم إرسال طلب إلغاء مسبقاً', 'CANCELLATION_ALREADY_REQUESTED', 400);
+    }
+    return response.error(res, 'فشل عملية الإلغاء', 'CANCEL_FAILED', 500);
   }
 };
 
@@ -351,9 +376,13 @@ exports.approveCancellation = async (req, res) => {
     res.json(result);
   } catch (error) {
     logger.error('approveCancellation error', { error: error.message });
-    if (error.message === 'CANCELLATION_NOT_FOUND') return res.status(404).json({ error: 'طلب الإلغاء غير موجود' });
-    if (error.message === 'ADMIN_APPROVAL_REQUIRED') return res.status(403).json({ error: 'موافقة الإدارة العامة مطلوبة لهذا الإلغاء' });
-    res.status(500).json({ error: 'فشل الموافقة على الإلغاء' });
+    if (error.message === 'CANCELLATION_NOT_FOUND') {
+      return response.error(res, 'طلب الإلغاء غير موجود', 'CANCELLATION_NOT_FOUND', 404);
+    }
+    if (error.message === 'ADMIN_APPROVAL_REQUIRED') {
+      return response.error(res, 'موافقة الإدارة العامة مطلوبة لهذا الإلغاء', 'ADMIN_APPROVAL_REQUIRED', 403);
+    }
+    return response.error(res, 'فشل الموافقة على الإلغاء', 'APPROVE_FAILED', 500);
   }
 };
 
@@ -369,7 +398,7 @@ exports.rejectCancellation = async (req, res) => {
     res.json(result);
   } catch (error) {
     logger.error('rejectCancellation error', { error: error.message });
-    res.status(500).json({ error: 'فشل رفض طلب الإلغاء' });
+    return response.error(res, 'فشل رفض طلب الإلغاء', 'REJECT_FAILED', 500);
   }
 };
 
@@ -382,7 +411,9 @@ exports.handleCancellationRequest = async (req, res) => {
     const { action, rejectionReason } = req.body;
     const idempotencyKey = req.headers['idempotency-key'] || `handle_cancel_${orderId}_${action}_${Date.now()}`;
 
-    if (isNaN(orderId)) return res.status(400).json({ error: 'معرف طلب غير صحيح' });
+    if (isNaN(orderId)) {
+      return response.error(res, 'معرف طلب غير صحيح', 'INVALID_ID', 400);
+    }
 
     const contractGateway = require('../services/contractGateway');
     const result = await contractGateway.execute(orderId, 'HANDLE_CANCEL', {
@@ -394,10 +425,16 @@ exports.handleCancellationRequest = async (req, res) => {
     res.json(result || { success: true });
   } catch (error) {
     logger.error('handleCancellationRequest failed', { error: error.message });
-    if (error.message === 'ORDER_NOT_FOUND') return res.status(404).json({ error: 'Order not found' });
-    if (error.message === 'NOT_PENDING_CANCELLATION') return res.status(400).json({ error: 'Order is not pending cancellation' });
-    if (error.message === 'UNAUTHORIZED_ORDER_ACCESS') return res.status(403).json({ error: 'Unauthorized access' });
-    res.status(500).json({ error: 'Failed to handle cancellation request' });
+    if (error.message === 'ORDER_NOT_FOUND') {
+      return response.error(res, 'Order not found', 'ORDER_NOT_FOUND', 404);
+    }
+    if (error.message === 'NOT_PENDING_CANCELLATION') {
+      return response.error(res, 'Order is not pending cancellation', 'NOT_PENDING_CANCELLATION', 400);
+    }
+    if (error.message === 'UNAUTHORIZED_ORDER_ACCESS') {
+      return response.error(res, 'Unauthorized access', 'FORBIDDEN', 403);
+    }
+    return response.error(res, 'Failed to handle cancellation request', 'SERVER_ERROR', 500);
   }
 };
 
@@ -410,12 +447,14 @@ exports.requestPartialCancel = async (req, res) => {
     const { items, reason } = req.body;
 
     // Early input validation
-    if (isNaN(orderId)) return res.status(400).json({ error: 'معرف طلب غير صحيح' });
+    if (isNaN(orderId)) {
+      return response.error(res, 'معرف طلب غير صحيح', 'INVALID_ID', 400);
+    }
     if (!Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ error: 'items must be a non-empty array' });
+      return response.error(res, 'items must be a non-empty array', 'INVALID_ITEMS', 400);
     }
     if (!reason || reason.trim().length === 0) {
-      return res.status(400).json({ error: 'سبب الإلغاء مطلوب' });
+      return response.error(res, 'سبب الإلغاء مطلوب', 'REASON_REQUIRED', 400);
     }
 
     const contractGateway = require('../services/contractGateway');
@@ -433,15 +472,31 @@ exports.requestPartialCancel = async (req, res) => {
     res.json({ success: true, data: result });
   } catch (error) {
     logger.error('requestPartialCancel error', { error: error.message });
-    if (error.message === 'ORDER_NOT_FOUND') return res.status(404).json({ error: 'Order not found' });
-    if (error.message === 'NOT_YOUR_ORDER') return res.status(403).json({ error: 'هذا الطلب ليس لك' });
-    if (error.message === 'BRANCH_ACCESS_DENIED') return res.status(403).json({ error: 'غير مصرح لك بالوصول لهذا الفرع' });
-    if (error.message.startsWith('INVALID_STATE')) return res.status(400).json({ error: 'الطلب في حالة لا تسمح بالإلغاء الجزئي' });
-    if (error.message.startsWith('INVALID_ITEMS')) return res.status(400).json({ error: 'بعض العناصر غير موجودة في الطلب' });
-    if (error.message === 'ITEMS_REQUIRED') return res.status(400).json({ error: 'يجب تحديد العناصر المراد إلغاؤها' });
-    if (error.message === 'INVALID_REFUND_AMOUNT') return res.status(400).json({ error: 'مبلغ الاسترداد غير صالح' });
-    if (error.message === 'UNAUTHORIZED_ORDER_ACCESS') return res.status(403).json({ error: 'غير مصرح لك' });
-    res.status(500).json({ error: 'Failed to request partial cancel' });
+    if (error.message === 'ORDER_NOT_FOUND') {
+      return response.error(res, 'Order not found', 'ORDER_NOT_FOUND', 404);
+    }
+    if (error.message === 'NOT_YOUR_ORDER') {
+      return response.error(res, 'هذا الطلب ليس لك', 'FORBIDDEN', 403);
+    }
+    if (error.message === 'BRANCH_ACCESS_DENIED') {
+      return response.error(res, 'غير مصرح لك بالوصول لهذا الفرع', 'FORBIDDEN', 403);
+    }
+    if (error.message.startsWith('INVALID_STATE')) {
+      return response.error(res, 'الطلب في حالة لا تسمح بالإلغاء الجزئي', 'INVALID_STATE', 400);
+    }
+    if (error.message.startsWith('INVALID_ITEMS')) {
+      return response.error(res, 'بعض العناصر غير موجودة في الطلب', 'INVALID_ITEMS', 400);
+    }
+    if (error.message === 'ITEMS_REQUIRED') {
+      return response.error(res, 'يجب تحديد العناصر المراد إلغاؤها', 'ITEMS_REQUIRED', 400);
+    }
+    if (error.message === 'INVALID_REFUND_AMOUNT') {
+      return response.error(res, 'مبلغ الاسترداد غير صالح', 'INVALID_REFUND_AMOUNT', 400);
+    }
+    if (error.message === 'UNAUTHORIZED_ORDER_ACCESS') {
+      return response.error(res, 'غير مصرح لك', 'FORBIDDEN', 403);
+    }
+    return response.error(res, 'Failed to request partial cancel', 'SERVER_ERROR', 500);
   }
 };
 
@@ -451,8 +506,12 @@ exports.handlePartialCancelRequest = async (req, res) => {
     const { action, notificationId, reason, itemsToCancel, managerPassword } = req.body;
     const idempotencyKey = req.headers['idempotency-key'] || `handle_partial_${notificationId}_${Date.now()}`;
 
-    if (isNaN(orderId)) return res.status(400).json({ error: 'معرف الطلب غير صحيح' });
-    if (!notificationId) return res.status(400).json({ error: 'معرف الإشعار مطلوب' });
+    if (isNaN(orderId)) {
+      return response.error(res, 'معرف الطلب غير صحيح', 'INVALID_ID', 400);
+    }
+    if (!notificationId) {
+      return response.error(res, 'معرف الإشعار مطلوب', 'MISSING_FIELD', 400);
+    }
 
     const contractGateway = require('../services/contractGateway');
     const gatewayAction = action === 'approve' ? 'APPROVE_PARTIAL_CANCEL' : 'REJECT_PARTIAL_CANCEL';
@@ -468,11 +527,19 @@ exports.handlePartialCancelRequest = async (req, res) => {
     res.json(result);
   } catch (error) {
     logger.error('handlePartialCancelRequest error', { error: error.message });
-    if (error.message === 'ORDER_NOT_FOUND') return res.status(404).json({ error: 'الطلب غير موجود' });
-    if (error.message.startsWith('INVALID_STATE')) return res.status(400).json({ error: 'حالة الطلب لا تسمح بهذا التعديل' });
-    if (error.message.startsWith('INVALID_ITEMS')) return res.status(400).json({ error: 'العناصر المحددة غير صالحة' });
-    if (error.message === 'UNAUTHORIZED_ORDER_ACCESS') return res.status(403).json({ error: 'غير مصرح لك بالوصول لهذا الفرع' });
-    res.status(500).json({ error: 'فشل معالجة الطلب' });
+    if (error.message === 'ORDER_NOT_FOUND') {
+      return response.error(res, 'الطلب غير موجود', 'ORDER_NOT_FOUND', 404);
+    }
+    if (error.message.startsWith('INVALID_STATE')) {
+      return response.error(res, 'حالة الطلب لا تسمح بهذا التعديل', 'INVALID_STATE', 400);
+    }
+    if (error.message.startsWith('INVALID_ITEMS')) {
+      return response.error(res, 'العناصر المحددة غير صالحة', 'INVALID_ITEMS', 400);
+    }
+    if (error.message === 'UNAUTHORIZED_ORDER_ACCESS') {
+      return response.error(res, 'غير مصرح لك بالوصول لهذا الفرع', 'FORBIDDEN', 403);
+    }
+    return response.error(res, 'فشل معالجة الطلب', 'SERVER_ERROR', 500);
   }
 };
 
@@ -483,7 +550,7 @@ exports.getPendingPartialCancels = async (req, res) => {
     res.json({ success: true, data: result });
   } catch (error) {
     logger.error('getPendingPartialCancels error', { error: error.message });
-    res.status(500).json({ error: 'فشل جلب الطلبات المعلقة' });
+    return response.error(res, 'فشل جلب الطلبات المعلقة', 'SERVER_ERROR', 500);
   }
 };
 
@@ -516,7 +583,9 @@ exports.updatePreparationTime = async (req, res) => {
     const { minutes } = req.body;
     const idempotencyKey = req.headers['idempotency-key'] || `prep_${orderId}_${Date.now()}`;
 
-    if (isNaN(orderId)) return res.status(400).json({ error: 'معرف طلب غير صحيح' });
+    if (isNaN(orderId)) {
+      return response.error(res, 'معرف طلب غير صحيح', 'INVALID_ID', 400);
+    }
 
     const contractGateway = require('../services/contractGateway');
     const result = await contractGateway.execute(orderId, 'UPDATE_PREP_TIME', {
@@ -528,8 +597,8 @@ exports.updatePreparationTime = async (req, res) => {
   } catch (error) {
     logger.error('updatePreparationTime error', { error: error.message });
     if (error.message === 'ORDER_FORBIDDEN' || error.message === 'UNAUTHORIZED_ORDER_ACCESS') {
-      return res.status(403).json({ error: 'غير مصرح لك بتعديل هذا الطلب' });
+      return response.error(res, 'غير مصرح لك بتعديل هذا الطلب', 'FORBIDDEN', 403);
     }
-    res.status(500).json({ success: false, error: 'Failed to update preparation time' });
+    return response.error(res, 'Failed to update preparation time', 'SERVER_ERROR', 500);
   }
 };

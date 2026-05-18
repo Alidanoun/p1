@@ -11,6 +11,7 @@ import 'storage_service.dart';
 import 'app_events.dart';
 import '../models/restaurant_status.dart';
 import '../features/checkout/models/delivery_zone.dart';
+import '../models/branch_model.dart';
 
 /// 🏥 Enterprise API Service (Intelligent Interceptor & Resilience Layer)
 class ApiService {
@@ -21,18 +22,22 @@ class ApiService {
   Timer? _silentRefreshTimer;
 
   static String get baseUrl {
-    const ip = String.fromEnvironment('SERVER_IP', defaultValue: '192.168.3.171');
-    const port = String.fromEnvironment('SERVER_PORT', defaultValue: '5000');
-    final scheme = const bool.fromEnvironment('dart.vm.product') ? 'https' : 'http';
-    return '$scheme://$ip:$port/api/v1';
+    const ip = String.fromEnvironment('SERVER_IP', defaultValue: 'api.almarkazia.com');
+    const port = String.fromEnvironment('SERVER_PORT', defaultValue: '');
+    final isProd = const bool.fromEnvironment('dart.vm.product');
+    final scheme = isProd ? 'https' : 'http';
+    final portSuffix = port.isNotEmpty ? ':$port' : (isProd ? '' : ':5000');
+    return '$scheme://$ip$portSuffix/api/v1';
   }
 
   /// 🔌 Socket Base URL (without /api/v1 prefix — Socket.IO connects to root)
   static String get socketUrl {
-    const ip = String.fromEnvironment('SERVER_IP', defaultValue: '192.168.3.171');
-    const port = String.fromEnvironment('SERVER_PORT', defaultValue: '5000');
-    final scheme = const bool.fromEnvironment('dart.vm.product') ? 'https' : 'http';
-    return '$scheme://$ip:$port';
+    const ip = String.fromEnvironment('SERVER_IP', defaultValue: 'api.almarkazia.com');
+    const port = String.fromEnvironment('SERVER_PORT', defaultValue: '');
+    final isProd = const bool.fromEnvironment('dart.vm.product');
+    final scheme = isProd ? 'https' : 'http';
+    final portSuffix = port.isNotEmpty ? ':$port' : (isProd ? '' : ':5000');
+    return '$scheme://$ip$portSuffix';
   }
 
   /// 🏥 Fetch Restaurant Operational Status
@@ -303,6 +308,22 @@ class ApiService {
         }
       }
       throw Exception('Failed to load delivery zones');
+    });
+  }
+
+  Future<List<BranchModel>> fetchBranches() async {
+    return _withRetry(() async {
+      final heads = await _headers;
+      final response = await http.get(Uri.parse('$baseUrl/branch'), headers: heads).timeout(const Duration(seconds: 10));
+      
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> body = json.decode(utf8.decode(response.bodyBytes));
+        if (body['success'] == true) {
+          final List data = body['data'] ?? [];
+          return data.map((b) => BranchModel.fromJson(b)).toList();
+        }
+      }
+      throw Exception('Failed to load branches');
     });
   }
 

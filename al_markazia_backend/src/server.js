@@ -3,7 +3,7 @@ const express = require('express'); // Heartbeat: 2026-05-02 01:57
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
-const csrf = require('csurf');
+
 const timeout = require('connect-timeout');
 const morgan = require('morgan');
 require('dotenv').config();
@@ -111,32 +111,26 @@ async function startServer() {
     
     app.use(cookieParser());
     
-    // 🛡️ CSRF Protection (Double Cookie Method - Strict Mode)
-    const csrfProtection = csrf({ 
-      cookie: {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict' // 🔒 Level 5 Security: Block cross-site session leaking
-      }
-    });
-    
-    // Apply CSRF protection selectively
+    // 🛡️ CSRF Protection (Custom Lightweight Double Cookie Submit Injector)
     app.use((req, res, next) => {
-      const isAuthRoute = req.path.startsWith('/auth') || req.path.startsWith('/api/auth') || req.path.startsWith('/api/v1/auth');
-      const hasAuthHeader = req.headers.authorization;
-      
-      if (isAuthRoute || hasAuthHeader) {
-        return next(); 
-      }
-      
-      csrfProtection(req, res, (err) => {
-        if (err) return next(err);
-        res.cookie('XSRF-TOKEN', req.csrfToken(), {
-          secure: process.env.NODE_ENV === 'production',
-          sameSite: 'strict'
+      // Ensure XSRF-TOKEN cookie exists. If not, generate a new secure random token.
+      let xsrfToken = req.cookies?.['XSRF-TOKEN'];
+      if (!xsrfToken) {
+        const crypto = require('crypto');
+        xsrfToken = crypto.randomBytes(24).toString('hex');
+        
+        const isProd = process.env.NODE_ENV === 'production';
+        const sameSite = isProd ? 'strict' : 'lax';
+        const secure = isProd || req.secure || req.headers['x-forwarded-proto'] === 'https';
+        
+        res.cookie('XSRF-TOKEN', xsrfToken, {
+          secure,
+          sameSite,
+          path: '/',
+          httpOnly: false // 🔓 Allow client-side JS to read this cookie to set the X-XSRF-TOKEN header
         });
-        next();
-      });
+      }
+      next();
     });
 
     const { apiLimiter } = require('./middleware/advancedRateLimiter');
@@ -190,7 +184,12 @@ async function startServer() {
 
     // 🖼️ Serve Static Files (Uploaded Images)
     const path = require('path');
-    app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+    app.use('/uploads', (req, res, next) => {
+      if (!/\.(webp|jpeg|jpg|png)$/i.test(req.path)) {
+        return res.status(403).end();
+      }
+      next();
+    }, express.static(path.join(__dirname, '../uploads')));
 
     // 🕵️ System Audit (Sensitive Routes)
     const auditMiddleware = require('./middleware/auditMiddleware');
@@ -242,16 +241,17 @@ async function startServer() {
 
     process.on('unhandledRejection', (reason, promise) => {
       logger.error('Unhandled Rejection at:', { promise, reason });
-      console.error('Unhandled Rejection at:', promise, 'reason:', reason);
     });
 
     process.on('uncaughtException', (err) => {
       logger.error('Uncaught Exception thrown:', { error: err.message, stack: err.stack });
-      console.error('Uncaught Exception thrown:', err);
       process.exit(1);
     });
 
     const PORT = parseInt(process.env.PORT || 5000, 10);
+
+    // Set a flag to signal that the server is importing test files, avoiding dynamic Jest describe/test additions
+    process.env.IS_RUNNING_SERVER = 'true';
 
     // 🚀 Execute heavy DB rehydration BEFORE accepting incoming socket/HTTP traffic
     const { runIntegrityTests } = require('./tests/financialIntegrity');
@@ -376,7 +376,6 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 
 startServer().catch(err => {
-  console.error('❌ FATAL STARTUP ERROR:', err);
   logger.error('FATAL STARTUP ERROR', { error: err.message, stack: err.stack });
   process.exit(1);
 });

@@ -89,6 +89,20 @@ const refreshToken = async (req, res) => {
   const rawToken = req.cookies?.refreshToken || req.body?.refreshToken;
   const token = sanitizeToken(rawToken);
 
+  // 🛡️ CSRF Protection for Cookie-based Refresh Token (Double Cookie Submit)
+  if (req.cookies?.refreshToken) {
+    const xsrfHeader = req.headers['x-xsrf-token'];
+    const xsrfCookie = req.cookies['XSRF-TOKEN'];
+    if (!xsrfHeader || !xsrfCookie || xsrfHeader !== xsrfCookie) {
+      logger.security('[CSRF_BLOCKED] Missing or mismatched X-XSRF-TOKEN header during cookie-based token refresh', { 
+        ip: req.ip, 
+        endpoint: req.originalUrl 
+      });
+      clearAuthCookies(req, res);
+      return response.error(res, 'فشل التحقق الأمني من مصدر الطلب (CSRF)', 'SECURITY_BREACH', 403);
+    }
+  }
+
   logger.debug('[Auth] Refresh token processing', { 
     source: req.cookies?.refreshToken ? 'cookie' : (req.body?.refreshToken ? 'body' : 'none'),
     isSanitized: !!token,
@@ -482,10 +496,25 @@ const verifyRegistration = async (req, res) => {
       return response.error(res, 'كود التحقق غير صحيح أو منتهي الصلاحية', 'INVALID_OTP', 400);
     }
 
+    if (otpRecord.attempts >= 5) {
+      await prisma.otpCode.update({ where: { id: otpRecord.id }, data: { used: true } });
+      return response.error(res, 'تم تجاوز الحد الأقصى من المحاولات، تم قفل الرمز', 'OTP_LOCKED', 429);
+    }
+
     // 2. Verify Code
     const isMatch = await bcrypt.compare(code, otpRecord.codeHash);
 
     if (!isMatch) {
+      await prisma.otpCode.update({
+        where: { id: otpRecord.id },
+        data: { attempts: { increment: 1 } }
+      });
+
+      if (otpRecord.attempts + 1 >= 5) {
+        await prisma.otpCode.update({ where: { id: otpRecord.id }, data: { used: true } });
+        return response.error(res, 'تم تجاوز الحد الأقصى من المحاولات، تم قفل الرمز', 'OTP_LOCKED', 429);
+      }
+
       return response.error(res, 'كود التحقق غير صحيح', 'INVALID_OTP', 400);
     }
 
@@ -608,8 +637,23 @@ const resetPassword = async (req, res) => {
       return response.error(res, 'كود التحقق غير صحيح أو منتهي الصلاحية', 'INVALID_OTP', 400);
     }
 
+    if (otpRecord.attempts >= 5) {
+      await prisma.otpCode.update({ where: { id: otpRecord.id }, data: { used: true } });
+      return response.error(res, 'تم تجاوز الحد الأقصى من المحاولات، تم قفل الرمز', 'OTP_LOCKED', 429);
+    }
+
     const isMatch = await bcrypt.compare(code, otpRecord.codeHash);
     if (!isMatch) {
+      await prisma.otpCode.update({
+        where: { id: otpRecord.id },
+        data: { attempts: { increment: 1 } }
+      });
+
+      if (otpRecord.attempts + 1 >= 5) {
+        await prisma.otpCode.update({ where: { id: otpRecord.id }, data: { used: true } });
+        return response.error(res, 'تم تجاوز الحد الأقصى من المحاولات، تم قفل الرمز', 'OTP_LOCKED', 429);
+      }
+
       return response.error(res, 'كود التحقق غير صحيح', 'INVALID_OTP', 400);
     }
 

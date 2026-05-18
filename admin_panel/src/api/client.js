@@ -81,7 +81,7 @@ api.interceptors.request.use((config) => {
 
   // 2. Attach Branch Context (Multi-tenancy isolation) - Admin only!
   try {
-    const userCache = JSON.parse(localStorage.getItem('user_cache') || '{}');
+    const userCache = JSON.parse(sessionStorage.getItem('user_cache') || localStorage.getItem('user_cache') || '{}');
     const isAdmin = userCache.role?.toUpperCase() === 'ADMIN';
 
     if (isAdmin) {

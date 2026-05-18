@@ -9,9 +9,7 @@ const secretProvider = require('./secretProvider');
  * graceful Key Rotation (legacy fallback keys), and Ephemeral Dev generation.
  */
 
-// Save hardcoded strings exclusively as fallback legacy verification keys to prevent active sessions mass logout
-const LEGACY_JWT_PUBLIC_KEY = '-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwNSQueDhoHbRMeo3JYqj\nI5abDU4EE4lJHHqMXJgoGsMpoeYub7pv8BFOCHDBsIIZmGjda4nZlzr7sl0oh6Ev\npKvs8Zda+QFuNRsPOQLry61dCWiWdPC1JXWMAk2TqrrZhkiMijMZBxtY0sdn72HA\nqExQskaMQqN3JedR3HHE6UITZ2ullzGYecDnPzV0+pmuc+e1aTpcrMqtd5iKCxyB\nKPFyjQTuRPqwZ3Ia6tPaoXn5wThi9fnozUDN/Uz41U1SABtgbYze35/NLJioolyw\nDqdo3iPpEHkyTGLYhsLqC2oejy4nEmm7t58oG4KSDViMgRAxw/sjF9+5hYqmLMZt\nkQIDAQAB\n-----END PUBLIC KEY-----';
-
+// Secrets are dynamically loaded via secretProvider or process.env
 const isDevOrTest = process.env.NODE_ENV !== 'production';
 
 // Auto-Generation for Dev Environment UX
@@ -110,7 +108,6 @@ module.exports = {
   REFRESH_TOKEN_SECRET: secretProvider.getSecretSync('REFRESH_TOKEN_SECRET'),
   JWT_PRIVATE_KEY: rawPrivateKey.replace(/\\n/g, '\n'),
   JWT_PUBLIC_KEY: rawPublicKey.replace(/\\n/g, '\n'),
-  LEGACY_JWT_PUBLIC_KEY, // Expose for graceful verification fallback of pre-rotation active sessions
   ACCESS_TOKEN_EXPIRY: secretProvider.getSecretSync('ACCESS_TOKEN_EXPIRY') || '15m',
   ACCESS_TOKEN_EXPIRY_MS: ms(secretProvider.getSecretSync('ACCESS_TOKEN_EXPIRY') || '15m'),
   REFRESH_TOKEN_EXPIRY: secretProvider.getSecretSync('REFRESH_TOKEN_EXPIRY') || '7d',

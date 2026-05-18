@@ -8,12 +8,12 @@ const globalLimiter = createLimiter({
   errorMessage: 'Too many requests'
 });
 
-// 🔐 تقييد المصادقة (Auth Limiter) - Hardened: 5 attempts per 10 mins
+// 🔐 تقييد المصادقة (Auth Limiter) - Hardened: 5 attempts per 15 mins
 const authLimiter = createLimiter({
   scope: 'auth',
-  windowMs: 10 * 60 * 1000,
+  windowMs: 15 * 60 * 1000,
   maxRequests: 5,
-  errorMessage: 'تجاوزت الحد المسموح من المحاولات. يرجى المحاولة بعد 10 دقائق.',
+  errorMessage: 'تجاوزت الحد المسموح من المحاولات. يرجى المحاولة بعد 15 دقيقة.',
   keyBuilder: (req) => `${req.ip}_${req.body?.email || req.body?.phone || 'guest'}`
 });
 

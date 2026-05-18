@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import '../../models/order_model.dart';
 import '../../models/cart_item.dart';
+import '../../models/branch_model.dart';
 import '../cart/cart_controller.dart';
 import '../checkout/models/delivery_zone.dart';
+import '../auth/auth_controller.dart';
 import '../../services/api_service.dart';
 import '../../services/session_service.dart';
 import '../../services/storage_service.dart';
@@ -25,9 +27,12 @@ class CheckoutController extends ChangeNotifier {
 
   // 📦 Order Context (State)
   String orderType = 'delivery'; // 'delivery' or 'takeaway'
-  String? selectedBranch;
+  BranchModel? selectedBranch;
+  List<BranchModel> branches = [];
   List<DeliveryZone> zones = [];
   DeliveryZone? selectedZone;
+  bool isBranchesLoading = true;
+  bool hasBranchError = false;
   double deliveryFee = 0.0;
   
   String customerName = '';
@@ -61,9 +66,13 @@ class CheckoutController extends ChangeNotifier {
     errorMessage = null;
     isLoading = false;
     usePoints = false;
+    selectedBranch = null;
+    isBranchesLoading = true;
+    hasBranchError = false;
     
-    // Fetch fresh zones and loyalty config in background
+    // Fetch fresh zones, branches, and loyalty config in background
     fetchZones();
+    fetchBranches();
     fetchLoyaltyConfig();
     
     notifyListeners();
@@ -76,6 +85,21 @@ class CheckoutController extends ChangeNotifier {
     } catch (e) {
       print('Error fetching zones: $e');
     }
+  }
+
+  Future<void> fetchBranches() async {
+    isBranchesLoading = true;
+    hasBranchError = false;
+    notifyListeners();
+    try {
+      branches = await _api.fetchBranches();
+      isBranchesLoading = false;
+    } catch (e) {
+      isBranchesLoading = false;
+      hasBranchError = true;
+      print('Error fetching branches: $e');
+    }
+    notifyListeners();
   }
 
   Future<void> fetchLoyaltyConfig() async {
@@ -103,7 +127,7 @@ class CheckoutController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setBranch(String branch) {
+  void setBranch(BranchModel branch) {
     selectedBranch = branch;
     notifyListeners();
   }
@@ -202,7 +226,7 @@ class CheckoutController extends ChangeNotifier {
   }
 
   // 🚀 SUBMIT FLOW
-  Future<OrderModel?> confirmOrder(CartController liveCart, AppLocalizations l10n) async {
+  Future<OrderModel?> confirmOrder(CartController liveCart, AuthController auth, AppLocalizations l10n) async {
     errorMessage = null;
     isLoading = true;
     notifyListeners();
@@ -238,7 +262,8 @@ class CheckoutController extends ChangeNotifier {
         totalPrice: total,
         subtotal: _subtotal,
         deliveryFee: orderType == 'delivery' ? deliveryFee : 0.0,
-        branch: selectedBranch,
+        branch: selectedBranch?.name,
+        branchId: selectedBranch?.id,
         deliveryZoneId: orderType == 'delivery' ? selectedZone?.id : null,
         usePoints: usePoints,
       );
@@ -252,6 +277,9 @@ class CheckoutController extends ChangeNotifier {
         
         // Save to local history as well (legacy compatibility)
         await _storage.saveOrder(sentOrder);
+
+        // 🔄 Sync points dynamically from Backend truth
+        await auth.refreshProfile();
       }
 
       isLoading = false;

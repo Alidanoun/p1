@@ -14,16 +14,19 @@ enum ModerationStatus {
   FLAGGED
 }
 
+/// 🛡️ [ARCHITECTURAL-DECISION]: User uses an Int autoincrement primary key for high-performance internal joins,
+/// but exposes a globally unique `uuid` string for secure external API reference, token signatures,
+/// and polymorphic relations (e.g. RefreshTokens, SystemAuditLogs).
 model User {
   id           Int      @id @default(autoincrement())
-  email        String   @unique
+  email        String
   emailHash    String?  @unique
   phone        String?  @unique
   phoneHash    String?  @unique
   name         String?
   /// @validate { minLength: 8, pattern: "Complexity Required: 1 Upper, 1 Lower, 1 Number, 1 Special" }
   password     String
-  role         String   @default("admin")
+  role         String   @default("staff")
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
   fcmToken     String?
@@ -69,6 +72,8 @@ model UserBranch {
   @@unique([userId, branchId])
 }
 
+/// 🛡️ [ARCHITECTURAL-DECISION]: Branch uses a String (UUID) primary key to prevent ID enumeration attacks,
+/// ensure secure multi-tenancy isolation, and support future distributed or offline branch synchronization.
 model Branch {
   id        String   @id @default(uuid())
   name      String
@@ -332,13 +337,15 @@ model OrderItem {
   @@index([itemId])
 }
 
+/// 🛡️ [ARCHITECTURAL-DECISION]: Customer uses an Int autoincrement primary key for legacy join performance,
+/// but exposes a globally unique `uuid` string for public API endpoints and polymorphic authentication.
 model Customer {
   id                  Int                @id @default(autoincrement())
   name                String
   phone               String?            @unique
   phoneHash           String?            @unique
   nameHash            String?
-  email               String?            @unique
+  email               String?
   emailHash           String?            @unique
   /// @validate { minLength: 8, pattern: "Complexity Required: 1 Upper, 1 Lower, 1 Number, 1 Special" }
   password            String?
@@ -354,7 +361,6 @@ model Customer {
   deletedAt           DateTime?
   blacklistedAt       DateTime?
   blacklistExpiresAt  DateTime?
-  blacklistUntil      DateTime?
   blacklistReason     String?
   blacklistReasonCode String?
   blacklistSource     String?
@@ -612,6 +618,10 @@ model DeliveryZone {
   updatedAt DateTime @updatedAt
 }
 
+/// 🛡️ [ARCHITECTURAL-DECISION]: RefreshToken uses a String UUID primary key. 
+/// The `userId` field is a String because it functions as a polymorphic identifier storing the unique `uuid`
+/// of either a User (staff/admin) or a Customer. This enables a unified session table without resorting to
+/// multiple distinct token tables or complex, hard-to-maintain polymorphic relational structures in Prisma.
 model RefreshToken {
   id        String   @id @default(uuid())
   token     String   @unique

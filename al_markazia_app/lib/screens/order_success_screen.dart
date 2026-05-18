@@ -16,6 +16,7 @@ class OrderSuccessScreen extends StatelessWidget {
     final theme = Theme.of(context);
     final primaryColor = theme.primaryColor;
     final isDark = theme.brightness == Brightness.dark;
+    final isArabic = Localizations.localeOf(context).languageCode == 'ar';
 
     return Scaffold(
       backgroundColor: isDark ? const Color(0xFF121212) : Colors.white,
@@ -69,6 +70,90 @@ class OrderSuccessScreen extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.grey.withOpacity(0.8), fontSize: 14),
               ).animate().fadeIn(delay: 600.ms),
+
+              const SizedBox(height: 24),
+              
+              // 📊 Financial Details Card (Server-Side Truth)
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.white.withOpacity(0.05) : Colors.grey[50],
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: isDark ? Colors.white.withOpacity(0.1) : Colors.grey[200]!,
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          isArabic ? 'المجموع الفرعي' : 'Subtotal',
+                          style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                        ),
+                        Text(
+                          '${(order.subtotal ?? 0.0).toStringAsFixed(2)} ${l10n.currency}',
+                          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                        ),
+                      ],
+                    ),
+                    if (order.orderType == 'delivery' && (order.deliveryFee ?? 0.0) > 0.0) ...[
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            l10n.deliveryFee,
+                            style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                          ),
+                          Text(
+                            '${(order.deliveryFee ?? 0.0).toStringAsFixed(2)} ${l10n.currency}',
+                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                          ),
+                        ],
+                      ),
+                    ],
+                    if ((order.discount ?? 0.0) > 0.0) ...[
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            isArabic ? 'مبلغ الخصم الفعلي' : 'Actual Discount',
+                            style: const TextStyle(color: Colors.green, fontSize: 14, fontWeight: FontWeight.bold),
+                          ),
+                          Text(
+                            '-${(order.discount ?? 0.0).toStringAsFixed(2)} ${l10n.currency}',
+                            style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 14),
+                          ),
+                        ],
+                      ),
+                    ],
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 12.0),
+                      child: Divider(height: 1),
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          l10n.finalTotal,
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                        ),
+                        Text(
+                          '${order.totalPrice.toStringAsFixed(2)} ${l10n.currency}',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18,
+                            color: primaryColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ).animate().fadeIn(delay: 700.ms).slideY(begin: 0.1, end: 0, curve: Curves.easeOutQuad),
               
               const Spacer(),
               

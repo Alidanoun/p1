@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/order_model.dart';
 import '../models/cart_item.dart';
+import '../models/branch_model.dart';
 import '../features/cart/cart_controller.dart';
 import '../features/checkout/checkout_controller.dart';
 import '../features/checkout/models/delivery_zone.dart';
@@ -39,9 +40,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     final l10n = AppLocalizations.of(context)!;
 
     if (!auth.isAuthenticated) {
-      if (mounted) {
-        showCustomSnackbar(context, l10n.loginTitle, isSuccess: false);
-      }
+      _showLoginPrompt(context);
       return;
     }
 
@@ -58,7 +57,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         return;
       }
 
-      final sentOrder = await checkout.confirmOrder(cart, l10n);
+      final sentOrder = await checkout.confirmOrder(cart, auth, l10n);
 
       if (sentOrder != null) {
         if (mounted) {
@@ -73,6 +72,130 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         }
       }
     }
+  }
+
+  void _showLoginPrompt(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final isArabic = Localizations.localeOf(context).languageCode == 'ar';
+    
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Theme.of(context).scaffoldBackgroundColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.15),
+                blurRadius: 10,
+                offset: const Offset(0, -2),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 50,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.lock_outline,
+                  color: Colors.orange,
+                  size: 40,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                l10n.loginTitle,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                isArabic 
+                  ? 'يجب تسجيل الدخول لإتمام الطلب. سلّتك محفوظة بالكامل وستتمكن من إكمال الشراء فور دخولك!'
+                  : 'You must log in to complete your order. Your cart is saved and you can finish purchasing once logged in!',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 15,
+                  color: Colors.grey,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 28),
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    elevation: 2,
+                  ),
+                  onPressed: () {
+                    Navigator.pop(context); // Close bottom sheet
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const AuthScreen()),
+                    ).then((_) {
+                      // Check if authenticated on return and auto-resume confirmation!
+                      final auth = context.read<AuthController>();
+                      if (auth.isAuthenticated) {
+                        _confirmOrder();
+                      }
+                    });
+                  },
+                  child: Text(
+                    isArabic ? 'تسجيل الدخول / إنشاء حساب' : 'Login / Register',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text(
+                    isArabic ? 'إلغاء' : 'Cancel',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      color: Colors.grey,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
   }
 
 
@@ -337,13 +460,58 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               // Branch Selection
               Text(l10n.selectBranch, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
               const SizedBox(height: 8),
-              Row(
-                children: [
-                  _buildBranchChip(l10n.branchMadina, 'MADINA', checkout),
-                  const SizedBox(width: 8),
-                  _buildBranchChip(l10n.branchKhalda, 'KHALDA', checkout),
-                ],
-              ),
+              if (checkout.isBranchesLoading)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8.0),
+                  child: Center(
+                    child: SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.orange),
+                    ),
+                  ),
+                )
+              else if (checkout.hasBranchError)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8.0),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.error_outline, color: Colors.red, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          Localizations.localeOf(context).languageCode == 'ar'
+                              ? 'فشل جلب الفروع. يرجى المحاولة لاحقاً.'
+                              : 'Failed to load branches. Please try again.',
+                          style: const TextStyle(color: Colors.red, fontSize: 13),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () => checkout.fetchBranches(),
+                        child: Text(
+                          Localizations.localeOf(context).languageCode == 'ar' ? 'إعادة المحاولة' : 'Retry',
+                          style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.bold),
+                        ),
+                      )
+                    ],
+                  ),
+                )
+              else if (checkout.branches.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8.0),
+                  child: Text(
+                    Localizations.localeOf(context).languageCode == 'ar'
+                        ? 'لا توجد فروع نشطة حالياً.'
+                        : 'No active branches available.',
+                    style: const TextStyle(color: Colors.grey, fontSize: 13),
+                  ),
+                )
+              else
+                Wrap(
+                  spacing: 8.0,
+                  runSpacing: 8.0,
+                  children: checkout.branches.map((branch) => _buildBranchChip(branch, checkout)).toList(),
+                ),
 
               const SizedBox(height: 16),
 
@@ -743,8 +911,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     ? null 
                     : () {
                         if (!auth.isAuthenticated) {
-                          // 🔐 Redirect to login if session lost
-                          Navigator.push(context, MaterialPageRoute(builder: (_) => const AuthScreen()));
+                          _showLoginPrompt(context);
                         } else {
                           _confirmOrder();
                         }
@@ -768,13 +935,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     );
   }
 
-  Widget _buildBranchChip(String label, String value, CheckoutController checkout) {
-    final isSelected = checkout.selectedBranch == value;
+  Widget _buildBranchChip(BranchModel branch, CheckoutController checkout) {
+    final isSelected = checkout.selectedBranch?.id == branch.id;
     return ChoiceChip(
-      label: Text(label),
+      label: Text(branch.name),
       selected: isSelected,
       onSelected: (val) {
-        if (val) checkout.setBranch(value);
+        if (val) checkout.setBranch(branch);
       },
       selectedColor: Theme.of(context).primaryColor.withOpacity(0.2),
       labelStyle: TextStyle(

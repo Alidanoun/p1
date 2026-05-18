@@ -101,11 +101,17 @@ class OtpService {
     });
 
     // 6. Dispatch Email (replace SMS)
-    // In dev without GMAIL credentials, the code is logged to console
-    if (process.env.NODE_ENV === 'development' && !process.env.GMAIL_USER) {
-      logger.info(`[EMAIL SIMULATOR] OTP for ${cleanEmail}: ${code}`);
+    // Always log to console in development/test for convenient debugging
+    if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV || process.env.NODE_ENV === 'test') {
+      logger.info(`[EMAIL SIMULATOR] OTP for ${cleanEmail || phone}: ${code}`);
+    }
+
+    if (process.env.NODE_ENV === 'development' && !process.env.EMAIL_USER) {
+      // Skip queue, already logged above
     } else {
-      await addOtpToQueue(cleanEmail, code, purpose);
+      if (cleanEmail) {
+        await addOtpToQueue(cleanEmail, code, purpose);
+      }
     }
 
     return {
@@ -116,19 +122,25 @@ class OtpService {
   }
 
   /**
-   * ✅ Verify OTP by email
+   * ✅ Verify OTP by email or phone
    */
-  async verifyOtp({ email, code, purpose = 'login' }) {
+  async verifyOtp({ email, phone, code, purpose = 'login' }) {
     if (!code || code.length !== OTP_LENGTH) {
       throw new Error('INVALID_CODE_FORMAT');
     }
 
-    const cleanEmail = email.toLowerCase().trim();
+    const cleanEmail = email ? email.toLowerCase().trim() : null;
+    const cleanPhone = phone ? this.normalizePhone(phone) : null;
+
+    if (!cleanEmail && !cleanPhone) {
+      throw new Error('MISSING_FIELDS');
+    }
 
     // Find the latest valid, unused OTP
     const otp = await prisma.otpCode.findFirst({
       where: {
-        email: cleanEmail,
+        emailHash: cleanEmail ? hashBlind(cleanEmail) : undefined,
+        phoneHash: cleanPhone ? hashBlind(cleanPhone) : undefined,
         purpose,
         used: false,
         expiresAt: { gt: new Date() }
@@ -159,7 +171,8 @@ class OtpService {
       });
       
       logger.security('OTP verification failed', { 
-        email: this._maskEmail(cleanEmail), 
+        email: cleanEmail ? this._maskEmail(cleanEmail) : undefined, 
+        phone: cleanPhone ? '****' + cleanPhone.slice(-4) : undefined,
         attempt: otp.attempts + 1 
       });
       throw new Error('INVALID_OTP');
@@ -171,7 +184,10 @@ class OtpService {
       data: { used: true }
     });
 
-    logger.security('OTP verified successfully', { email: this._maskEmail(cleanEmail) });
+    logger.security('OTP verified successfully', { 
+      email: cleanEmail ? this._maskEmail(cleanEmail) : undefined,
+      phone: cleanPhone ? '****' + cleanPhone.slice(-4) : undefined
+    });
     return true;
   }
 
@@ -186,6 +202,22 @@ class OtpService {
       ? local[0] + '***' 
       : local.slice(0, 2) + '***';
     return `${maskedLocal}@${domain}`;
+  }
+
+  /**
+   * 📞 Normalize Jordanian phone number formats
+   */
+  normalizePhone(phone) {
+    if (!phone || typeof phone !== 'string') return null;
+    let clean = phone.replace(/[^\d+]/g, '');
+    if (clean.startsWith('+')) {
+      clean = clean.substring(1);
+    }
+    clean = clean.replace(/^0+/, '');
+    if (clean.length === 9 && clean.startsWith('7')) {
+      clean = '962' + clean;
+    }
+    return clean;
   }
 
   /**

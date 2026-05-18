@@ -54,12 +54,15 @@ export const AuthProvider = ({ children }) => {
     const bootstrap = async () => {
       try {
         console.log('🧪 [AuthBootstrap] Phase 1: Checking cache...');
-        const cachedUser = localStorage.getItem('user_cache');
+        const cachedUser = sessionStorage.getItem('user_cache') || localStorage.getItem('user_cache');
         if (cachedUser) {
           try {
-            setUser(JSON.parse(cachedUser));
-            console.log('🧪 [AuthBootstrap] Optimistic user loaded');
+            // 🛡️ Do NOT set the active authenticated user from unverified cache
+            // We only parse it to verify format and handle potential cleanup
+            JSON.parse(cachedUser);
+            console.log('🧪 [AuthBootstrap] Cache session detected, awaiting server validation...');
           } catch (e) {
+            sessionStorage.removeItem('user_cache');
             localStorage.removeItem('user_cache');
           }
         }
@@ -73,7 +76,8 @@ export const AuthProvider = ({ children }) => {
           const meResponse = await api.get('/auth/me');
           const finalUser = meResponse.data.data;
           setUser(finalUser);
-          localStorage.setItem('user_cache', JSON.stringify(finalUser));
+          sessionStorage.setItem('user_cache', JSON.stringify(finalUser));
+          localStorage.removeItem('user_cache');
           
           // Auto-set branchId for manager/branch_manager
           const role = finalUser.role?.toLowerCase();
@@ -85,6 +89,7 @@ export const AuthProvider = ({ children }) => {
           console.warn('🧪 [AuthBootstrap] FAILED:', err.response?.data?.error || err.message);
           tokenStore.clear();
           setUser(null);
+          sessionStorage.removeItem('user_cache');
           localStorage.removeItem('user_cache');
         } finally {
           console.log('🧪 [AuthBootstrap] Phase 4: Setting loading to false');
@@ -165,7 +170,8 @@ export const AuthProvider = ({ children }) => {
 
       tokenStore.set(accessToken);
       setUser(user);
-      localStorage.setItem('user_cache', JSON.stringify(user));
+      sessionStorage.setItem('user_cache', JSON.stringify(user));
+      localStorage.removeItem('user_cache');
       
       const role = user.role?.toLowerCase();
       if ((role === 'branch_manager' || role === 'manager') && user.branchId) {
@@ -197,6 +203,7 @@ export const AuthProvider = ({ children }) => {
       tokenStore.clear();
       setUser(null);
       setSelectedBranchId(null);
+      sessionStorage.removeItem('user_cache');
       localStorage.removeItem('user_cache');
       window.location.href = '/login';
     }
