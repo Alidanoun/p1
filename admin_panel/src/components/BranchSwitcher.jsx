@@ -48,7 +48,7 @@ const BranchSwitcher = ({ selectedBranchId, onBranchChange }) => {
   );
 
   return (
-    <div className="relative">
+    <div className="relative branch-switcher-container">
       <button
         id="branch-switcher-btn"
         onClick={() => setIsOpen(!isOpen)}
