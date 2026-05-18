@@ -1,3 +1,5 @@
+const { toNumber, toDecimal, Decimal } = require('../utils/number');
+
 /**
  * 📊 Independent Immutable Ledger Service
  * Phase 5: Financial Truth Separation
@@ -56,7 +58,11 @@ class LedgerService {
     }
 
     const numericAmountDec = toDecimal(amount);
-    const balanceAfterDec = type === 'CREDIT' ? toDecimal(balanceBefore).plus(numericAmountDec) : toDecimal(balanceBefore).minus(numericAmountDec);
+    // 🛡️ [BUG-04 FIX] Only update balanceAfter if the method is WALLET. Non-wallet ledger entries do not mutate the customer's wallet balance.
+    const isWallet = method === 'WALLET';
+    const balanceAfterDec = isWallet
+      ? (type === 'CREDIT' ? toDecimal(balanceBefore).plus(numericAmountDec) : toDecimal(balanceBefore).minus(numericAmountDec))
+      : toDecimal(balanceBefore);
 
     // 2. Create the Immutable Record
     const entry = await tx.financialLedger.create({

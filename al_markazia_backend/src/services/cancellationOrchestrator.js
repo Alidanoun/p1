@@ -78,6 +78,8 @@ class CancellationOrchestrator {
           where: { id: order.id, version: order.version },
           data: {
             status: 'cancelled',
+            total: 0,
+            subtotal: 0,
             version: { increment: 1 },
             eventSequence: { increment: 1 }
           },
@@ -115,10 +117,10 @@ class CancellationOrchestrator {
           aggregateType: 'Order',
           payload: { 
             orderId: order.id,
-            total: updated.total,
+            total: order.total, // 🛡️ [BUG-07 FIX] Use pre-cancelled original total for financial rollback
             customerId: updated.customerId,
             paymentMethod: updated.paymentMethod,
-            pointsDiscount: updated.discount,
+            pointsDiscount: order.discount, // 🛡️ [BUG-07 FIX] Use pre-cancelled original discount for points refund
             pointsAwarded: updated.pointsAwarded,
             branchId: updated.branchId,
             items: updated.orderItems.map(i => ({ itemId: i.itemId, quantity: i.quantity })),

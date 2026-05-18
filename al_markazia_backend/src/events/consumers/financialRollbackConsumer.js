@@ -59,7 +59,7 @@ const financialRollbackConsumer = new StreamConsumerGroup(
           }
 
           // 3. 🎁 Redemption Refund (Credit back spent points)
-          if (customerId && pointsDiscount > 0) {
+          if (customerId && Number(pointsDiscount) > 0) {
             const redemption = await tx.loyaltyLedger.findFirst({
               where: { customerId, category: 'REDEMPTION', referenceId: String(orderId) }
             });

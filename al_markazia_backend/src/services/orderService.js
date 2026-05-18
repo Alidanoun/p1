@@ -354,7 +354,8 @@ class OrderService {
         toNumber(order.discount)
       );
 
-      const refundAmount = pricingService.calculateImpact(order.total, financials.total).difference;
+      // 🛡️ [BUG-03 FIX] Calculate refund amount directly to avoid calling non-existent calculateImpact
+      const refundAmount = toNumber(order.total) - financials.total;
 
       // 4. Update Database using precise Decimal strings to guarantee strict alignment with Prisma schema
       const updatedOrder = await tx.order.update({
@@ -372,6 +373,19 @@ class OrderService {
         },
         include: { orderItems: true, customer: true }
       });
+
+      // 💳 [BUG-02 FIX] Credit the partial refund to the customer's wallet if paid by wallet
+      if (order.paymentMethod === 'wallet' && refundAmount > 0) {
+        await this.container.walletService.credit(
+          order.customerId,
+          refundAmount,
+          'REFUND',
+          order.orderNumber,
+          `Partial refund for order #${order.orderNumber}`,
+          `partial_cancel_refund:${order.id}:${itemIdsToCancel.join('_')}`,
+          tx
+        );
+      }
 
       // 5. Resolve Notification
       if (notificationId) {
@@ -987,6 +1001,7 @@ class OrderService {
           subtotal: financials.subtotal,
           tax: financials.tax,
           deliveryFee: financials.deliveryFee,
+          discount: financials.discount, // 🛡️ [BUG-01 FIX] Persist discount in order table
           total: financials.total,
           status: initialStatus,
           source: (authUser && authUser.role === 'admin') ? 'manual' : 'app',
@@ -1059,6 +1074,19 @@ class OrderService {
             pointsDeducted: pointsToDeduct 
           }
         });
+      }
+
+      // 💳 [WALLET CHECKOUT FIX] Deduct order total from customer's wallet if paid by wallet
+      if (paymentMethod === 'wallet' && financials.total > 0) {
+        await this.container.walletService.debit(
+          resolvedCustomer.id,
+          financials.total,
+          'ORDER_PAYMENT',
+          order.id.toString(),
+          `Payment for order #${order.orderNumber}`,
+          `order_wallet_debit:${order.id}`,
+          tx
+        );
       }
 
       const mappedForEvent = mapOrderResponse(order);

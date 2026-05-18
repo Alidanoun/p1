@@ -427,6 +427,9 @@ class LoyaltyService {
         this.logger.info(`[Loyalty] Happy Hour active for order #${order.orderNumber}! Applying ${config.happyHourMultiplier}x multiplier`);
       }
 
+      // 🛡️ [BUG-06 FIX] Cap cumulative points multiplier to prevent points inflation (max 3.5x multiplier)
+      multiplierDec = Decimal.min(multiplierDec, new Decimal(3.5));
+
       const subDec = toDecimal(order.subtotal || 0);
       const discDec = toDecimal(order.discount || 0);
       const netSubtotalDec = Decimal.max(0, subDec.minus(discDec));
