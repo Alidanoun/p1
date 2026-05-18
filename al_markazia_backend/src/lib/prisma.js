@@ -59,8 +59,7 @@ const prisma = basePrisma.$extends({
 
         // 🔍 Automatically append isDeleted: false on find operations
         const SOFT_DELETE_MODELS = [
-          'FinancialLedger', 'LoyaltyLedger', 'SystemAuditLog', 
-          'Order', 'OrderItem', 'BranchItem'
+          'FinancialLedger', 'LoyaltyLedger', 'SystemAuditLog', 'Order'
         ];
         
         if (SOFT_DELETE_MODELS.includes(model)) {

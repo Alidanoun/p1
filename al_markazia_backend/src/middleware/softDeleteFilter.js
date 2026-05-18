@@ -1,6 +1,5 @@
 const SOFT_DELETE_MODELS = [
-  'FinancialLedger', 'LoyaltyLedger', 'SystemAuditLog', 
-  'Order', 'OrderItem', 'BranchItem'
+  'FinancialLedger', 'LoyaltyLedger', 'SystemAuditLog', 'Order'
 ];
 
 exports.applySoftDeleteFilter = (prisma) => {
