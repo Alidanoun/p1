@@ -1,6 +1,6 @@
 const express = require('express');
 const { getStatus, getSchedule, updateSchedule, toggleEmergencyClose, subscribeToReopen } = require('../controllers/restaurantController');
-const { authenticateToken, isAdmin } = require('../middleware/auth');
+const { authenticateToken, isAdmin, isManager } = require('../middleware/auth');
 const { withCache, invalidateCache } = require('../middleware/cacheMiddleware');
 
 const router = express.Router();
@@ -23,7 +23,7 @@ router.get('/schedule', authenticateToken, isAdmin, getSchedule);
  */
 router.post('/schedule', authenticateToken, isAdmin, invalidateCache('restaurant_status'), updateSchedule);
 
-router.post('/emergency-close', authenticateToken, isAdmin, invalidateCache('restaurant_status'), toggleEmergencyClose);
+router.post('/emergency-close', authenticateToken, isManager, invalidateCache('restaurant_status'), toggleEmergencyClose);
 
 /**
  * @route POST /api/restaurant/subscribe
