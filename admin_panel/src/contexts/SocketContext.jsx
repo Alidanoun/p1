@@ -122,10 +122,13 @@ export const SocketProvider = ({ children }) => {
       reconnectionAttempts: 10,
       reconnectionDelay: 1000,
       timeout: 20000,
-      auth: { token },                 // 🛡️ From memory store
+      auth: { 
+        token,
+        xsrfToken: getCookie('XSRF-TOKEN') || '' // 🛡️ Pass CSRF token via auth for pure websocket transport support
+      },
       withCredentials: true,           // ✅ Important for cookie-based handshake
       extraHeaders: {
-        'x-xsrf-token': getCookie('XSRF-TOKEN') || '' // 🛡️ Double Cookie Submit for Socket.io
+        'x-xsrf-token': getCookie('XSRF-TOKEN') || '' // 🛡️ Keep extraHeaders for polling transport fallback
       },
       transports: ['websocket']        // Stability optimization
     });

@@ -80,7 +80,10 @@ module.exports = {
 
         const cookies = parseCookies(cookieHeader);
         const csrfTokenFromCookie = cookies['XSRF-TOKEN'];
-        const csrfTokenFromHeader = socket.handshake.headers['x-xsrf-token'];
+        // 🛡️ [SEC-FIX] Read from headers OR handshake.auth/query (browsers don't support custom headers in WebSocket transport)
+        const csrfTokenFromHeader = socket.handshake.headers['x-xsrf-token'] || 
+                                    socket.handshake.auth?.xsrfToken || 
+                                    socket.handshake.query?.xsrfToken;
 
         // 🛡️ [SEC-FIX] Double Cookie Submit Validation
         // Note: Only enforce if cookies are present (Browser context). 
