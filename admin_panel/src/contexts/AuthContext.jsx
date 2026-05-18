@@ -119,15 +119,13 @@ export const AuthProvider = ({ children }) => {
             toast.warning('تم تحديث صلاحيات الفروع، يرجى الاختيار مجدداً');
           }
         } catch (error) {
-          console.warn('Failed to validate branch access:', error);
-          // Fail-safe: clear branch selection on error
-          localStorage.removeItem('selectedBranchId');
-          setBranchIdState(null);
+          console.warn('Failed to validate branch access during bootstrap:', error);
+          // 🛡️ [SEC-FIX] Do NOT destructively clear selection on transient network/timing errors
         }
       }
     };
     
-    if (user?.id) {
+    if (!loading && user?.id) {
       const role = user.role?.toLowerCase();
       if (role === 'admin') {
         validateBranchOnLoad();
@@ -135,7 +133,7 @@ export const AuthProvider = ({ children }) => {
         setSelectedBranchId(user.branchId);
       }
     }
-  }, [user]);
+  }, [user, loading]);
 
   // 🔄 Multi-Tab Synchronization: Sync active branch selection across open tabs
   useEffect(() => {
