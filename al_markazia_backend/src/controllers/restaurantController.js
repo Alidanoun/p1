@@ -12,7 +12,8 @@ const eventBus = require('../events/eventBus');
  */
 const getStatus = async (req, res) => {
   try {
-    const status = await workingHoursService.getStatus();
+    const { branchId } = req.query;
+    const status = await workingHoursService.getStatus(branchId);
     res.json({
       success: true,
       data: status
@@ -92,7 +93,18 @@ const toggleEmergencyClose = async (req, res) => {
 
     logger.info('[RestaurantController] Emergency toggle request', { isOpen, type, adminId });
 
-    // 1. Security Check: Verify Admin Password ONLY if closing for the day
+    // 1. Determine target branch context
+    let targetBranchId = null;
+    if (req.user?.role === 'branch_manager') {
+      targetBranchId = req.user.branchId;
+    } else if (req.user?.role === 'admin') {
+      const contextBranch = req.headers['x-branch-context'];
+      if (contextBranch && contextBranch !== 'all' && contextBranch !== 'null' && contextBranch !== 'undefined') {
+        targetBranchId = contextBranch;
+      }
+    }
+
+    // 2. Security Check: Verify Admin/Manager Password ONLY if closing for the day
     const isDayClose = !isOpen && type === 'day';
     if (isDayClose) {
       if (!password) return res.status(400).json({ success: false, error: 'مطلوب كلمة مرور المدير' });
@@ -122,24 +134,39 @@ const toggleEmergencyClose = async (req, res) => {
       }
     }
 
-    await prisma.restaurantSettings.update({
-      where: { id: 1 },
-      data: {
-        isEmergencyClosed: !isOpen,
-        closureReason: reason || (isOpen ? null : 'إغلاق طارئ مؤقت'),
-        reopenAt: reopenAt
+    if (targetBranchId) {
+      // Toggle Branch-specific status
+      await prisma.branch.update({
+        where: { id: targetBranchId },
+        data: {
+          isEmergencyClosed: !isOpen,
+          closureReason: reason || (isOpen ? null : 'إغلاق طارئ مؤقت للفرع'),
+          reopenAt: reopenAt
+        }
+      });
+      logger.info('[RestaurantController] Branch emergency status toggled', { branchId: targetBranchId, isOpen, type });
+    } else {
+      // Toggle Global status
+      await prisma.restaurantSettings.update({
+        where: { id: 1 },
+        data: {
+          isEmergencyClosed: !isOpen,
+          closureReason: reason || (isOpen ? null : 'إغلاق طارئ مؤقت'),
+          reopenAt: reopenAt
+        }
+      });
+
+      if (isOpen) {
+        await eventBus.emitSafe('RESTAURANT_OPENED');
       }
-    });
+      logger.info('[RestaurantController] Global emergency status toggled', { isOpen, type });
+    }
 
     workingHoursService.invalidateCache();
 
-    if (isOpen) {
-      await eventBus.emitSafe('RESTAURANT_OPENED');
-    }
-
     res.json({
       success: true,
-      message: isOpen ? 'تم فتح المطعم بنجاح' : 'تم إغلاق المطعم بنجاح',
+      message: isOpen ? 'تم فتح العمل بنجاح' : 'تم إغلاق العمل بنجاح',
       reopenAt: reopenAt
     });
   } catch (error) {

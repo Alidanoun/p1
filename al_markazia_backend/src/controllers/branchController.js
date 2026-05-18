@@ -160,7 +160,8 @@ exports.getAllBranches = async (req, res) => {
         name: true,
         address: true,
         phone: true,
-        isActive: true
+        isActive: true,
+        isEmergencyClosed: true
       },
       orderBy: { name: 'asc' }
     });

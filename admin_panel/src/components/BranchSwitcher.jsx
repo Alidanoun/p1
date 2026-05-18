@@ -61,7 +61,7 @@ const BranchSwitcher = ({ selectedBranchId, onBranchChange }) => {
           <p className="text-[10px] font-black text-text-muted uppercase tracking-widest leading-none mb-1">الفرع الحالي</p>
           <div className="flex items-center gap-1.5 justify-end">
             {selectedBranch?.id !== 'all' && selectedBranch?.id !== undefined ? (
-              selectedBranch?.isActive ? (
+              (selectedBranch?.isActive && !selectedBranch?.isEmergencyClosed) ? (
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_#10b981] animate-pulse" />
               ) : (
                 <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shadow-[0_0_6px_#f43f5e]" />
@@ -78,10 +78,10 @@ const BranchSwitcher = ({ selectedBranchId, onBranchChange }) => {
       <AnimatePresence>
         {isOpen && (
           <motion.div
-            initial={{ opacity: 0, y: 10, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.95 }}
-            className="absolute top-full left-0 mt-2 w-56 bg-[#1e293b] border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-[1000]"
+             initial={{ opacity: 0, y: 10, scale: 0.95 }}
+             animate={{ opacity: 1, y: 0, scale: 1 }}
+             exit={{ opacity: 0, y: 10, scale: 0.95 }}
+             className="absolute top-full left-0 mt-2 w-56 bg-[#1e293b] border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-[1000]"
           >
             <div className="p-2 space-y-1">
               {branches.map((branch) => (
@@ -100,7 +100,7 @@ const BranchSwitcher = ({ selectedBranchId, onBranchChange }) => {
                 >
                   <div className="flex items-center gap-2">
                     {branch.id !== 'all' ? (
-                      branch.isActive ? (
+                      (branch.isActive && !branch.isEmergencyClosed) ? (
                         <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981] animate-pulse" />
                       ) : (
                         <span className="w-2 h-2 rounded-full bg-rose-500 shadow-[0_0_8px_#f43f5e]" />

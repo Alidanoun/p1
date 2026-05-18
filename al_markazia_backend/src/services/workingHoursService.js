@@ -18,10 +18,11 @@ class WorkingHoursService {
    * 📡 Get Current Restaurant Status
    * Returns whether the restaurant is open, next opening time, and closure reason.
    */
-  async getStatus() {
+  async getStatus(branchId) {
     try {
       // 1. Check Cache
-      const cachedStatus = nodeCache.get(this.CACHE_KEY);
+      const cacheKey = branchId ? `${this.CACHE_KEY}_${branchId}` : this.CACHE_KEY;
+      const cachedStatus = nodeCache.get(cacheKey);
       if (cachedStatus) return cachedStatus;
 
       // 2. Fetch Settings & Schedule
@@ -42,6 +43,57 @@ class WorkingHoursService {
       const now = DateTime.now().setZone(settings.timezone);
       const nowJordan = now.setZone('Asia/Amman'); // 🇯🇴 Explicit Jordan Time
       
+      // 3. Check Branch-specific status if branchId is provided
+      if (branchId && branchId !== 'all' && branchId !== 'null' && branchId !== 'undefined') {
+        const branch = await prisma.branch.findUnique({
+          where: { id: branchId }
+        });
+        
+        if (branch) {
+          // If branch is administratively inactive
+          if (!branch.isActive) {
+            const status = {
+              isOpen: false,
+              isEmergency: true,
+              closureType: 'emergency',
+              reason: 'هذا الفرع مغلق مؤقتاً لأعمال الصيانة والتحديثات',
+              reasonEn: 'This branch is temporarily closed for maintenance.'
+            };
+            nodeCache.set(cacheKey, status, this.CACHE_TTL);
+            return status;
+          }
+          
+          // If branch is emergency closed
+          if (branch.isEmergencyClosed) {
+            const reopenAtJordan = branch.reopenAt ? DateTime.fromJSDate(branch.reopenAt).setZone('Asia/Amman') : null;
+            const hasReopened = reopenAtJordan && nowJordan >= reopenAtJordan;
+            
+            if (!hasReopened) {
+              const status = {
+                isOpen: false,
+                isEmergency: true,
+                closureType: branch.reopenAt ? 'temporary' : 'emergency',
+                reason: branch.closureReason || 'الفرع مغلق مؤقتاً للراحة أو لأسباب فنية',
+                nextOpenAt: reopenAtJordan ? reopenAtJordan.toISO() : null
+              };
+              nodeCache.set(cacheKey, status, this.CACHE_TTL);
+              return status;
+            } else {
+              // Auto-Reopen the branch in DB
+              logger.info(`[WorkingHours] Branch ${branchId} emergency closure expired. Reopening automatically.`);
+              await prisma.branch.update({
+                where: { id: branchId },
+                data: {
+                  isEmergencyClosed: false,
+                  reopenAt: null,
+                  closureReason: null
+                }
+              });
+            }
+          }
+        }
+      }
+
       logger.debug('[WorkingHours] check', { 
         now: nowJordan.toFormat('yyyy-MM-dd HH:mm:ss'),
         day: nowJordan.weekday === 7 ? 0 : nowJordan.weekday,
@@ -57,7 +109,7 @@ class WorkingHoursService {
       const nowM = nowJordan.hour * 60 + nowJordan.minute;
       const graceM = settings.lastOrderMinutesBeforeClose || 0;
 
-      // 3. Check Emergency Closure (Hard Close)
+      // 4. Check Emergency Closure (Hard Close)
       if (settings.isEmergencyClosed) {
         // 🛡️ Auto-Reopen Logic: Check if timed closure has expired
         const reopenAtJordan = settings.reopenAt ? DateTime.fromJSDate(settings.reopenAt).setZone('Asia/Amman') : null;
@@ -71,7 +123,7 @@ class WorkingHoursService {
             reason: settings.closureReason || 'المطعم مغلق حالياً لأسباب فنية',
             nextOpenAt: reopenAtJordan ? reopenAtJordan.toISO() : null
           };
-          nodeCache.set(this.CACHE_KEY, status, this.CACHE_TTL);
+          nodeCache.set(cacheKey, status, this.CACHE_TTL);
           return status;
         } else {
           // 🚀 Persistence: Update DB to clear the expired flag to prevent log spam and logic drift
@@ -114,7 +166,7 @@ class WorkingHoursService {
             source: 'yesterday_shift',
             isLateNight: true 
           };
-          nodeCache.set(this.CACHE_KEY, status, this.CACHE_TTL);
+          nodeCache.set(cacheKey, status, this.CACHE_TTL);
           return status;
         }
       }
@@ -125,7 +177,7 @@ class WorkingHoursService {
 
       if (!todaySchedule || todaySchedule.isClosed) {
         const status = await this._getClosedStatus(nowJordan, schedule, settings);
-        nodeCache.set(this.CACHE_KEY, status, this.CACHE_TTL);
+        nodeCache.set(cacheKey, status, this.CACHE_TTL);
         return status;
       }
 
@@ -155,7 +207,7 @@ class WorkingHoursService {
           }
         : await this._getClosedStatus(nowJordan, schedule, settings);
 
-      nodeCache.set(this.CACHE_KEY, status, this.CACHE_TTL);
+      nodeCache.set(cacheKey, status, this.CACHE_TTL);
       return status;
     } catch (error) {
       logger.error('[WORKING_HOURS_FAIL_CLOSE] reason=CALCULATION_ERROR. Blocking orders.', { error: error.message });
@@ -241,7 +293,7 @@ class WorkingHoursService {
   }
 
   invalidateCache() {
-    nodeCache.del(this.CACHE_KEY);
+    nodeCache.flush();
     logger.info('[WorkingHours] Cache invalidated.');
   }
 }

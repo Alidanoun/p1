@@ -85,6 +85,9 @@ model Branch {
   deletedAt DateTime?
   country   String?  @default("JO")
   timezone  String?  @default("Africa/Cairo")
+  isEmergencyClosed Boolean   @default(false)
+  closureReason     String?
+  reopenAt          DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
