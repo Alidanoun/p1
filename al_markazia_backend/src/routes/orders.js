@@ -1,12 +1,11 @@
 const express = require('express');
-const { orderLimiter, guestOrderLimiter } = require('../middleware/rateLimiter');
+const { orderLimiter } = require('../middleware/rateLimiter');
 
 const { 
   authenticateToken: authMiddleware, 
   isAdmin: adminMiddleware,
   isManager: managerMiddleware,
-  hasPermission,
-  optionalAuth
+  hasPermission
 } = require('../middleware/auth');
 const { PERMISSIONS } = require('../config/permissions');
 const BranchAccessMiddleware = require('../middleware/branchAccessMiddleware');
@@ -51,9 +50,8 @@ const idempotency = require('../services/idempotencyService');
 
 const router = express.Router();
 
-// Allow guests (app) to create orders while identifying registered customers
-// 🛡️ Gateway handles idempotency + system mode + circuit breaker
-router.post('/', guestOrderLimiter, optionalAuth, validateOrderBranch, healthGuard('db'), workingHoursGuard, orderLimiter, priceValidation, validateOrderCreate, createOrder);
+// Require authentication for order creation — guests can only browse the menu
+router.post('/', authenticateToken, validateOrderBranch, healthGuard('db'), workingHoursGuard, orderLimiter, priceValidation, validateOrderCreate, createOrder);
 
 // New Secure Identity Route: Get orders for the authenticated customer
 router.get('/my-orders', authMiddleware, getMyOrders);

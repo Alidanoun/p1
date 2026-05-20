@@ -115,22 +115,19 @@ exports.createOrder = async (req, res) => {
 
   try {
     const authUser = req.user;
-    if (!authUser && !req.body.phone) {
-      return response.error(res, 'رقم الهاتف مطلوب لإتمام الطلب كضيف', 'MISSING_FIELD', 400);
-    }
 
     const validatedBranchId = req.validatedBranch?.id || req.body?.branchId || req.body?.branch;
 
     const contractGateway = require('../services/contractGateway');
     const newOrder = await contractGateway.execute(
-      null, // no orderId for creation
+      null,
       'CREATE_ORDER',
       {
         orderData: { ...req.body, branchId: validatedBranchId },
         cartItems: req.body.cartItems || req.body.items,
-        idempotencyKey: idempotencyKey || `create_${authUser?.id || 'guest'}_${Date.now()}`
+        idempotencyKey: idempotencyKey || `create_${authUser.id}_${Date.now()}`
       },
-      authUser || { id: `guest_${req.ip}`, role: 'customer' }
+      authUser
     );
 
     return response.success(res, newOrder, 201);
