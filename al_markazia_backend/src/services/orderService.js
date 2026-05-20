@@ -622,7 +622,6 @@ class OrderService {
         managerPassword,
         skipPasswordCheck: true // Already checked in handleCancellationRequest
       });
-      return result;
 
       const mapped = mapOrderResponse(result.updatedOrder);
       return { ...mapped, _outboxId: result._outboxId };
