@@ -1,5 +1,7 @@
 node_modules/
 .env
+.env.local
+.env.production
 logs/
 dist/
 *.log
@@ -12,4 +14,10 @@ scratch/
 src/scratch/
 temp/
 debug/
-src/config/keys/
+.git/
+.vscode/
+.idea/
+coverage/
+.nyc_output/
+startup.log
+error.log

@@ -1,6 +1,4 @@
 const admin = require('firebase-admin');
-const path = require('path');
-const fs = require('fs');
 const logger = require('../utils/logger');
 const { decrypt } = require('../utils/crypto');
 const { Sentry } = require('../config/sentry');
@@ -61,20 +59,7 @@ class FirebaseService {
         return;
       }
 
-      const serviceAccountPath = path.resolve(__dirname, '../../firebase-service-account.json');
-      
-      // Check physical file credential source
-      if (fs.existsSync(serviceAccountPath)) {
-        const serviceAccount = require(serviceAccountPath);
-        admin.initializeApp({
-          credential: admin.credential.cert(serviceAccount)
-        });
-        this.fcmEnabled = true;
-        logger.info('🚀 [FCM Engine] Firebase initialized via physical JSON mapping.');
-        return;
-      }
-
-      // Check environment inject source
+      // 🛡️ Environment-only credential injection (no file-based loading)
       if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL) {
         admin.initializeApp({
           credential: admin.credential.cert({

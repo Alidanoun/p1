@@ -230,6 +230,7 @@ const optionalAuth = async (req, res, next) => {
   } catch (error) {
     logger.debug(`[OptionalAuth] Invalid or expired token: ${error.message}. Treating user as Guest.`, { ip: req.ip });
     req.user = null;
+    res.set('X-Session-Status', 'expired');
     const { runInContext } = require('../utils/securityContext');
     return runInContext(null, () => next());
   }

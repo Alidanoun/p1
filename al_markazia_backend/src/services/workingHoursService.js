@@ -15,9 +15,13 @@ class WorkingHoursService {
     this.lastKnownState = new Map();
     
     // Poll the status every 30 seconds to automatically emit changes even if there are no incoming requests
-    setInterval(() => {
-      this.getStatus().catch(() => {});
-    }, 30000);
+    setInterval(async () => {
+      try {
+        await this.getStatus();
+      } catch (err) {
+        logger.error('[WorkingHours] ⚠️ Polling cycle failed', { error: err.message });
+      }
+    }, 15000);
   }
 
   _cacheAndEmit(cacheKey, branchId, status) {
@@ -34,13 +38,22 @@ class WorkingHoursService {
           const { SOCKET_EVENTS } = require('../shared/socketEvents');
           const payload = {
             branchId: (branchId === 'all' || branchId === 'null' || branchId === 'undefined') ? null : branchId,
-            status: status
+            status: {
+              ...status,
+              nextOpenAt: status.nextOpenAt || null
+            }
           };
           socketModule.getIO().emit(SOCKET_EVENTS.RESTAURANT_STATUS_CHANGED, payload);
-          logger.info(`[WorkingHours] Emitted restaurant:status_changed`, payload);
+          logger.info(`[WorkingHours] 📡 Emitted restaurant:status_changed | isOpen: ${lastState.isOpen} → ${status.isOpen} | branch: ${branchId}`, {
+            isOpen: status.isOpen,
+            isEmergency: status.isEmergency,
+            closureType: status.closureType || null,
+            nextOpenAt: status.nextOpenAt || null,
+            reason: status.reason || null
+          });
         }
       } catch (err) {
-        logger.error('[WorkingHours] Failed to emit status_changed', { error: err.message });
+        logger.error('[WorkingHours] ❌ Failed to emit restaurant:status_changed', { error: err.message, stack: err.stack });
       }
     }
 

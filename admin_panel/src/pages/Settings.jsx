@@ -665,8 +665,8 @@ const Settings = () => {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                      <div className="space-y-2">
-                        <label className="text-xs font-bold text-text-muted">محاولات الدخول الفاشلة</label>
+                      <div className="flex flex-col gap-2 h-full">
+                        <label className="text-xs font-bold text-text-muted mb-auto">محاولات الدخول الفاشلة</label>
                         <input 
                           type="number" 
                           className="glass-input text-center w-full" 
@@ -677,8 +677,8 @@ const Settings = () => {
                           })}
                         />
                       </div>
-                      <div className="space-y-2">
-                        <label className="text-xs font-bold text-text-muted">مدة القفل (دقيقة)</label>
+                      <div className="flex flex-col gap-2 h-full">
+                        <label className="text-xs font-bold text-text-muted mb-auto">مدة القفل (دقيقة)</label>
                         <input 
                           type="number" 
                           className="glass-input text-center w-full" 
@@ -689,8 +689,8 @@ const Settings = () => {
                           })}
                         />
                       </div>
-                      <div className="space-y-2">
-                        <label className="text-xs font-bold text-text-muted">تأخير الحماية (ms)</label>
+                      <div className="flex flex-col gap-2 h-full">
+                        <label className="text-xs font-bold text-text-muted mb-auto">تأخير الحماية (ms)</label>
                         <input 
                           type="number" 
                           className="glass-input text-center w-full" 
@@ -719,8 +719,8 @@ const Settings = () => {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                      <div className="space-y-2">
-                        <label className="text-xs font-bold text-text-muted">أقصى طول لسبب الإلغاء (حرف)</label>
+                      <div className="flex flex-col gap-2 h-full">
+                        <label className="text-xs font-bold text-text-muted mb-auto">أقصى طول لسبب الإلغاء (حرف)</label>
                         <input 
                           type="number" 
                           className="glass-input text-center w-full" 
@@ -731,8 +731,8 @@ const Settings = () => {
                           })}
                         />
                       </div>
-                      <div className="space-y-2">
-                        <label className="text-xs font-bold text-text-muted">الحد الأقصى للتقييم</label>
+                      <div className="flex flex-col gap-2 h-full">
+                        <label className="text-xs font-bold text-text-muted mb-auto">الحد الأقصى للتقييم</label>
                         <input 
                           type="number" 
                           className="glass-input text-center w-full" 
@@ -743,8 +743,8 @@ const Settings = () => {
                           })}
                         />
                       </div>
-                      <div className="space-y-2">
-                        <label className="text-xs font-bold text-text-muted">مُعامل أوقات الذروة (Peak Multiplier)</label>
+                      <div className="flex flex-col gap-2 h-full">
+                        <label className="text-xs font-bold text-text-muted mb-auto">مُعامل أوقات الذروة (Peak Multiplier)</label>
                         <input 
                           type="number" 
                           step="0.1"

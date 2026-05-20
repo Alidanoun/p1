@@ -57,6 +57,28 @@ const prisma = basePrisma.$extends({
           return query(args);
         }
 
+        // 🔒 Automatic Encryption on Write (Hardened: validates IV format, not just prefix)
+        const writeActions = ['create', 'update', 'upsert', 'createMany', 'updateMany'];
+        if (writeActions.includes(operation) && args.data) {
+          const isAlreadyEncrypted = (val) => {
+            if (typeof val !== 'string' || !val.includes(':')) return false;
+            const [ivHex] = val.split(':');
+            return ivHex.length === 32 && /^[0-9a-fA-F]+$/.test(ivHex);
+          };
+
+          const encryptData = (data) => {
+            if (!data || typeof data !== 'object') return;
+            ['email', 'phone', 'name'].forEach(field => {
+              if (data[field] && typeof data[field] === 'string' && !isAlreadyEncrypted(data[field])) {
+                data[field] = encrypt(data[field]);
+              }
+            });
+          };
+
+          if (Array.isArray(args.data)) args.data.forEach(encryptData);
+          else encryptData(args.data);
+        }
+
         // 🔍 Automatically append isDeleted: false on find operations
         const SOFT_DELETE_MODELS = [
           'FinancialLedger', 'LoyaltyLedger', 'SystemAuditLog', 'Order'
@@ -67,22 +89,6 @@ const prisma = basePrisma.$extends({
             args.where = args.where || {};
             args.where.isDeleted = false;
           }
-        }
-
-        // 🔒 Automatic Encryption on Write
-        const writeActions = ['create', 'update', 'upsert', 'createMany', 'updateMany'];
-        if (writeActions.includes(operation) && args.data) {
-          const encryptData = (data) => {
-            if (!data || typeof data !== 'object') return;
-            ['email', 'phone', 'name'].forEach(field => {
-              if (data[field] && typeof data[field] === 'string' && !data[field].startsWith('iv:')) {
-                data[field] = encrypt(data[field]);
-              }
-            });
-          };
-
-          if (Array.isArray(args.data)) args.data.forEach(encryptData);
-          else encryptData(args.data);
         }
 
         return query(args);

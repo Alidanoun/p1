@@ -10,7 +10,7 @@ class MenuCacheService {
   constructor() {
     this.BASE_KEY = 'menu:snapshot';
     this.ETAG_BASE = 'menu:etag';
-    this.TTL = 86400; // 24 hours
+    this.TTL = 3600; // 1 hour
   }
 
   _getCacheKey(branchId = 'global') {

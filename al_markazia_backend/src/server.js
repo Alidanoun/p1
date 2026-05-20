@@ -35,6 +35,7 @@ const warmupService = require('./services/warmupService');
 const prisma = require('./lib/prisma');
 const logger = require('./utils/logger');
 const socketModule = require('./socket');
+const { authenticateToken, isAdmin } = require('./middleware/auth');
 
 const app = express();
 
@@ -76,7 +77,9 @@ async function startServer() {
     app.use(requestTracing);
     app.use(stabilizationRequestLogger);
     app.use(performanceMonitor);
-    app.use(shadowMirrorMiddleware);
+    if (process.env.NODE_ENV !== 'production') {
+      app.use(shadowMirrorMiddleware);
+    }
     
     // Inject service container into all requests for controller dependency injection
     const container = require('./lib/container');
@@ -85,7 +88,6 @@ async function startServer() {
       next();
     });
     
-    // 🛡️ [SEC-FIX] Robust CSP & Security Headers
     app.use(helmet({ 
       crossOriginResourcePolicy: { policy: "cross-origin" },
       contentSecurityPolicy: {
@@ -134,7 +136,7 @@ async function startServer() {
     });
 
     const { apiLimiter } = require('./middleware/advancedRateLimiter');
-    // app.use(apiLimiter);
+    app.use(apiLimiter);
     
     // CORS Setup
     const allowedOrigins = (process.env.CORS_ORIGIN || '').split(',').map(o => o.trim()).filter(Boolean);
@@ -160,7 +162,6 @@ async function startServer() {
       allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Correlation-ID', 'X-Request-Id', 'idempotency-key']
     }));
 
-    app.use(helmet());
     app.use(express.json({ limit: '10mb' }));
     app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -216,12 +217,19 @@ async function startServer() {
     // 🛡️ Canonical API path — all clients MUST use /api/v1/
     app.use('/api/v1', apiV1Router);
 
-    // 📖 API Documentation (Swagger)
+    // 📖 API Documentation (Swagger) — Protected in Production
     const { swaggerUi, specs } = require('./config/swagger');
-    app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs, {
+    const swaggerHandler = swaggerUi.serve;
+    const swaggerSetup = swaggerUi.setup(specs, {
       swaggerOptions: { persistAuthorization: true },
       customSiteTitle: "Al Markazia API Docs"
-    }));
+    });
+
+    if (process.env.NODE_ENV === 'production') {
+      app.use('/api-docs', authenticateToken, isAdmin, swaggerHandler, swaggerSetup);
+    } else {
+      app.use('/api-docs', swaggerHandler, swaggerSetup);
+    }
 
     // Health Checks (external probes — always at root)
     app.get('/health/external', externalProbeController.pings);

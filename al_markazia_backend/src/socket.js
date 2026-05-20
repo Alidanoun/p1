@@ -369,8 +369,6 @@ module.exports = {
 
       // 👤 Private User Room (The ultimate boundary)
       socket.join(SOCKET_ROOMS.CUSTOMER(userId));
-      
-      logger.debug(`🛡️ v2 Boundary Sync Complete for user ${userId} [${role}]`);
 
       // 🏢 Support Global Admin Room explicitly for monitoring webboards
       socket.on('join:admin', async () => {

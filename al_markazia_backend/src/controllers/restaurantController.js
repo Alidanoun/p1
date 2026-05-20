@@ -164,6 +164,27 @@ const toggleEmergencyClose = async (req, res) => {
 
     workingHoursService.invalidateCache();
 
+    try {
+      const socketModule = require('../socket');
+      if (socketModule.isReady && socketModule.isReady()) {
+        const { SOCKET_EVENTS } = require('../shared/socketEvents');
+        const reopenIso = reopenAt ? DateTime.fromJSDate(reopenAt).toISO() : null;
+        socketModule.getIO().emit(SOCKET_EVENTS.RESTAURANT_STATUS_CHANGED, {
+          branchId: targetBranchId,
+          status: {
+            isOpen,
+            isEmergency: !isOpen,
+            closureType: !isOpen ? (type === 'timed' ? 'temporary' : 'emergency') : null,
+            reason: !isOpen ? (reason || (targetBranchId ? 'إغلاق طارئ مؤقت للفرع' : 'إغلاق طارئ مؤقت')) : null,
+            nextOpenAt: reopenIso
+          }
+        });
+        logger.info('[RestaurantController] 📡 Immediate restaurant:status_changed emitted', { branchId: targetBranchId, isOpen, type });
+      }
+    } catch (err) {
+      logger.error('[RestaurantController] Failed to emit immediate status change', { error: err.message });
+    }
+
     res.json({
       success: true,
       message: isOpen ? 'تم فتح العمل بنجاح' : 'تم إغلاق العمل بنجاح',

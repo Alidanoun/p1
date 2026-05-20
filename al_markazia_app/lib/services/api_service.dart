@@ -22,7 +22,7 @@ class ApiService {
   Timer? _silentRefreshTimer;
 
   static String get baseUrl {
-    const ip = String.fromEnvironment('SERVER_IP', defaultValue: '192.168.3.146');
+    const ip = String.fromEnvironment('SERVER_IP', defaultValue: '192.168.1.117');
     const port = String.fromEnvironment('SERVER_PORT', defaultValue: '');
     final isProd = const bool.fromEnvironment('dart.vm.product');
     final scheme = isProd ? 'https' : 'http';
@@ -32,7 +32,7 @@ class ApiService {
 
   /// 🔌 Socket Base URL (without /api/v1 prefix — Socket.IO connects to root)
   static String get socketUrl {
-    const ip = String.fromEnvironment('SERVER_IP', defaultValue: '192.168.3.146');
+    const ip = String.fromEnvironment('SERVER_IP', defaultValue: '192.168.1.117');
     const port = String.fromEnvironment('SERVER_PORT', defaultValue: '');
     final isProd = const bool.fromEnvironment('dart.vm.product');
     final scheme = isProd ? 'https' : 'http';

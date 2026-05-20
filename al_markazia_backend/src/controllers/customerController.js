@@ -5,6 +5,8 @@ const { success, error: responseError } = require('../utils/response');
 const customerRiskService = require('../services/customerRiskService');
 const TokenService = require('../services/tokenService');
 const otpService = require('../services/otpService');
+const bcrypt = require('bcrypt');
+const { validatePasswordStrength } = require('../utils/security');
 
 /**
  * Updates or creates a customer record and saves their FCM token.
@@ -380,6 +382,168 @@ const getBlacklistCount = async (req, res) => {
   }
 };
 
+const updateProfile = async (req, res) => {
+  try {
+    const { name, address } = req.body;
+    const uuid = req.user.id;
+
+    if (!name && name !== '') {
+      return responseError(res, 'الاسم مطلوب', 'MISSING_FIELD', 400);
+    }
+
+    const customer = await prisma.customer.findUnique({ where: { uuid } });
+    if (!customer) {
+      return responseError(res, 'الحساب غير موجود', 'NOT_FOUND', 404);
+    }
+
+    const updateData = {};
+    if (name) {
+      updateData.name = encrypt(name.trim());
+      updateData.nameHash = hashBlind(name.trim());
+    }
+    if (address !== undefined) {
+      updateData.address = address ? address.trim() : null;
+    }
+
+    const updated = await prisma.customer.update({
+      where: { uuid },
+      data: updateData,
+      select: {
+        uuid: true,
+        phone: true,
+        name: true,
+        address: true,
+        username: true
+      }
+    });
+
+    logger.info('Customer profile updated', { uuid: updated.uuid });
+
+    return success(res, {
+      id: updated.uuid,
+      name: decrypt(updated.name),
+      phone: decrypt(updated.phone),
+      address: updated.address,
+      username: updated.username
+    });
+  } catch (error) {
+    logger.error('Update profile error', { error: error.message });
+    responseError(res, 'فشل في تحديث الملف الشخصي', 'SERVER_ERROR');
+  }
+};
+
+const changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    const uuid = req.user.id;
+
+    if (!currentPassword || !newPassword) {
+      return responseError(res, 'كلمة المرور الحالية والجديدة مطلوبة', 'MISSING_FIELDS', 400);
+    }
+
+    const passwordCheck = validatePasswordStrength(newPassword);
+    if (!passwordCheck.isValid) {
+      return responseError(res, passwordCheck.message, 'WEAK_PASSWORD', 400);
+    }
+
+    const customer = await prisma.customer.findUnique({ where: { uuid } });
+    if (!customer) {
+      return responseError(res, 'الحساب غير موجود', 'NOT_FOUND', 404);
+    }
+
+    if (!customer.password) {
+      return responseError(res, 'لا توجد كلمة مرور حالية. استخدم تسجيل الدخول OTP أو أنشئ كلمة مرور أولاً', 'NO_PASSWORD_SET', 400);
+    }
+
+    const isCurrentValid = await bcrypt.compare(currentPassword, customer.password);
+    if (!isCurrentValid) {
+      logger.security('Failed password change attempt', { uuid: customer.uuid });
+      return responseError(res, 'كلمة المرور الحالية غير صحيحة', 'INVALID_CURRENT_PASSWORD', 401);
+    }
+
+    const hashedNew = await bcrypt.hash(newPassword, 12);
+
+    await prisma.customer.update({
+      where: { uuid },
+      data: { password: hashedNew }
+    });
+
+    logger.info('Customer password changed successfully', { uuid: customer.uuid });
+
+    return success(res, { message: 'تم تغيير كلمة المرور بنجاح' });
+  } catch (error) {
+    logger.error('Change password error', { error: error.message });
+    responseError(res, 'فشل في تغيير كلمة المرور', 'SERVER_ERROR');
+  }
+};
+
+const deleteAccount = async (req, res) => {
+  try {
+    const { password } = req.body;
+    const uuid = req.user.id;
+
+    if (!password) {
+      return responseError(res, 'كلمة المرور مطلوبة لتأكيد الحذف', 'MISSING_FIELD', 400);
+    }
+
+    const customer = await prisma.customer.findUnique({ where: { uuid } });
+    if (!customer) {
+      return responseError(res, 'الحساب غير موجود', 'NOT_FOUND', 404);
+    }
+
+    if (customer.password) {
+      const isValid = await bcrypt.compare(password, customer.password);
+      if (!isValid) {
+        logger.security('Failed account deletion — wrong password', { uuid: customer.uuid });
+        return responseError(res, 'كلمة المرور غير صحيحة', 'INVALID_PASSWORD', 401);
+      }
+    }
+
+    const anonymizedName = `محذوف_${customer.id}`;
+
+    await prisma.$transaction([
+      prisma.customer.update({
+        where: { uuid },
+        data: {
+          isDeleted: true,
+          deletedAt: new Date(),
+          name: encrypt(anonymizedName),
+          nameHash: hashBlind(anonymizedName),
+          phone: null,
+          phoneHash: null,
+          email: null,
+          emailHash: null,
+          fcmToken: null,
+          address: null,
+          username: null,
+          password: null
+        }
+      }),
+      prisma.refreshToken.updateMany({
+        where: { userId: uuid },
+        data: { isRevoked: true }
+      }),
+      prisma.customerNotificationPreference.deleteMany({
+        where: { customerId: customer.id }
+      }),
+      prisma.loyaltyLedger.updateMany({
+        where: { customerId: customer.id },
+        data: { isDeleted: true, deletedAt: new Date() }
+      })
+    ]);
+
+    logger.security('Customer account deleted (GDPR)', {
+      uuid: customer.uuid,
+      customerId: customer.id
+    });
+
+    return success(res, { message: 'تم حذف الحساب بنجاح' });
+  } catch (error) {
+    logger.error('Delete account error', { error: error.message });
+    responseError(res, 'فشل في حذف الحساب', 'SERVER_ERROR');
+  }
+};
+
 module.exports = {
   updateFcmToken,
   requestLoginOtp,
@@ -389,5 +553,8 @@ module.exports = {
   getBlacklistedCustomers,
   getBlacklistCount,
   blockCustomer,
-  unblockCustomer
+  unblockCustomer,
+  updateProfile,
+  changePassword,
+  deleteAccount
 };

@@ -8,6 +8,7 @@ const auditService = require('../services/auditService');
 const { REFRESH_TOKEN_EXPIRY_MS, ACCESS_TOKEN_EXPIRY_MS, BCRYPT_ROUNDS } = require('../config/secrets');
 const { OTP_EXPIRY } = require('../config/constants');
 const response = require('../utils/response');
+const redis = require('../lib/redis');
 
 // ── Helper: Token Sanitizer ───────────────────────────
 /**
@@ -36,13 +37,8 @@ const sanitizeToken = (token) => {
 // ── Helper: Secure Cookie Config ──────────────────────
 const getCookiePolicy = (req) => {
   const isProd = process.env.NODE_ENV === 'production';
-  // 🛡️ [SEC-FIX] Dynamic sameSite policy: 'lax' for dev stability, 'strict' for prod security
   const sameSite = isProd ? 'strict' : 'lax';
-  
-  // If sameSite is 'none', secure attribute MUST be true by browser spec
-  // In development (lax), secure can be false on HTTP. In production (strict), secure is mandatory.
   const secure = isProd || req.secure || req.headers['x-forwarded-proto'] === 'https';
-  
   return { sameSite, secure };
 };
 
@@ -79,39 +75,64 @@ const clearAuthCookies = (req, res) => {
   res.clearCookie('accessToken', accOpts);
 };
 
+// ── Helper: Hybrid Token Deliverer ────────────────────
+const sendHybridTokens = (req, res, account, accessToken, refreshTokenStr, extraData = {}) => {
+  res.cookie('refreshToken', refreshTokenStr, refreshCookieOptions(req));
+  res.cookie('accessToken', accessToken, accessCookieOptions(req));
+
+  const clientType = (req.headers['x-client-type'] || '').toLowerCase();
+  const userAgent = (req.headers['user-agent'] || '').toLowerCase();
+  const isMobile = clientType === 'app' || clientType === 'mobile' ||
+                   /flutter|dart|okhttp|afnetworking|alamofire/.test(userAgent);
+
+  const baseUser = {
+    id: account.uuid,
+    email: account.email ? decrypt(account.email) : null,
+    name: account.name ? decrypt(account.name) : null,
+    role: account.role || 'customer',
+    branchId: account.branchId || null,
+    branchName: account.branch?.name || null,
+    ...extraData
+  };
+
+  if (isMobile) {
+    return response.success(res, {
+      accessToken,
+      refreshToken: refreshTokenStr,
+      user: baseUser
+    });
+  }
+
+  return response.success(res, {
+    accessToken,
+    user: baseUser
+  });
+};
+
 
 /**
- * 🔄 Refresh Token Rotation (Hardened)
- * Supports both Cookie (Modern) and Body (Legacy Fallback).
+ * 🔄 Refresh Token Rotation (Hybrid Standard)
  */
 const refreshToken = async (req, res) => {
-  // 🛡️ Sanitization: Protect against malformed cookies/body
   const rawToken = req.cookies?.refreshToken || req.body?.refreshToken;
   const token = sanitizeToken(rawToken);
 
-  // 🛡️ CSRF Protection for Cookie-based Refresh Token (Double Cookie Submit)
   if (req.cookies?.refreshToken) {
     const xsrfHeader = req.headers['x-xsrf-token'];
     const xsrfCookie = req.cookies['XSRF-TOKEN'];
     if (!xsrfHeader || !xsrfCookie || xsrfHeader !== xsrfCookie) {
-      logger.security('[CSRF_BLOCKED] Missing or mismatched X-XSRF-TOKEN header during cookie-based token refresh', { 
-        ip: req.ip, 
-        endpoint: req.originalUrl 
+      logger.security('[CSRF_BLOCKED] Missing or mismatched X-XSRF-TOKEN header during cookie-based token refresh', {
+        ip: req.ip,
+        endpoint: req.originalUrl
       });
       clearAuthCookies(req, res);
       return response.error(res, 'فشل التحقق الأمني من مصدر الطلب (CSRF)', 'SECURITY_BREACH', 403);
     }
   }
 
-  logger.debug('[Auth] Refresh token processing', { 
-    source: req.cookies?.refreshToken ? 'cookie' : (req.body?.refreshToken ? 'body' : 'none'),
-    isSanitized: !!token,
-    rawLength: rawToken?.length
-  });
-
   if (!token) {
-    logger.security('[REFRESH_BLOCKED] Corrupt or missing token received.', { 
-      type: typeof rawToken, 
+    logger.security('[REFRESH_BLOCKED] Corrupt or missing token received.', {
+      type: typeof rawToken,
       length: rawToken?.length || 0,
       preview: typeof rawToken === 'string' ? rawToken.substring(0, 10) : 'N/A'
     });
@@ -122,13 +143,8 @@ const refreshToken = async (req, res) => {
   try {
     const clientIp = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
     const currentFingerprint = generateFingerprint(req);
-    
-    logger.debug('[Auth] Invoking TokenService.validateAndRotate', { clientIp });
-    const { accessToken, newRefreshToken, user } = await TokenService.validateAndRotate(token, clientIp, currentFingerprint);
 
-    // 🛡️ Cookie Hardening (Dual HttpOnly Cookies)
-    res.cookie('refreshToken', newRefreshToken.token, refreshCookieOptions(req));
-    res.cookie('accessToken', accessToken, accessCookieOptions(req));
+    const { accessToken, newRefreshToken, user } = await TokenService.validateAndRotate(token, clientIp, currentFingerprint);
 
     await auditService.log({
       userId: user.uuid,
@@ -137,10 +153,8 @@ const refreshToken = async (req, res) => {
       req
     });
 
-    response.success(res, { 
-      accessToken,
-      refreshToken: newRefreshToken.token
-    });
+    return sendHybridTokens(req, res, user, accessToken, newRefreshToken.token);
+
   } catch (error) {
     logger.warn('[Auth] Refresh failed', { error: error.message, stack: error.stack });
     clearAuthCookies(req, res);
@@ -156,7 +170,7 @@ const refreshToken = async (req, res) => {
     if (error.message === 'ACCOUNT_DISABLED_OR_BLOCKED') {
       return response.error(res, 'تم إيقاف حسابك، يرجى التواصل مع الإدارة', 'ACCOUNT_DISABLED', 403);
     }
-    
+
     logger.security('Invalid refresh attempt', { error: error.message });
     return response.error(res, 'انتهت صلاحية الجلسة، يرجى تسجيل الدخول', 'SESSION_EXPIRED', 401);
   }
@@ -187,113 +201,77 @@ const refreshToken = async (req, res) => {
  *         description: Account locked or disabled
  */
 /**
- * 🔑 Enterprise Login Orchestrator
+ * 🔑 Enterprise Login Orchestrator (Hardened with Redis Atomic Counter)
  */
 const login = async (req, res) => {
   const { email, password, fcmToken } = req.body;
   const start = Date.now();
 
   try {
+    if (!email || !password) {
+      return response.error(res, 'البريد الإلكتروني وكلمة المرور مطلوبان', 'MISSING_FIELDS', 400);
+    }
+
     const cleanEmail = email.toLowerCase().trim();
-    const cleanPassword = typeof password === 'string' ? password.trim() : password;
+    const blindedEmail = hashBlind(cleanEmail);
 
-    // Phase 1: High-Performance Search (Hashed Email)
-    const hashedEmail = hashBlind(cleanEmail);
-    const isDebug = process.env.AUTH_DEBUG === 'true';
+    const configService = require('../services/configService');
+    const systemConfig = await configService.getFullConfig();
+    const { maxLoginAttempts, lockDurationMinutes, timingDelayMs } = systemConfig.security;
 
-    let user = await prisma.user.findUnique({ 
-      where: { emailHash: hashedEmail },
+    const redisLockoutKey = `login_fail:${blindedEmail}`;
+    const currentAttempts = await redis.get(redisLockoutKey);
+
+    if (currentAttempts && parseInt(currentAttempts, 10) >= maxLoginAttempts) {
+      let ttlSeconds = await redis.ttl(redisLockoutKey);
+      if (ttlSeconds < 0) ttlSeconds = lockDurationMinutes * 60;
+      const remainingMinutes = Math.ceil(ttlSeconds / 60);
+      return response.error(res, `الحساب مغلق مؤقتاً. حاول مجدداً بعد ${remainingMinutes} دقيقة.`, 'ACCOUNT_LOCKED', 403);
+    }
+
+    let user = await prisma.user.findUnique({
+      where: { emailHash: blindedEmail },
       include: { branch: true }
     });
 
-    let userFoundByFallback = false;
-
-    // Phase 2: Compatibility Fallback (Plain Email - handles seed/legacy data)
-    if (!user) {
-      user = await prisma.user.findFirst({
-        where: { email: cleanEmail },
-        include: { branch: true }
-      });
-      if (user) userFoundByFallback = true;
-    }
-
-    // 🏥 [Auto-Heal] Synchronize emailHash if mismatch detected
-    if (user && user.emailHash !== hashedEmail) {
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { emailHash: hashedEmail }
-      });
-      if (isDebug) console.log(`[Auth] Auto-healed emailHash for admin user: ${cleanEmail}`);
-    }
-
     let customer = null;
-    let customerFoundByFallback = false;
     if (!user) {
-      customer = await prisma.customer.findUnique({ 
-        where: { emailHash: hashedEmail } 
-      });
-      if (!customer) {
-        customer = await prisma.customer.findFirst({
-          where: { email: cleanEmail }
-        });
-        if (customer) customerFoundByFallback = true;
-      }
-
-      // 🏥 [Auto-Heal] Synchronize emailHash for customer
-      if (customer && customer.emailHash !== hashedEmail) {
-        await prisma.customer.update({
-          where: { id: customer.id },
-          data: { emailHash: hashedEmail }
-        });
-        if (isDebug) console.log(`[Auth] Auto-healed emailHash for customer: ${cleanEmail}`);
-      }
-    }
-
-    if (isDebug) {
-      console.log(`[Auth] Login attempt for ${cleanEmail}:`, {
-        found: !!(user || customer),
-        type: user ? 'user' : (customer ? 'customer' : 'none'),
-        fallback: userFoundByFallback || customerFoundByFallback,
-        hashMatch: (user || customer)?.emailHash === hashedEmail
-      });
+      customer = await prisma.customer.findUnique({ where: { emailHash: blindedEmail } });
     }
 
     const account = user || customer;
 
-    // 🛡️ [SEC] Multi-Factor/Lockout Guard
     if (account && account.lockUntil && account.lockUntil > new Date()) {
       const remainingMinutes = Math.ceil((account.lockUntil - new Date()) / 60000);
       return response.error(res, `الحساب مغلق مؤقتاً. حاول مجدداً بعد ${remainingMinutes} دقيقة.`, 'ACCOUNT_LOCKED', 403);
     }
 
-    // ⚙️ Load System Config with Safe Fallbacks
-    const configService = require('../services/configService');
-    const systemConfig = await configService.getFullConfig();
-    const { maxLoginAttempts, lockDurationMinutes, timingDelayMs } = systemConfig.security;
-
-    // 🛡️ [SEC-FIX] Unified Timing Attack Guard
-    // Apply delay for BOTH "account not found" and "password mismatch"
-    const applySecurityDelay = async () => {
-      const elapsed = Date.now() - start;
-      if (elapsed < timingDelayMs) {
-        await new Promise(r => setTimeout(r, timingDelayMs - elapsed));
-      }
-    };
-
     if (!account || !account.password) {
-      await applySecurityDelay();
+      await redis.incr(redisLockoutKey);
+      await redis.expire(redisLockoutKey, lockDurationMinutes * 60);
+
+      await auditService.log({
+        action: 'LOGIN_FAIL',
+        status: 'FAIL',
+        severity: 'WARN',
+        metadata: { identifier: blindedEmail, reason: 'ACCOUNT_NOT_FOUND' },
+        req
+      });
+
+      await new Promise(r => setTimeout(r, timingDelayMs));
       return response.error(res, 'بيانات الدخول غير صحيحة', 'INVALID_CREDENTIALS', 401);
     }
 
-    // 🔐 Password Verification
-    const match = await bcrypt.compare(cleanPassword, account.password);
-    
+    const match = await bcrypt.compare(password, account.password);
+
     if (!match) {
-      const newAttempts = (account.failedAttempts || 0) + 1;
-      const lockUntil = newAttempts >= maxLoginAttempts 
-        ? new Date(Date.now() + lockDurationMinutes * 60 * 1000) 
+      const newAttempts = await redis.incr(redisLockoutKey);
+      await redis.expire(redisLockoutKey, lockDurationMinutes * 60);
+
+      const lockUntil = newAttempts >= maxLoginAttempts
+        ? new Date(Date.now() + lockDurationMinutes * 60 * 1000)
         : null;
-      
+
       const table = user ? prisma.user : prisma.customer;
       await table.update({ where: { id: account.id }, data: { failedAttempts: newAttempts, lockUntil } });
 
@@ -303,53 +281,43 @@ const login = async (req, res) => {
         action: 'LOGIN_FAIL',
         status: 'FAIL',
         severity: newAttempts >= maxLoginAttempts ? 'CRITICAL' : 'WARN',
+        metadata: { failedAttempts: newAttempts, locked: !!lockUntil },
         req
       });
 
-      await applySecurityDelay();
+      const elapsed = Date.now() - start;
+      if (elapsed < timingDelayMs) await new Promise(r => setTimeout(r, timingDelayMs - elapsed));
+
       return response.error(res, 'بيانات الدخول غير صحيحة', 'INVALID_CREDENTIALS', 401);
     }
 
-    // ✅ Success Path
-    const table = user ? prisma.user : prisma.customer;
-    await table.update({ where: { id: account.id }, data: { failedAttempts: 0, lockUntil: null } });
+    await redis.del(redisLockoutKey);
+    if (account.failedAttempts > 0) {
+      const table = user ? prisma.user : prisma.customer;
+      await table.update({ where: { id: account.id }, data: { failedAttempts: 0, lockUntil: null } });
+    }
 
-    // 🛡️ Status Check
     const isDisabled = (user && !user.isActive) || (customer && customer.isBlacklisted);
     if (isDisabled) {
       return response.error(res, 'هذا الحساب محظور حالياً، يرجى التواصل مع الدعم', 'ACCOUNT_DISABLED', 403);
     }
 
-    // 📱 FCM Token Sync
     if (fcmToken) {
+      const table = user ? prisma.user : prisma.customer;
       await table.update({ where: { id: account.id }, data: { fcmToken: encrypt(fcmToken) } }).catch(() => {});
     }
 
-    // 🔐 Session Generation
     const fingerprint = generateFingerprint(req);
-    const { token: refreshToken, jti } = await TokenService.generateAndSaveRefreshToken(account, {
+    const { token: refreshTokenStr, jti } = await TokenService.generateAndSaveRefreshToken(account, {
       ip: req.ip,
       userAgent: req.headers['user-agent'],
       fingerprint: fingerprint.hash
     });
     const accessToken = TokenService.generateAccessToken(account, jti);
 
-    // 🍪 Secure Cookies
-    res.cookie('refreshToken', refreshToken, refreshCookieOptions(req));
-    res.cookie('accessToken', accessToken, accessCookieOptions(req));
-
     await auditService.log({ userId: account.uuid, action: 'LOGIN_SUCCESS', req });
 
-    return response.success(res, { 
-      accessToken, 
-      user: { 
-        id: account.uuid,
-        email: decrypt(account.email), 
-        name: decrypt(account.name),
-        role: account.role || 'customer',
-        branchId: account.branchId || null
-      } 
-    });
+    return sendHybridTokens(req, res, account, accessToken, refreshTokenStr);
 
   } catch (error) {
     logger.error('Login error', { error: error.message, stack: error.stack });
@@ -478,17 +446,16 @@ const register = async (req, res) => {
 };
 
 /**
- * ✅ Phase 2: Verify Registration OTP & Create User
+ * ✅ Phase 2: Verify Registration OTP & Create User (Hybrid Enabled)
  */
 const verifyRegistration = async (req, res) => {
   const { email, code } = req.body;
   try {
-    // 🛡️ Normalize email to match what register() stored
     const cleanEmail = email.toLowerCase().trim();
+    const blindedEmail = hashBlind(cleanEmail);
 
-    // 1. Find the latest valid OTP
     const otpRecord = await prisma.otpCode.findFirst({
-      where: { emailHash: hashBlind(cleanEmail), purpose: 'registration', used: false },
+      where: { emailHash: blindedEmail, purpose: 'registration', used: false },
       orderBy: { createdAt: 'desc' }
     });
 
@@ -501,7 +468,6 @@ const verifyRegistration = async (req, res) => {
       return response.error(res, 'تم تجاوز الحد الأقصى من المحاولات، تم قفل الرمز', 'OTP_LOCKED', 429);
     }
 
-    // 2. Verify Code
     const isMatch = await bcrypt.compare(code, otpRecord.codeHash);
 
     if (!isMatch) {
@@ -518,13 +484,12 @@ const verifyRegistration = async (req, res) => {
       return response.error(res, 'كود التحقق غير صحيح', 'INVALID_OTP', 400);
     }
 
-    // 3. Extract Metadata & Create Customer
     const { name, password, phone } = otpRecord.metadata;
     const account = await prisma.customer.create({
       data: {
         name,
         email: encrypt(cleanEmail),
-        emailHash: hashBlind(cleanEmail),
+        emailHash: blindedEmail,
         password,
         phone: phone ? encrypt(phone) : null,
         phoneHash: phone ? hashBlind(phone) : null,
@@ -532,39 +497,25 @@ const verifyRegistration = async (req, res) => {
       }
     });
 
-    // 4. Mark OTP as used
     await prisma.otpCode.update({
       where: { id: otpRecord.id },
       data: { used: true }
     });
 
-    // 5. Generate Session
     const { token, jti } = await TokenService.generateAndSaveRefreshToken(account);
     const accessToken = TokenService.generateAccessToken(account, jti);
 
-    // 🛡️ Security Guard
     if (!token || typeof token !== 'string') {
       throw new Error('[CRITICAL] Invalid refresh token generated during registration');
     }
-    
-    res.cookie('refreshToken', token, refreshCookieOptions(req));
-    res.cookie('accessToken', accessToken, accessCookieOptions(req));
 
-    response.success(res, { 
-      accessToken, 
-      refreshToken: token,
-      user: { 
-        id: account.uuid, 
-        email: decrypt(account.email), 
-        name: decrypt(account.name), 
-        phone: decrypt(account.phone), 
-        role: 'customer' 
-      } 
+    return sendHybridTokens(req, res, account, accessToken, token, {
+      phone: phone ? decrypt(phone) : null
     });
+
   } catch (error) {
     logger.error('Verify registration error', { error: error.message, code: error.code });
-    
-    // 🛡️ Handle Prisma unique constraint violations with user-friendly messages
+
     if (error.code === 'P2002') {
       const target = error.meta?.target;
       if (target?.includes('email')) {
@@ -575,7 +526,7 @@ const verifyRegistration = async (req, res) => {
       }
       return response.error(res, 'الحساب موجود مسبقاً', 'DUPLICATE', 400);
     }
-    
+
     response.error(res, 'حدث خطأ أثناء تفعيل الحساب', 'SERVER_ERROR', 500);
   }
 };
@@ -595,7 +546,7 @@ const forgotPassword = async (req, res) => {
 
     // 🛡️ Anti-enumeration: Always return 200 even if neither exists
     if (!user && !customer) {
-      logger.warn('Forgot password attempt for non-existent email', { email: cleanEmail });
+      logger.debug('Forgot password attempt for non-existent account', { ip: req.ip });
       return response.success(res, { message: 'إذا كان البريد مسجلاً، ستصلك رسالة قريباً' });
     }
 
@@ -615,21 +566,21 @@ const forgotPassword = async (req, res) => {
 };
 
 /**
- * 🔑 Phase 2: Reset Password (Verify OTP + Update)
+ * 🔑 Phase 2: Reset Password (Verify OTP + Update + Hybrid Response)
  */
 const resetPassword = async (req, res) => {
     const { email, code, newPassword } = req.body;
   const cleanEmail = email.toLowerCase().trim();
+  const blindedEmail = hashBlind(cleanEmail);
 
   try {
-    // 0. Validate Password Strength
     const passwordValidation = validatePasswordStrength(newPassword);
     if (!passwordValidation.isValid) {
       return response.error(res, passwordValidation.message, 'WEAK_PASSWORD', 400);
     }
 
     const otpRecord = await prisma.otpCode.findFirst({
-      where: { emailHash: hashBlind(cleanEmail), purpose: 'password_reset', used: false },
+      where: { emailHash: blindedEmail, purpose: 'password_reset', used: false },
       orderBy: { createdAt: 'desc' }
     });
 
@@ -658,14 +609,12 @@ const resetPassword = async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
-    
-    // ✅ Check user type and update accordingly
-    const targetHash = hashBlind(cleanEmail);
-    let account = await prisma.user.findUnique({ where: { emailHash: targetHash } });
+
+    let account = await prisma.user.findUnique({ where: { emailHash: blindedEmail } });
     let isUser = true;
 
     if (!account) {
-      account = await prisma.customer.findUnique({ where: { emailHash: targetHash } });
+      account = await prisma.customer.findUnique({ where: { emailHash: blindedEmail } });
       isUser = false;
     }
 
@@ -677,33 +626,31 @@ const resetPassword = async (req, res) => {
     await prisma.$transaction(async (tx) => {
       if (isUser) {
         updatedAccount = await tx.user.update({
-          where: { emailHash: targetHash },
-          data: { 
-            password: hashedPassword, 
-            failedAttempts: 0, 
+          where: { emailHash: blindedEmail },
+          data: {
+            password: hashedPassword,
+            failedAttempts: 0,
             lockUntil: null,
-            authVersion: { increment: 1 } // 🔥 Invalidate all old sessions
+            authVersion: { increment: 1 }
           }
         });
       } else {
         updatedAccount = await tx.customer.update({
-          where: { emailHash: targetHash },
-          data: { 
-            password: hashedPassword, 
-            failedAttempts: 0, 
+          where: { emailHash: blindedEmail },
+          data: {
+            password: hashedPassword,
+            failedAttempts: 0,
             lockUntil: null,
-            authVersion: { increment: 1 } // 🔥 Invalidate all old sessions
+            authVersion: { increment: 1 }
           }
         });
       }
 
-      // 🔥 Revoke old refresh tokens in DB
       await tx.refreshToken.updateMany({
         where: { userId: updatedAccount.uuid },
         data: { isRevoked: true }
       });
 
-      // 📝 Audit Log
       await tx.systemAuditLog.create({
         data: {
           userId: updatedAccount.uuid,
@@ -716,13 +663,14 @@ const resetPassword = async (req, res) => {
       });
     });
 
-    // 🔥 Blacklist all old user sessions in Redis immediately due to password change
     try {
       const tokenBlacklistService = require('../services/tokenBlacklistService');
       await tokenBlacklistService.blacklistUserSessions(updatedAccount.uuid, 'PASSWORD_CHANGED');
     } catch (blacklistErr) {
       logger.warn('[Auth] Token session blacklisting failed on password reset', { error: blacklistErr.message });
     }
+
+    await redis.del(`login_fail:${blindedEmail}`);
 
     logger.security('Password reset — all sessions revoked', { email: cleanEmail, uuid: updatedAccount.uuid });
 
@@ -731,32 +679,20 @@ const resetPassword = async (req, res) => {
       data: { used: true }
     });
 
-    // 🚀 Auto-login after successful reset
     const { token, jti } = await TokenService.generateAndSaveRefreshToken(updatedAccount);
     const accessToken = TokenService.generateAccessToken(updatedAccount, jti);
 
-    // 🛡️ Security Guard
     if (!token || typeof token !== 'string') {
       throw new Error('[CRITICAL] Invalid refresh token generated during password reset');
     }
 
-    res.cookie('refreshToken', token, refreshCookieOptions(req));
-    res.cookie('accessToken', accessToken, accessCookieOptions(req));
-
-    response.success(res, {
-      accessToken,
-      refreshToken: token,
-      user: { 
-        id: updatedAccount.uuid, 
-        email: decrypt(updatedAccount.email), 
-        name: decrypt(updatedAccount.name), 
-        phone: decrypt(updatedAccount.phone), 
-        role: updatedAccount.role || 'customer' 
-      }
+    return sendHybridTokens(req, res, updatedAccount, accessToken, token, {
+      phone: updatedAccount.phone ? decrypt(updatedAccount.phone) : null
     });
+
   } catch (error) {
     logger.error('Reset password error', { error: error.message });
-    response.error(res, 'حدث خطأ أثناء تغيير كلمة المرور', 'SERVER_ERROR', 500);
+    return response.error(res, 'حدث خطأ أثناء تغيير كلمة المرور', 'SERVER_ERROR', 500);
   }
 };
 

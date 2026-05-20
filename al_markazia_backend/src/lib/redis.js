@@ -1,9 +1,12 @@
+require('dotenv').config();
 const Redis = require('ioredis');
 const logger = require('../utils/logger');
 
 const baseConfig = {
   host: process.env.REDIS_HOST || 'localhost',
   port: process.env.REDIS_PORT || 6379,
+  username: process.env.REDIS_USERNAME || undefined,
+  password: process.env.REDIS_PASSWORD || undefined,
   maxRetriesPerRequest: null,
   connectTimeout: 3000,
 };
@@ -93,6 +96,14 @@ class InMemoryRedisFallback {
       return 1;
     }
     return 0;
+  }
+
+  async ttl(key) {
+    if (!this.store.has(key)) return -2;
+    const expiresAt = this.expirations.get(key);
+    if (!expiresAt) return -1;
+    const remaining = Math.ceil((expiresAt - Date.now()) / 1000);
+    return remaining > 0 ? remaining : -2;
   }
 
   async keys(pattern) {

@@ -17,10 +17,12 @@ services:
     image: redis:7-alpine
     container_name: al-markazia-redis
     restart: always
+    command: ["redis-server", "/usr/local/etc/redis/redis-dev.conf"]
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
+      - ./redis-dev.conf:/usr/local/etc/redis/redis-dev.conf:ro
 
 volumes:
   postgres_data:

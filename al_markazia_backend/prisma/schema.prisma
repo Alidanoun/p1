@@ -273,7 +273,7 @@ model Order {
   deliveryZoneId   String?
   deliveryZoneName String?
   tenantId         String?            @default("default-restaurant")
-  customer         Customer?          @relation(fields: [customerId], references: [id])
+  customer         Customer?          @relation(fields: [customerId], references: [id], onDelete: SetNull)
   source           String             @default("app") // app, manual
   auditLogs        OrderAuditLog[]
   cancellation     OrderCancellation?
@@ -391,6 +391,7 @@ model Customer {
   quietHoursEnd       Int                @default(7)
   notificationPreferences CustomerNotificationPreference[]
   loyaltyLedgers      LoyaltyLedger[]
+  notifications       Notification[] @relation("NotificationCustomer")
 
   @@index([isBlacklisted])
 }
@@ -418,7 +419,9 @@ model Payment {
 
 model Notification {
   id            Int      @id @default(autoincrement())
-  customerPhone String?
+  customerId    Int?
+  customer      Customer? @relation("NotificationCustomer", fields: [customerId], references: [id], onDelete: SetNull)
+  customerPhone String?  // @deprecated — kept for backward compatibility during migration
   title         String
   titleEn       String?
   message       String
@@ -438,6 +441,7 @@ model Notification {
   alertType     String?  // FINANCIAL_HIGH_RISK, TRANSACTION_FAILURE, SECURITY_BREACH
   updatedAt     DateTime @default(now()) @updatedAt
 
+  @@index([customerId])
   @@index([customerPhone])
   @@index([status])
   @@index([createdAt])
@@ -466,7 +470,7 @@ model Review {
   isFlagged          Boolean          @default(false)
   isVerifiedPurchase Boolean          @default(false)
 
-  customer           Customer         @relation(fields: [customerId], references: [id])
+  customer           Customer         @relation(fields: [customerId], references: [id], onDelete: SetNull)
   item               Item             @relation(fields: [itemId], references: [id], onDelete: Cascade)
   order              Order?           @relation(fields: [orderId], references: [id])
   branch             Branch?          @relation(fields: [branchId], references: [id])

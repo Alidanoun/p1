@@ -297,6 +297,7 @@ class OrderService {
 
     await this.prisma.notification.create({
       data: {
+        customerId: order.customerId,
         title: 'طلب إلغاء جزئي ⚠️',
         message: `طلب تعديل للطلب #${order.orderNumber} من ${order.customerName}\nالمبلغ المسترد المتوقع: ${metadata.refundAmount || 0}`,
         type: 'partial_cancel_requested',
@@ -1015,10 +1016,10 @@ class OrderService {
           deliveryZoneId: deliveryDetails.zoneId,
           deliveryZoneName: deliveryDetails.zoneName,
           deliveryMinOrder: deliveryDetails.minOrder,
-          preparationTimeMinutes: config.business.slaPrepTimeMinutes,
+          preparationTimeMinutes: Math.round(config.business.slaPrepTimeMinutes * (config.business.peakMultiplier || 1.0)),
           deliveryTimeMinutes: config.business.slaDeliveryTimeMinutes,
-          estimatedReadyAt: new Date(Date.now() + config.business.slaPrepTimeMinutes * 60000),
-          estimatedArrivalAt: new Date(Date.now() + (config.business.slaPrepTimeMinutes + config.business.slaDeliveryTimeMinutes) * 60000),
+          estimatedReadyAt: new Date(Date.now() + Math.round(config.business.slaPrepTimeMinutes * (config.business.peakMultiplier || 1.0)) * 60000),
+          estimatedArrivalAt: new Date(Date.now() + (Math.round(config.business.slaPrepTimeMinutes * (config.business.peakMultiplier || 1.0)) + config.business.slaDeliveryTimeMinutes) * 60000),
           orderItems: {
             create: validatedItems
           }
@@ -1485,20 +1486,22 @@ class OrderService {
    * 🚚 Delivery Logic: Ensures fee and min-order constraints are met.
    */
   async _validateDeliveryDetails(type, zoneId, subtotal) {
-    if (type !== 'delivery') return { fee: 0, zoneId: null, zoneName: null, minOrder: 0 };
+    if (type !== 'delivery') return { fee: 0, zoneId: null, zoneName: null, minOrder: 0, peakApplied: false };
 
     const config = await configService.getFullConfig();
+    const peakMultiplier = config.business.peakMultiplier || 1.0;
 
     if (!zoneId) {
-      const baseFee = config.business.defaultDeliveryFee;
-      const peakMultiplier = config.business.peakMultiplier;
-      return { fee: toNumber(baseFee * peakMultiplier, 1), zoneId: null, zoneName: 'Default', minOrder: 0 };
+      const baseFee = toNumber(config.business.defaultDeliveryFee, 1);
+      const adjustedFee = Math.round(baseFee * peakMultiplier * 100) / 100;
+      return { fee: adjustedFee, zoneId: null, zoneName: 'Default', minOrder: 0, peakApplied: peakMultiplier > 1.0 };
     }
 
     const zone = await this.prisma.deliveryZone.findUnique({ where: { id: zoneId } });
     if (!zone || !zone.isActive) throw new Error('INVALID_DELIVERY_ZONE');
 
-    const fee = toNumber(zone.fee);
+    const baseFee = toNumber(zone.fee);
+    const adjustedFee = Math.round(baseFee * peakMultiplier * 100) / 100;
     const minOrder = toNumber(zone.minOrder);
 
     if (minOrder > 0 && subtotal < minOrder) {
@@ -1506,10 +1509,11 @@ class OrderService {
     }
 
     return {
-      fee,
+      fee: adjustedFee,
       zoneId: zone.id,
       zoneName: zone.nameAr,
-      minOrder
+      minOrder,
+      peakApplied: peakMultiplier > 1.0
     };
   }
 

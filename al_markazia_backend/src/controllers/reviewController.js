@@ -441,34 +441,59 @@ exports.getReviewStats = async (req, res) => {
   }
 };
 
+// ── Debouncer for Item Stats Updates (Race Condition Fix) ──────────────────
+const dirtyItemIds = new Set();
+let statsFlushTimer = null;
+const FLUSH_INTERVAL_MS = 5000;
+
+async function syncItemStatsToDb(itemId) {
+  try {
+    await prisma.$transaction(async (tx) => {
+      const stats = await tx.review.aggregate({
+        where: { itemId, status: 'APPROVED' },
+        _avg: { rating: true },
+        _count: { id: true }
+      });
+
+      await tx.item.update({
+        where: { id: itemId },
+        data: {
+          cachedAvgRating: stats._avg.rating || 0,
+          cachedReviewCount: stats._count.id || 0
+        }
+      });
+    });
+  } catch (err) {
+    logger.error('Failed to sync item stats', { itemId, error: err.message });
+  }
+}
+
 /**
- * ⚡ Performance Helper: Atomic Item Stats Synchronization
+ *  Performance Helper: Batched Item Stats Synchronization
+ * Queues updates and flushes them every 5 seconds to prevent Race Conditions
+ * and reduce database load.
  */
 async function updateItemStats(itemId) {
-  // 🛡️ [FIX] Use transaction for atomic aggregation and update
-  await prisma.$transaction(async (tx) => {
-    const stats = await tx.review.aggregate({
-      where: { itemId, status: 'APPROVED' },
-      _avg: { rating: true },
-      _count: { id: true }
-    });
+  dirtyItemIds.add(itemId);
 
-    await tx.item.update({
-      where: { id: itemId },
-      data: {
-        cachedAvgRating: stats._avg.rating || 0,
-        cachedReviewCount: stats._count.id || 0
+  if (!statsFlushTimer) {
+    statsFlushTimer = setTimeout(async () => {
+      statsFlushTimer = null;
+      const itemsToUpdate = Array.from(dirtyItemIds);
+      dirtyItemIds.clear();
+
+      // Update all dirty items in parallel
+      await Promise.all(itemsToUpdate.map(syncItemStatsToDb));
+
+      // Invalidate cache ONCE after the batch is complete
+      try {
+        const menuCacheService = require('../services/menuCacheService');
+        if (menuCacheService && typeof menuCacheService.invalidate === 'function') {
+          await menuCacheService.invalidate();
+        }
+      } catch (cacheErr) {
+        logger.warn('[ReviewController] Menu cache invalidation skipped', { error: cacheErr.message });
       }
-    });
-  });
-
-  // 🧹 [CACHE-FIX] Synchronize caching layer to ensure public averages immediately reflect updates
-  try {
-    const menuCacheService = require('../services/menuCacheService');
-    if (menuCacheService && typeof menuCacheService.invalidate === 'function') {
-      await menuCacheService.invalidate();
-    }
-  } catch (cacheErr) {
-    logger.warn('[ReviewController] Menu cache invalidation skipped', { error: cacheErr.message });
+    }, FLUSH_INTERVAL_MS);
   }
 }

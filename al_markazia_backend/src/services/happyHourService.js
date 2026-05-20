@@ -598,7 +598,6 @@ class HappyHourService {
       for (const pref of preferences) {
         await this.prisma.notification.create({
           data: {
-            customerPhone: null,
             title: type === 'STARTED' ? '🎉 Happy Hour بدأ!' : '⏰ انتهى Happy Hour',
             message: type === 'STARTED' 
               ? `استمتع بخصم ${discountVal}% في فرعنا الآن.` 

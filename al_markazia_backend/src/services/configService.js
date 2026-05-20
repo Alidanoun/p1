@@ -1,5 +1,6 @@
 const logger = require('../utils/logger');
 const redis = require('../lib/redis');
+const { DateTime } = require('luxon');
 
 // Lazy-loaded to avoid circular dependency
 const getPrisma = () => require('../lib/prisma');
@@ -12,6 +13,16 @@ class ConfigService {
   constructor() {
     this.CACHE_KEY = 'system:config';
     this.CACHE_TTL = 3600; // 1 hour
+    this.PEAK_HOURS = [
+      { start: 12, end: 14 },
+      { start: 19, end: 21 }
+    ];
+    this.DEFAULT_PEAK_MULTIPLIER = 1.5;
+  }
+
+  isPeakHour(timezone = 'Africa/Cairo') {
+    const hour = DateTime.now().setZone(timezone).hour;
+    return this.PEAK_HOURS.some(s => hour >= s.start && hour < s.end);
   }
 
   /**
@@ -46,6 +57,10 @@ class ConfigService {
       const parsedTax = parseFloat(policyMap['TAX_RATE']?.val);
       const taxRate = isNaN(parsedTax) ? 0.16 : parsedTax;
 
+      const dbPeakMultiplier = policyMap['PEAK_MULTIPLIER']?.val || null;
+      const isPeak = this.isPeakHour();
+      const peakMultiplier = dbPeakMultiplier !== null ? dbPeakMultiplier : (isPeak ? this.DEFAULT_PEAK_MULTIPLIER : 1.0);
+
       const config = {
         business: {
           taxRate: taxRate,
@@ -53,7 +68,8 @@ class ConfigService {
           maxRating: policyMap['MAX_RATING']?.val || 5,
           defaultDeliveryFee: policyMap['DEFAULT_DELIVERY_FEE']?.val || 1.0,
           freeCancelWindowMinutes: policyMap['FREE_CANCEL_WINDOW_MINUTES']?.val || 5,
-          peakMultiplier: policyMap['PEAK_MULTIPLIER']?.val || 1.0,
+          peakMultiplier: peakMultiplier,
+          isPeakHour: isPeak
         },
         security: {
           maxLoginAttempts: policyMap['SEC_MAX_LOGIN_ATTEMPTS']?.val || 5,
@@ -95,8 +111,9 @@ class ConfigService {
   }
 
   _getSafeModeFallbacks() {
+    const isPeak = this.isPeakHour();
     return {
-      business: { taxRate: 0.16, maxCancellationReasonLength: 500, maxRating: 5, defaultDeliveryFee: 1.0, freeCancelWindowMinutes: 5, peakMultiplier: 1.0 },
+      business: { taxRate: 0.16, maxCancellationReasonLength: 500, maxRating: 5, defaultDeliveryFee: 1.0, freeCancelWindowMinutes: 5, peakMultiplier: isPeak ? this.DEFAULT_PEAK_MULTIPLIER : 1.0, isPeakHour: isPeak },
       security: { maxLoginAttempts: 5, lockDurationMinutes: 15, timingDelayMs: 300, passwordMinLength: 8 },
       loyalty: { pointsPerJod: 10, minPointsToRedeem: 500, pointsToJodRate: 100 }
     };

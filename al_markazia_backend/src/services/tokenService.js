@@ -281,8 +281,8 @@ class TokenService {
 
       return { valid: true, session: tokenRecord };
     } catch (err) {
-      logger.error('Session validation crash', { jti, error: err.message });
-      return { valid: true }; // Fail-open to avoid service outage, but log error
+      logger.error('Session validation crash — failing closed for security', { jti, error: err.message });
+      return { valid: false, reason: 'VALIDATION_ERROR' };
     }
   }
 }
