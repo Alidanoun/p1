@@ -41,7 +41,7 @@ class WorkingHoursService {
       }
 
       const now = DateTime.now().setZone(settings.timezone);
-      const nowJordan = now.setZone('Asia/Amman'); // 🇯🇴 Explicit Jordan Time
+      const nowLocal = now; // 🌍 Uses dynamic timezone from settings (no hardcoded override)
       
       // 3. Check Branch-specific status if branchId is provided
       if (branchId && branchId !== 'all' && branchId !== 'null' && branchId !== 'undefined') {
@@ -65,8 +65,8 @@ class WorkingHoursService {
           
           // If branch is emergency closed
           if (branch.isEmergencyClosed) {
-            const reopenAtJordan = branch.reopenAt ? DateTime.fromJSDate(branch.reopenAt).setZone('Asia/Amman') : null;
-            const hasReopened = reopenAtJordan && nowJordan >= reopenAtJordan;
+            const reopenAtLocal = branch.reopenAt ? DateTime.fromJSDate(branch.reopenAt).setZone(settings.timezone) : null;
+            const hasReopened = reopenAtLocal && nowLocal >= reopenAtLocal;
             
             if (!hasReopened) {
               const status = {
@@ -74,7 +74,7 @@ class WorkingHoursService {
                 isEmergency: true,
                 closureType: branch.reopenAt ? 'temporary' : 'emergency',
                 reason: branch.closureReason || 'الفرع مغلق مؤقتاً للراحة أو لأسباب فنية',
-                nextOpenAt: reopenAtJordan ? reopenAtJordan.toISO() : null
+                nextOpenAt: reopenAtLocal ? reopenAtLocal.toISO() : null
               };
               nodeCache.set(cacheKey, status, this.CACHE_TTL);
               return status;
@@ -95,25 +95,25 @@ class WorkingHoursService {
       }
 
       logger.debug('[WorkingHours] check', { 
-        now: nowJordan.toFormat('yyyy-MM-dd HH:mm:ss'),
-        day: nowJordan.weekday === 7 ? 0 : nowJordan.weekday,
+        now: nowLocal.toFormat('yyyy-MM-dd HH:mm:ss'),
+        day: nowLocal.weekday === 7 ? 0 : nowLocal.weekday,
         timezone: settings.timezone 
       });
 
       // 🛠️ Define Helper Variables early
       const getM = (t) => {
         if (!t) return 0;
-        const [h, m] = t.split(':').map(Number);
-        return h * 60 + m;
+        const dt = DateTime.fromFormat(t, 'HH:mm');
+        return dt.isValid ? dt.hour * 60 + dt.minute : 0;
       };
-      const nowM = nowJordan.hour * 60 + nowJordan.minute;
+      const nowM = nowLocal.hour * 60 + nowLocal.minute;
       const graceM = settings.lastOrderMinutesBeforeClose || 0;
 
       // 4. Check Emergency Closure (Hard Close)
       if (settings.isEmergencyClosed) {
         // 🛡️ Auto-Reopen Logic: Check if timed closure has expired
-        const reopenAtJordan = settings.reopenAt ? DateTime.fromJSDate(settings.reopenAt).setZone('Asia/Amman') : null;
-        const hasReopened = reopenAtJordan && nowJordan >= reopenAtJordan;
+        const reopenAtLocal = settings.reopenAt ? DateTime.fromJSDate(settings.reopenAt).setZone(settings.timezone) : null;
+        const hasReopened = reopenAtLocal && nowLocal >= reopenAtLocal;
         
         if (!hasReopened) {
           const status = {
@@ -121,7 +121,7 @@ class WorkingHoursService {
             isEmergency: true,
             closureType: settings.reopenAt ? 'temporary' : 'emergency',
             reason: settings.closureReason || 'المطعم مغلق حالياً لأسباب فنية',
-            nextOpenAt: reopenAtJordan ? reopenAtJordan.toISO() : null
+            nextOpenAt: reopenAtLocal ? reopenAtLocal.toISO() : null
           };
           nodeCache.set(cacheKey, status, this.CACHE_TTL);
           return status;
@@ -142,7 +142,7 @@ class WorkingHoursService {
       }
 
       // ✅ [SHIFT-FIX] Part A: Check Yesterday's Late-Night Shift
-      const yesterday = nowJordan.minus({ days: 1 });
+      const yesterday = nowLocal.minus({ days: 1 });
       const yesterdayDayOfWeek = yesterday.weekday === 7 ? 0 : yesterday.weekday;
       const yesterdaySchedule = schedule.find(s => s.dayOfWeek === yesterdayDayOfWeek);
 
@@ -157,9 +157,9 @@ class WorkingHoursService {
             isClosed: false,
             isEmergency: false,
             // 🛡️ Format Fix: Flutter expects ISO String for DateTime.parse
-            closingAt: nowJordan.set({ 
-              hour: Number(yesterdaySchedule.closeTime.split(':')[0]), 
-              minute: Number(yesterdaySchedule.closeTime.split(':')[1]),
+            closingAt: nowLocal.set({ 
+              hour: DateTime.fromFormat(yesterdaySchedule.closeTime, 'HH:mm').hour, 
+              minute: DateTime.fromFormat(yesterdaySchedule.closeTime, 'HH:mm').minute,
               second: 0,
               millisecond: 0
             }).toISO(),
@@ -172,11 +172,11 @@ class WorkingHoursService {
       }
 
       // ✅ [SHIFT-FIX] Part B: Check Today's Regular Shift
-      const dayOfWeek = nowJordan.weekday === 7 ? 0 : nowJordan.weekday; 
+      const dayOfWeek = nowLocal.weekday === 7 ? 0 : nowLocal.weekday; 
       const todaySchedule = schedule.find(s => s.dayOfWeek === dayOfWeek);
 
       if (!todaySchedule || todaySchedule.isClosed) {
-        const status = await this._getClosedStatus(nowJordan, schedule, settings);
+        const status = await this._getClosedStatus(nowLocal, schedule, settings);
         nodeCache.set(cacheKey, status, this.CACHE_TTL);
         return status;
       }
@@ -198,14 +198,14 @@ class WorkingHoursService {
             isClosed: false,
             isEmergency: false,
             // 🛡️ Format Fix: Flutter expects ISO String for DateTime.parse
-            closingAt: nowJordan.set({ 
-              hour: Number(todaySchedule.closeTime.split(':')[0]), 
-              minute: Number(todaySchedule.closeTime.split(':')[1]),
+            closingAt: nowLocal.set({ 
+              hour: DateTime.fromFormat(todaySchedule.closeTime, 'HH:mm').hour, 
+              minute: DateTime.fromFormat(todaySchedule.closeTime, 'HH:mm').minute,
               second: 0,
               millisecond: 0
             }).toISO()
           }
-        : await this._getClosedStatus(nowJordan, schedule, settings);
+        : await this._getClosedStatus(nowLocal, schedule, settings);
 
       nodeCache.set(cacheKey, status, this.CACHE_TTL);
       return status;
@@ -265,8 +265,8 @@ class WorkingHoursService {
         const dayData = schedule.find(s => s.dayOfWeek === checkDay && !s.isClosed);
         
         if (dayData) {
-          const [h, m] = dayData.openTime.split(':').map(Number);
-          const opening = checkDate.set({ hour: h, minute: m, second: 0, millisecond: 0 });
+          const dt = DateTime.fromFormat(dayData.openTime, 'HH:mm');
+          const opening = checkDate.set({ hour: dt.isValid ? dt.hour : 0, minute: dt.isValid ? dt.minute : 0, second: 0, millisecond: 0 });
           
           if (opening > now) {
             nextOpenAt = opening.toISO();

@@ -90,17 +90,9 @@ class LoyaltyService {
   _isWithinHappyHour(config, timestamp, appliedTimezone = null) {
     if (!config || !config.isHappyHourEnabled) return false;
     
-    let targetTz = appliedTimezone;
-    if (!targetTz) {
-      try {
-        const branchId = require('../utils/context').getBranchId();
-        targetTz = branchId ? 'Africa/Cairo' : require('../config/constants').DEFAULT_TIMEZONE;
-      } catch (e) {
-        targetTz = require('../config/constants').DEFAULT_TIMEZONE;
-      }
-    }
+    const targetTz = require('../config/constants').DEFAULT_TIMEZONE;
     
-    const timeToCheck = DateTime.fromJSDate(new Date(timestamp)).setZone(targetTz || 'Africa/Cairo');
+    const timeToCheck = DateTime.fromJSDate(new Date(timestamp)).setZone(targetTz);
     
     const nowMinutes = this.container.financialService.getMinutesSinceMidnight(timeToCheck);
     const startMinutes = this.container.financialService.parseTimeToMinutes(config.happyHourStart);
@@ -137,7 +129,8 @@ class LoyaltyService {
    */
   async startNow() {
     const config = await this.getConfig();
-    const now = DateTime.now().setZone('Asia/Amman');
+    const { DEFAULT_TIMEZONE } = require('../config/constants');
+    const now = DateTime.now().setZone(DEFAULT_TIMEZONE);
     
     const startTime = now.toFormat('HH:mm');
     const endTime = now.plus({ hours: 2 }).toFormat('HH:mm');
@@ -421,7 +414,7 @@ class LoyaltyService {
       if (customer.tier === 'GOLD') multiplierDec = toDecimal(config.pointsMultiplierGold);
       if (customer.tier === 'PLATINUM') multiplierDec = toDecimal(config.pointsMultiplierPlatinum);
 
-      const orderTz = order.branch?.timezone || 'Africa/Cairo';
+      const orderTz = require('../config/constants').DEFAULT_TIMEZONE;
       if (this._isWithinHappyHour(config, order.createdAt, orderTz)) {
         multiplierDec = multiplierDec.times(toDecimal(config.happyHourMultiplier));
         this.logger.info(`[Loyalty] Happy Hour active for order #${order.orderNumber}! Applying ${config.happyHourMultiplier}x multiplier`);

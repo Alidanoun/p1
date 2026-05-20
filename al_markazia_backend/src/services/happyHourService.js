@@ -3,6 +3,7 @@ const nodemailer = require('nodemailer');
 const Decimal = require('decimal.js');
 const dateFnsTz = require('date-fns-tz');
 const { getDay } = require('date-fns');
+const { DEFAULT_TIMEZONE } = require('../config/constants');
 
 // Robust cross-version resolution for date-fns-tz v2 and v3 compatibility
 const toZonedTime = dateFnsTz.toZonedTime || dateFnsTz.utcToZonedTime;
@@ -27,7 +28,7 @@ class TimezoneCache {
   }
 
   async getBranchTimezone(branchId, prisma) {
-    if (!branchId) return 'Africa/Cairo';
+    if (!branchId) return DEFAULT_TIMEZONE;
     const key = `tz:branch:${branchId}`;
     try {
       if (this.redis && typeof this.redis.get === 'function') {
@@ -37,7 +38,7 @@ class TimezoneCache {
             where: { id: branchId },
             select: { timezone: true }
           });
-          tz = branch?.timezone || 'Africa/Cairo';
+          tz = branch?.timezone || DEFAULT_TIMEZONE;
           await this.redis.setex(key, this.ttl, tz).catch(() => {});
         }
         return tz;
@@ -50,9 +51,9 @@ class TimezoneCache {
         where: { id: branchId },
         select: { timezone: true }
       });
-      return branch?.timezone || 'Africa/Cairo';
+      return branch?.timezone || DEFAULT_TIMEZONE;
     } catch (e) {
-      return 'Africa/Cairo';
+      return DEFAULT_TIMEZONE;
     }
   }
 
@@ -181,7 +182,7 @@ class HappyHourService {
       if (this.logger && typeof this.logger.warn === 'function') {
         this.logger.warn('[HappyHour] Unsupported timezone requested, falling back to safe local default', { timezone });
       }
-      return 'Africa/Cairo'; // Robust global safe fallback
+      return DEFAULT_TIMEZONE; // Robust global safe fallback
     }
     return timezone;
   }
@@ -384,7 +385,7 @@ class HappyHourService {
       }
 
       // Track distribution counts per region
-      const tz = bestOffer.timezone || order.branch?.timezone || 'Africa/Cairo';
+      const tz = bestOffer.timezone || order.branch?.timezone || DEFAULT_TIMEZONE;
       metrics.happyhour_discount_applied_by_timezone[tz] = 
         (metrics.happyhour_discount_applied_by_timezone[tz] || 0) + 1;
 

@@ -41,12 +41,19 @@ class ConfigService {
       const policyMap = {};
       policies.forEach(p => { policyMap[p.key] = p.value; });
 
+      const loyaltyConfig = await getPrisma().loyaltyConfig.findFirst();
+
+      const parsedTax = parseFloat(policyMap['TAX_RATE']?.val);
+      const taxRate = isNaN(parsedTax) ? 0.16 : parsedTax;
+
       const config = {
         business: {
+          taxRate: taxRate,
           maxCancellationReasonLength: policyMap['MAX_CANCELLATION_REASON_LENGTH']?.val || 500,
           maxRating: policyMap['MAX_RATING']?.val || 5,
           defaultDeliveryFee: policyMap['DEFAULT_DELIVERY_FEE']?.val || 1.0,
           freeCancelWindowMinutes: policyMap['FREE_CANCEL_WINDOW_MINUTES']?.val || 5,
+          peakMultiplier: policyMap['PEAK_MULTIPLIER']?.val || 1.0,
         },
         security: {
           maxLoginAttempts: policyMap['SEC_MAX_LOGIN_ATTEMPTS']?.val || 5,
@@ -55,10 +62,27 @@ class ConfigService {
           passwordMinLength: policyMap['SEC_MIN_PASSWORD_LENGTH']?.val || 8
         },
         loyalty: {
-          pointsPerJod: policyMap['LOYALTY_POINTS_PER_JOD']?.val || 10,
-          minPointsToRedeem: policyMap['LOYALTY_MIN_REDEEM']?.val || 500,
+          pointsPerJod: loyaltyConfig?.pointsPerJod ?? policyMap['LOYALTY_POINTS_PER_JOD']?.val ?? 10,
+          minPointsToRedeem: loyaltyConfig?.minPointsToRedeem ?? policyMap['LOYALTY_MIN_REDEEM']?.val ?? 500,
+          pointsToJodRate: loyaltyConfig?.pointsToJodRate ?? policyMap['LOYALTY_POINTS_TO_JOD_RATE']?.val ?? 100,
         }
       };
+
+      // 🛡️ Merge with advanced config from SystemSettings
+      const masterConfig = await getPrisma().systemSettings.findUnique({
+        where: { key: 'system_config' }
+      });
+
+      if (masterConfig) {
+        if (masterConfig.businessConfig) {
+          const bConf = typeof masterConfig.businessConfig === 'string' ? JSON.parse(masterConfig.businessConfig) : masterConfig.businessConfig;
+          Object.assign(config.business, bConf);
+        }
+        if (masterConfig.securityConfig) {
+          const sConf = typeof masterConfig.securityConfig === 'string' ? JSON.parse(masterConfig.securityConfig) : masterConfig.securityConfig;
+          Object.assign(config.security, sConf);
+        }
+      }
 
       // Background cache update (don't await to avoid slowing down request)
       redis.set(cacheKey, JSON.stringify(config), 'EX', this.CACHE_TTL).catch(() => {});
@@ -72,10 +96,20 @@ class ConfigService {
 
   _getSafeModeFallbacks() {
     return {
-      business: { maxCancellationReasonLength: 500, maxRating: 5, defaultDeliveryFee: 1.0, freeCancelWindowMinutes: 5 },
+      business: { taxRate: 0.16, maxCancellationReasonLength: 500, maxRating: 5, defaultDeliveryFee: 1.0, freeCancelWindowMinutes: 5, peakMultiplier: 1.0 },
       security: { maxLoginAttempts: 5, lockDurationMinutes: 15, timingDelayMs: 300, passwordMinLength: 8 },
-      loyalty: { pointsPerJod: 10, minPointsToRedeem: 500 }
+      loyalty: { pointsPerJod: 10, minPointsToRedeem: 500, pointsToJodRate: 100 }
     };
+  }
+
+  async refreshCache() {
+    try {
+      await redis.del(this.CACHE_KEY);
+      return await this.getFullConfig();
+    } catch (err) {
+      logger.error('Failed to refresh config cache', { error: err.message });
+      return this._getSafeModeFallbacks();
+    }
   }
 }
 

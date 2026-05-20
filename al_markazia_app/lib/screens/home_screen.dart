@@ -49,6 +49,7 @@ class _HomeScreenState extends State<HomeScreen> {
   OrderModel? _activeOrder;
   Map<String, dynamic>? _loyaltyStatus;
   int _happyHourRemainingSeconds = 0;
+  int _happyHourTargetTimestamp = 0;
   
   // Featured Slider Logic
   final PageController _featuredPageController = PageController();
@@ -135,6 +136,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _activeOrder = activeOrder;
           _loyaltyStatus = loyalty;
           _happyHourRemainingSeconds = (loyalty['happyHourStatus']?['remainingSeconds'] ?? 0).toInt();
+          _happyHourTargetTimestamp = (DateTime.now().millisecondsSinceEpoch ~/ 1000) + _happyHourRemainingSeconds;
           _isLoading = false;
         });
         _startFeaturedTimer();
@@ -635,11 +637,17 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       // 2. Happy Hour Countdown
-      if (_happyHourRemainingSeconds > 0) {
+      if (_happyHourTargetTimestamp > 0) {
+        final int nowSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+        int remaining = _happyHourTargetTimestamp - nowSeconds;
+        if (remaining < 0) remaining = 0;
+        
         setState(() {
-          _happyHourRemainingSeconds--;
+          _happyHourRemainingSeconds = remaining;
         });
-        if (_happyHourRemainingSeconds <= 0) {
+
+        if (remaining <= 0) {
+          _happyHourTargetTimestamp = 0; // prevent multiple refresh triggers
           needsRefresh = true;
         }
       } else {

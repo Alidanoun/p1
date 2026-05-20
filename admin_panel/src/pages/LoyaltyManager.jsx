@@ -25,6 +25,7 @@ const LoyaltyManager = () => {
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [localRemainingSeconds, setLocalRemainingSeconds] = useState(0);
+  const [targetTime, setTargetTime] = useState(null);
 
   useEffect(() => {
     fetchSettings();
@@ -51,27 +52,34 @@ const LoyaltyManager = () => {
 
   // ⏱️ Countdown Logic
   useEffect(() => {
-    if (localRemainingSeconds <= 0) return;
+    if (!targetTime) return;
     
     const timer = setInterval(() => {
-      setLocalRemainingSeconds(prev => {
-        if (prev <= 1) {
-          fetchSettings(); // Refresh from server when timer hits zero
-          return 0;
-        }
-        return prev - 1;
-      });
+      const remaining = Math.max(0, Math.floor((targetTime - Date.now()) / 1000));
+      setLocalRemainingSeconds(remaining);
+      
+      if (remaining <= 0) {
+        clearInterval(timer);
+        setTargetTime(null);
+        fetchSettings(); // Refresh from server when timer hits zero
+      }
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [localRemainingSeconds]);
+  }, [targetTime]);
 
   const fetchSettings = async () => {
     try {
       const data = unwrap(await api.get('/loyalty/settings'));
       if (data) {
         setSettings(data);
-        setLocalRemainingSeconds(data.happyHourStatus?.remainingSeconds || 0);
+        const remSec = data.happyHourStatus?.remainingSeconds || 0;
+        setLocalRemainingSeconds(remSec);
+        if (remSec > 0) {
+          setTargetTime(Date.now() + remSec * 1000);
+        } else {
+          setTargetTime(null);
+        }
       }
     } catch (error) {
       toast.error('فشل في جلب إعدادات الولاء');

@@ -59,6 +59,12 @@ class UIFeedback {
     if (technicalError.contains('INVALID_SESSION')) return 'انتهت صلاحية الجلسة، يرجى تسجيل الدخول مجدداً.';
     if (technicalError.contains('CONNECTION_TIMEOUT')) return 'عذراً، يبدو أن هناك مشكلة في الاتصال بالسيرفر. يرجى التأكد من الإنترنت.';
     
+    // If the error message already contains Arabic letters, it's likely already translated by the backend.
+    final arabicRegex = RegExp(r'[\u0600-\u06FF]');
+    if (arabicRegex.hasMatch(technicalError)) {
+      return technicalError;
+    }
+
     return 'حدث خطأ غير متوقع، يرجى المحاولة لاحقاً.';
   }
 }

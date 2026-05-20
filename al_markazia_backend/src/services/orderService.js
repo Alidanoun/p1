@@ -348,10 +348,12 @@ class OrderService {
 
       // 3. Recalculate Totals via Canonical Pricing Engine
       const pricingService = require('./pricingService');
+      const systemConfig = await configService.getFullConfig();
       const financials = pricingService.calculateOrderTotals(
         itemsToKeep, 
         toNumber(order.deliveryFee), 
-        toNumber(order.discount)
+        toNumber(order.discount),
+        systemConfig.business.taxRate
       );
 
       // 🛡️ [BUG-03 FIX] Calculate refund amount directly to avoid calling non-existent calculateImpact
@@ -953,10 +955,12 @@ class OrderService {
 
     // 🛡️ Pricing Logic: Unify via Canonical Pricing Engine
     const pricingService = require('./pricingService');
+    const systemConfig = await configService.getFullConfig();
     const financials = pricingService.calculateOrderTotals(
       validatedItems, 
       deliveryDetails.fee, 
-      pointsDiscount
+      pointsDiscount,
+      systemConfig.business.taxRate
     );
 
 
@@ -1513,7 +1517,9 @@ class OrderService {
    * 🔢 Generate Unique Atomic Order Number (ORD-YYYYMMDD-XXXX)
    */
   async _generateOrderNumber() {
-    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const { DEFAULT_TIMEZONE } = require('../config/constants');
+    const { DateTime } = require('luxon');
+    const dateStr = DateTime.now().setZone(DEFAULT_TIMEZONE).toFormat('yyyyMMdd');
     const counterKey = `order_counter:${dateStr}`;
     const serialNumber = await this.redis.incr(counterKey);
 

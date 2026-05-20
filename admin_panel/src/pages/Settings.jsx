@@ -718,7 +718,7 @@ const Settings = () => {
                       </button>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                       <div className="space-y-2">
                         <label className="text-xs font-bold text-text-muted">أقصى طول لسبب الإلغاء (حرف)</label>
                         <input 
@@ -743,6 +743,76 @@ const Settings = () => {
                           })}
                         />
                       </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-text-muted">مُعامل أوقات الذروة (Peak Multiplier)</label>
+                        <input 
+                          type="number" 
+                          step="0.1"
+                          className="glass-input text-center w-full" 
+                          value={advancedConfig.business?.peakMultiplier || 1.0} 
+                          onChange={e => setAdvancedConfig({
+                            ...advancedConfig, 
+                            business: { ...advancedConfig.business, peakMultiplier: parseFloat(e.target.value) }
+                          })}
+                        />
+                      </div>
+                    </div>
+
+                    {/* 💰 Tax Rate Setting */}
+                    <div className="p-5 rounded-2xl bg-amber-500/5 border border-amber-500/20 space-y-4 mt-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-bold text-white text-sm flex items-center gap-2">
+                            💰 نسبة ضريبة المبيعات
+                          </p>
+                          <p className="text-text-muted text-xs mt-1">
+                            النسبة المئوية للضريبة المضمنة في أسعار المنتجات. يتم استخدامها لاستخراج الضريبة من الإجمالي في الفواتير والتقارير المالية.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-2 flex-1">
+                          <input 
+                            type="number" 
+                            step="1"
+                            min="0"
+                            max="100"
+                            className="glass-input text-center w-24 text-xl font-mono font-bold" 
+                            value={Math.round((advancedConfig.business?.taxRate || 0.16) * 100)} 
+                            onChange={e => {
+                              const percent = parseFloat(e.target.value);
+                              if (!isNaN(percent) && percent >= 0 && percent <= 100) {
+                                setAdvancedConfig({
+                                  ...advancedConfig, 
+                                  business: { ...advancedConfig.business, taxRate: percent / 100 }
+                                });
+                              }
+                            }}
+                          />
+                          <span className="text-sm font-bold text-amber-400">%</span>
+                        </div>
+                        <div className="text-[10px] text-text-muted bg-white/5 px-3 py-2 rounded-xl border border-white/5">
+                          القيمة المخزنة: <span className="font-mono text-amber-400 font-bold">{advancedConfig.business?.taxRate || 0.16}</span>
+                        </div>
+                      </div>
+                      <div className="text-[10px] text-amber-400/70 flex items-start gap-1.5 mt-1">
+                        <span>⚠️</span>
+                        <span>تغيير هذه القيمة يؤثر مباشرة على حساب الضريبة في جميع الطلبات الجديدة والتقارير المالية. تأكد من صحة القيمة قبل الحفظ.</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between p-4 bg-background/50 rounded-2xl border border-white/5 mt-4">
+                      <div>
+                        <p className="font-bold text-white text-sm">التحديث التلقائي للوجبات الأكثر طلباً</p>
+                        <p className="text-text-muted text-xs mt-1">عند التفعيل، سيقوم النظام بحساب وتحديث الوجبات الأكثر طلباً تلقائياً بناءً على المبيعات الحقيقية.</p>
+                      </div>
+                      <Switch 
+                        checked={advancedConfig.business?.autoFeaturedMode === true} 
+                        onChange={val => setAdvancedConfig({
+                          ...advancedConfig, 
+                          business: { ...advancedConfig.business, autoFeaturedMode: val }
+                        })} 
+                      />
                     </div>
                   </div>
                 </div>

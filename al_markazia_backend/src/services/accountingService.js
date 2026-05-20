@@ -23,14 +23,19 @@ class AccountingService {
 
   /**
    * 🧾 Extracts Tax and Base price from a Tax-Inclusive price using exact Decimal arithmetic.
-   * Formula: base = price / 1.16 | tax = price - base
+   * Formula: base = price / (1 + taxRate) | tax = price - base
    * 🛡️ Fixed to prevent "Penny Drift" by deriving tax from rounded base.
+   * @param {number} totalPrice - The total inclusive price
+   * @param {number} [taxRate] - Tax rate as decimal (e.g., 0.16 for 16%). Defaults to constructor value.
    */
-  extractTax(totalPrice) {
+  extractTax(totalPrice, taxRate) {
     const totalDec = toDecimal(totalPrice);
     const total = totalDec.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber();
     
-    const baseDec = totalDec.dividedBy(this.TAX_DIVISOR);
+    const effectiveRate = (typeof taxRate === 'number' && taxRate >= 0 && taxRate <= 1) ? new Decimal(taxRate) : this.TAX_RATE;
+    const effectiveDivisor = new Decimal(1).plus(effectiveRate);
+    
+    const baseDec = totalDec.dividedBy(effectiveDivisor);
     const base = baseDec.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber();
     
     const taxDec = new Decimal(total).minus(base);
@@ -45,8 +50,15 @@ class AccountingService {
 
   /**
    * Calculates order components assuming price is ALREADY inclusive of tax.
+   * @param {Array} items - Order items
+   * @param {number} [deliveryFee=0]
+   * @param {number} [discount=0]
+   * @param {number} [taxRate] - Dynamic tax rate (e.g., 0.16). Defaults to constructor value.
    */
-  calculateOrderSummary(items, deliveryFee = 0, discount = 0) {
+  calculateOrderSummary(items, deliveryFee = 0, discount = 0, taxRate) {
+    const effectiveRate = (typeof taxRate === 'number' && taxRate >= 0 && taxRate <= 1) ? new Decimal(taxRate) : this.TAX_RATE;
+    const effectiveDivisor = new Decimal(1).plus(effectiveRate);
+    
     // 1. Gross Revenue is the raw sum of item totals (Inclusive of tax) using Decimal reduction
     const rawSubtotalDec = items.reduce((sumDec, item) => {
       const unitDec = toDecimal(item.unitPrice);
@@ -64,7 +76,7 @@ class AccountingService {
     const finalTotal = finalTotalDec.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber();
     
     // 2. Extract tax from the raw subtotal (The product portion)
-    const baseDec = rawSubtotalDec.dividedBy(this.TAX_DIVISOR);
+    const baseDec = rawSubtotalDec.dividedBy(effectiveDivisor);
     const base = baseDec.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber();
     
     const taxDec = new Decimal(subtotal).minus(base);
@@ -76,7 +88,7 @@ class AccountingService {
 
     return {
       subtotal,        // السعر الإجمالي للمنتجات (شامل الضريبة)
-      tax,             // قيمة الضريبة المستخرجة (16%)
+      tax,             // قيمة الضريبة المستخرجة
       base,            // السعر الصافي للمنتجات قبل الضريبة
       deliveryFee: deliveryDec.toNumber(),
       discount: discountDec.toNumber(),

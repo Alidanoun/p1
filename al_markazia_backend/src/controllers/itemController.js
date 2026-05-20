@@ -432,6 +432,7 @@ exports.updateItem = async (req, res) => {
       removeImage,
       variants,
       optionGroups,
+      modifierGroups,
       version
     } = req.body;
 

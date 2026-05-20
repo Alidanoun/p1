@@ -1,5 +1,6 @@
 const { DateTime } = require('luxon');
 const logger = require('../utils/logger');
+const { DEFAULT_TIMEZONE } = require('../config/constants');
 
 /**
  * 🏛️ Financial Snapshot Service
@@ -18,7 +19,12 @@ class FinancialSnapshotService {
    * Generates and stores the final financial state for a branch/day.
    */
   async createDailySnapshot(branchId, date) {
-    const targetDate = DateTime.fromJSDate(date).setZone('Asia/Amman').startOf('day').toJSDate();
+    const branch = await this.prisma.branch.findUnique({
+      where: { id: branchId },
+      select: { timezone: true }
+    });
+    const tz = branch?.timezone || DEFAULT_TIMEZONE;
+    const targetDate = DateTime.fromJSDate(date).setZone(tz).startOf('day').toJSDate();
 
     // 1. Check if already exists and frozen
     const existing = await this.prisma.dailyFinancialSnapshot.findUnique({
@@ -70,7 +76,7 @@ class FinancialSnapshotService {
    * 🚀 Batch Process Nightly Snapshots
    */
   async processNightlyBatch(date = null) {
-    const targetDate = date || DateTime.now().setZone('Asia/Amman').minus({ days: 1 }).toJSDate();
+    const targetDate = date || DateTime.now().setZone(DEFAULT_TIMEZONE).minus({ days: 1 }).toJSDate();
     
     const branches = await this.prisma.branch.findMany({
       where: { isActive: true, isDeleted: false },
@@ -93,8 +99,16 @@ class FinancialSnapshotService {
    * This is much faster than aggregating raw orders for long periods.
    */
   async getTrend(branchId, days = 30) {
-    const end = DateTime.now().setZone('Asia/Amman').startOf('day').toJSDate();
-    const start = DateTime.now().setZone('Asia/Amman').minus({ days }).startOf('day').toJSDate();
+    let tz = DEFAULT_TIMEZONE;
+    if (branchId) {
+      const branch = await this.prisma.branch.findUnique({
+        where: { id: branchId },
+        select: { timezone: true }
+      });
+      if (branch?.timezone) tz = branch.timezone;
+    }
+    const end = DateTime.now().setZone(tz).startOf('day').toJSDate();
+    const start = DateTime.now().setZone(tz).minus({ days }).startOf('day').toJSDate();
 
     return await this.prisma.dailyFinancialSnapshot.findMany({
       where: {

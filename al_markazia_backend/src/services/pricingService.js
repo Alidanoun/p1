@@ -17,7 +17,7 @@ class PricingService {
    * Input: items (with unitPrice & quantity), deliveryFee, discount.
    * Output: Complete financial breakdown.
    */
-  calculateOrderTotals(items, deliveryFee = 0, discount = 0) {
+  calculateOrderTotals(items, deliveryFee = 0, discount = 0, taxRate = 0.16) {
     // 1. Calculate raw subtotal using Decimal.js to prevent IEEE 754 precision drift
     // Retain as Decimal objects inside the reduction loop until the very last step.
     const rawSubtotalDecimal = items.reduce((sumDec, item) => {
@@ -36,8 +36,10 @@ class PricingService {
     const totalDecimal = rawSubtotalDecimal.plus(deliveryFeeDec).minus(discountDec);
     const total = totalDecimal.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber();
 
-    // 3. Tax Extraction (16% Inclusive) calculated precisely via Decimal division
-    const taxRateDivisor = new Decimal('1.16');
+    // 3. Tax Extraction (Dynamic Rate, Inclusive) calculated precisely via Decimal division
+    // taxRate comes from configService (e.g., 0.16 for 16%). Divisor = 1 + taxRate.
+    const safeTaxRate = (typeof taxRate === 'number' && taxRate >= 0 && taxRate <= 1) ? taxRate : 0.16;
+    const taxRateDivisor = new Decimal(1).plus(new Decimal(safeTaxRate));
     const baseDecimal = rawSubtotalDecimal.dividedBy(taxRateDivisor);
     const baseAmount = baseDecimal.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber();
     

@@ -22,21 +22,21 @@ class ApiService {
   Timer? _silentRefreshTimer;
 
   static String get baseUrl {
-    const ip = String.fromEnvironment('SERVER_IP', defaultValue: 'api.almarkazia.com');
+    const ip = String.fromEnvironment('SERVER_IP', defaultValue: '192.168.3.146');
     const port = String.fromEnvironment('SERVER_PORT', defaultValue: '');
     final isProd = const bool.fromEnvironment('dart.vm.product');
     final scheme = isProd ? 'https' : 'http';
-    final portSuffix = port.isNotEmpty ? ':$port' : (isProd ? '' : ':5000');
+    final portSuffix = port.isNotEmpty ? ':$port' : (isProd ? '' : ':5010');
     return '$scheme://$ip$portSuffix/api/v1';
   }
 
   /// 🔌 Socket Base URL (without /api/v1 prefix — Socket.IO connects to root)
   static String get socketUrl {
-    const ip = String.fromEnvironment('SERVER_IP', defaultValue: 'api.almarkazia.com');
+    const ip = String.fromEnvironment('SERVER_IP', defaultValue: '192.168.3.146');
     const port = String.fromEnvironment('SERVER_PORT', defaultValue: '');
     final isProd = const bool.fromEnvironment('dart.vm.product');
     final scheme = isProd ? 'https' : 'http';
-    final portSuffix = port.isNotEmpty ? ':$port' : (isProd ? '' : ':5000');
+    final portSuffix = port.isNotEmpty ? ':$port' : (isProd ? '' : ':5010');
     return '$scheme://$ip$portSuffix';
   }
 

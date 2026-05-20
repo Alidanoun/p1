@@ -188,6 +188,15 @@ exports.updateAdvancedConfig = async (req, res) => {
     const { type, data } = req.body; // type: 'business' | 'security'
     const configService = require('../services/configService');
 
+    // 🛡️ Validate taxRate if provided (must be between 0 and 1)
+    if (type === 'business' && data.taxRate !== undefined) {
+      const taxRate = parseFloat(data.taxRate);
+      if (isNaN(taxRate) || taxRate < 0 || taxRate > 1) {
+        return res.status(400).json({ error: 'نسبة الضريبة يجب أن تكون بين 0 و 1 (مثال: 0.16 لضريبة 16%)' });
+      }
+      data.taxRate = taxRate; // Ensure it's stored as a number
+    }
+
     // 🎯 Target the Master Config record
     const masterConfig = await prisma.systemSettings.upsert({
       where: { key: 'system_config' },
@@ -216,6 +225,15 @@ exports.updateAdvancedConfig = async (req, res) => {
         metadata: { diff: data }
       }
     });
+
+    // 🏆 Trigger Automatic Bestsellers update if toggled ON
+    if (type === 'business' && data.autoFeaturedMode === true) {
+      const bestsellerService = require('../services/bestsellerService');
+      // Fire and forget, don't await so the request doesn't hang
+      bestsellerService.updateBestsellers().catch(err => {
+        logger.error('Failed to trigger updateBestsellers from config change', { error: err.message });
+      });
+    }
 
     // ♻️ Refresh Cache
     await configService.refreshCache();
@@ -281,8 +299,10 @@ exports.updateBulkSettings = async (req, res) => {
     // ♻️ Invalidate Cache
     const redis = require('../lib/redis');
     await redis.del('system:settings');
+    await redis.del('system:config'); // <-- Added this
     const memoryCache = require('../lib/memoryCache');
     memoryCache.del('system:settings');
+    memoryCache.del('system:config'); // <-- Added this
 
     // 📝 Add System Audit Log
     try {
