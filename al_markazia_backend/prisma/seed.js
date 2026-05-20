@@ -1,5 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcrypt');
+const crypto = require('crypto');
 const { encrypt, hashBlind } = require('../src/utils/crypto');
 const prisma = new PrismaClient();
 
@@ -14,11 +15,17 @@ async function main() {
 
   console.log('🌱 Seeding database...');
   const adminEmail = process.env.ADMIN_EMAIL || 'admin@almarkazia.com';
-  const adminPassword = process.env.ADMIN_DEFAULT_PASSWORD || '123456';
+
+  // Accept password via CLI argument (--password=xxx) or generate a secure random one
+  const args = process.argv.slice(2);
+  const passwordArg = args.find(a => a.startsWith('--password='));
+  const adminPassword = passwordArg ? passwordArg.split('=')[1] : crypto.randomBytes(16).toString('hex');
   const hashedPassword = await bcrypt.hash(adminPassword, 12);
   const emailHash = hashBlind(adminEmail);
 
   console.log(`🌱 Seeding Admin: ${adminEmail}`);
+  console.log(`🔑 Admin Password: ${adminPassword}`);
+  console.log('⚠️  Save this password — it will not be shown again.');
   
   const admin = await prisma.user.upsert({
     where: { emailHash },
