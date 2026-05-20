@@ -149,8 +149,9 @@ class ContractGateway {
   }
 
   _getLockKey(orderId, action, context, actor) {
-    if (orderId) return `lock:order:${orderId}`;
-    return `lock:gateway:${action}:${actor?.id || 'unknown'}:${Date.now()}`;
+    const actorId = actor?.id || 'system';
+    if (orderId) return `lock:order:${orderId}:${actorId}`;
+    return `lock:gateway:${action}:${actorId}`;
   }
 }
 
