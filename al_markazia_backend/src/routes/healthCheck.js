@@ -1,13 +1,14 @@
 const express = require('express');
 const router = express.Router();
-const Redis = require('ioredis');
 const prisma = require('../lib/prisma');
 const logger = require('../utils/logger');
+const redis = require('../lib/redis');
 const cacheService = require('../services/cacheService');
 
 /**
  * 🏥 Comprehensive System Health Check
  * Checks Database, Redis, and Application Services.
+ * Uses shared Redis client instead of creating new connections per request.
  */
 router.get('/', async (req, res) => {
   const healthInfo = {
@@ -31,26 +32,13 @@ router.get('/', async (req, res) => {
       latency: `${Date.now() - startDb}ms`
     };
 
-    // 2. Redis Check
-    const redisConfig = {
-      host: process.env.REDIS_HOST || 'localhost',
-      port: process.env.REDIS_PORT || 6379,
-      username: process.env.REDIS_USERNAME || undefined,
-      password: process.env.REDIS_PASSWORD || undefined,
-      commandTimeout: 2000
+    // 2. Redis Check — use shared client (no new connection per request)
+    const startRedis = Date.now();
+    await redis.ping();
+    healthInfo.checks.redis = {
+      status: 'UP',
+      latency: `${Date.now() - startRedis}ms`
     };
-    const redisClient = new Redis(redisConfig);
-    
-    try {
-      const startRedis = Date.now();
-      await redisClient.ping();
-      healthInfo.checks.redis = {
-        status: 'UP',
-        latency: `${Date.now() - startRedis}ms`
-      };
-    } finally {
-      await redisClient.quit();
-    }
 
     // 3. Cache Service Check
     healthInfo.checks.cache = {

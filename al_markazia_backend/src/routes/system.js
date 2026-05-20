@@ -4,18 +4,51 @@ const configService = require('../services/configService');
 const systemController = require('../controllers/systemController');
 const { authenticateToken, isAdmin, hasPermission } = require('../middleware/auth');
 const { PERMISSIONS } = require('../config/permissions');
+const { searchLimiter } = require('../middleware/rateLimiter');
 
 /**
  * ⚙️ System Configuration Routes
- * Public or Authenticated fetch for system-wide business rules.
  */
 
+// Public: Client-safe configuration only (no sensitive data)
 router.get('/config', async (req, res) => {
+  try {
+    const config = await configService.getFullConfig();
+    // Strip sensitive/internal fields — return only what the client app needs
+    const publicConfig = {
+      business: {
+        taxRate: config.business?.taxRate,
+        currency: config.business?.currency,
+        minOrderValue: config.business?.minOrderValue,
+        maxCancellationReasonLength: config.business?.maxCancellationReasonLength,
+        freeCancelWindowMinutes: config.business?.freeCancelWindowMinutes,
+        spamCancelLimit: config.business?.spamCancelLimit,
+        spamTimeWindowMinutes: config.business?.spamTimeWindowMinutes,
+      },
+      delivery: {
+        defaultFee: config.delivery?.defaultFee,
+        isActive: config.delivery?.isActive,
+      },
+      restaurant: {
+        isEmergencyClosed: config.restaurant?.isEmergencyClosed,
+        lastOrderMinutesBeforeClose: config.restaurant?.lastOrderMinutesBeforeClose,
+        timezone: config.restaurant?.timezone,
+      },
+      workingHours: config.workingHours || [],
+    };
+    res.json({ success: true, data: publicConfig });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'CONFIG_UNAVAILABLE' });
+  }
+});
+
+// Admin: Full configuration (RBAC v3)
+router.get('/config/full', authenticateToken, hasPermission(PERMISSIONS.SYSTEM_CONFIG_MANAGE), async (req, res) => {
   try {
     const config = await configService.getFullConfig();
     res.json({ success: true, data: config });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: 'CONFIG_UNAVAILABLE' });
   }
 });
 
@@ -30,13 +63,28 @@ router.post('/config/refresh', authenticateToken, hasPermission(PERMISSIONS.SYST
 });
 
 /**
- * 📊 Frontend Error Logging
- * Receives crashes from ErrorBoundary.jsx
+ * 📊 Frontend Error Logging — Rate limited + input sanitized
  */
-router.post('/logs/frontend-error', async (req, res) => {
+router.post('/logs/frontend-error', searchLimiter, async (req, res) => {
   const logger = require('../utils/logger');
+
+  // Input size limit — prevent log flooding
+  const bodyStr = JSON.stringify(req.body);
+  if (bodyStr.length > 4096) {
+    return res.status(400).json({ success: false, error: 'PAYLOAD_TOO_LARGE', code: 'PAYLOAD_TOO_LARGE' });
+  }
+
+  // Sanitize — only allow safe fields
+  const safeFields = ['message', 'stack', 'component', 'url', 'userAgent', 'severity'];
+  const sanitized = {};
+  for (const field of safeFields) {
+    if (req.body[field] && typeof req.body[field] === 'string') {
+      sanitized[field] = req.body[field].substring(0, 2000);
+    }
+  }
+
   logger.error('[FRONTEND_CRASH]', {
-    ...req.body,
+    ...sanitized,
     ip: req.ip,
     timestamp: new Date().toISOString()
   });
