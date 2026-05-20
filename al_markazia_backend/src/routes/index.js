@@ -68,7 +68,11 @@ router.use('/happyhour', happyHourRoutes);
 
 // System & Admin
 const path = require('path');
-router.use('/uploads', express.static(path.join(__dirname, '../../uploads')));
+const { searchLimiter } = require('../middleware/rateLimiter');
+router.use('/uploads', searchLimiter, express.static(path.join(__dirname, '../../uploads'), {
+  index: false, // Disable directory listing
+  dotfiles: 'ignore' // Block access to hidden files
+}));
 router.use('/system', systemRoutes);
 router.use('/sync', syncRoutes);
 router.use('/admin/audit', auditRoutes);

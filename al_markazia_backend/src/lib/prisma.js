@@ -36,14 +36,14 @@ const prisma = basePrisma.$extends({
   // 🔓 Automatic Decryption on Read
   result: {
     user: {
-      email: { needs: { email: true }, compute(u) { try { return decrypt(u.email); } catch { return u.email; } } },
-      phone: { needs: { phone: true }, compute(u) { try { return decrypt(u.phone); } catch { return u.phone; } } },
-      name: { needs: { name: true }, compute(u) { try { return decrypt(u.name); } catch { return u.name; } } }
+      email: { needs: { email: true }, compute(u) { try { return decrypt(u.email); } catch { logger.error('[Prisma] Decryption failed for user.email — returning null'); return null; } } },
+      phone: { needs: { phone: true }, compute(u) { try { return decrypt(u.phone); } catch { logger.error('[Prisma] Decryption failed for user.phone — returning null'); return null; } } },
+      name: { needs: { name: true }, compute(u) { try { return decrypt(u.name); } catch { logger.error('[Prisma] Decryption failed for user.name — returning null'); return null; } } }
     },
     customer: {
-      email: { needs: { email: true }, compute(c) { try { return decrypt(c.email); } catch { return c.email; } } },
-      phone: { needs: { phone: true }, compute(c) { try { return decrypt(c.phone); } catch { return c.phone; } } },
-      name: { needs: { name: true }, compute(c) { try { return decrypt(c.name); } catch { return c.name; } } }
+      email: { needs: { email: true }, compute(c) { try { return decrypt(c.email); } catch { logger.error('[Prisma] Decryption failed for customer.email — returning null'); return null; } } },
+      phone: { needs: { phone: true }, compute(c) { try { return decrypt(c.phone); } catch { logger.error('[Prisma] Decryption failed for customer.phone — returning null'); return null; } } },
+      name: { needs: { name: true }, compute(c) { try { return decrypt(c.name); } catch { logger.error('[Prisma] Decryption failed for customer.name — returning null'); return null; } } }
     }
   },
   query: {

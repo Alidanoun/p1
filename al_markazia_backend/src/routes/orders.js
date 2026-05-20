@@ -51,7 +51,7 @@ const idempotency = require('../services/idempotencyService');
 const router = express.Router();
 
 // Require authentication for order creation — guests can only browse the menu
-router.post('/', authenticateToken, validateOrderBranch, healthGuard('db'), workingHoursGuard, orderLimiter, priceValidation, validateOrderCreate, createOrder);
+router.post('/', authenticateToken, idempotency.guard(true), validateOrderBranch, healthGuard('db'), workingHoursGuard, orderLimiter, priceValidation, validateOrderCreate, createOrder);
 
 // New Secure Identity Route: Get orders for the authenticated customer
 router.get('/my-orders', authMiddleware, getMyOrders);
