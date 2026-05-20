@@ -301,9 +301,20 @@ class DistributedRateLimiter {
         next();
       } catch (err) {
         if (logger && typeof logger.error === 'function') {
-          logger.error('[RateLimiter] Middleware layer unexpected error', { error: err.message, path: req.path });
+          logger.error('[RateLimiter] Middleware layer unexpected error', { error: err.message, path: req.path, scope: this.scope });
         }
-        next(); // Fail-open absolute continuation
+
+        // Fail-closed for critical paths: block request if rate limiter itself crashes
+        if (this.scope === 'auth' || this.scope === 'upload') {
+          return res.status(500).json({
+            success: false,
+            error: 'خدمة الحماية مؤقتاً غير متاحة',
+            message: 'تعذر التحقق من حدود الطلبات. يرجى المحاولة لاحقاً.',
+            code: 'RATE_LIMIT_ERROR'
+          });
+        }
+
+        next(); // Fail-open for non-critical paths (read APIs, search, etc.)
       }
     };
 
