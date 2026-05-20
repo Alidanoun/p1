@@ -53,6 +53,11 @@ const prisma = basePrisma.$extends({
 
         // 🛡️ Admin bypass or skip soft delete filter
         if (args.skipSoftDelete) {
+          logger.security('[SoftDeleteBypass] skipSoftDelete flag used — deleted records will be visible', {
+            model,
+            operation,
+            caller: new Error().stack?.split('\n')[2]?.trim() || 'unknown'
+          });
           delete args.skipSoftDelete;
           return query(args);
         }
