@@ -619,7 +619,7 @@ const resetPassword = async (req, res) => {
     }
 
     if (!account) {
-      return response.error(res, 'الحساب غير موجود', 'USER_NOT_FOUND', 404);
+      return response.error(res, 'تم تغيير كلمة المرور بنجاح', 'PASSWORD_RESET_SUCCESS', 200);
     }
 
     let updatedAccount;

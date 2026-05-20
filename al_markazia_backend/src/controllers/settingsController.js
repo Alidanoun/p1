@@ -4,6 +4,7 @@ const logger = require('../utils/logger');
 const SecurityPolicyService = require('../services/securityPolicyService');
 const { decrypt, hashBlind } = require('../utils/crypto');
 const { validatePasswordStrength } = require('../utils/security');
+const { BCRYPT_ROUNDS } = require('../config/secrets');
 
 const BOOLEAN_KEYS = ['notificationsEnabled', 'autoAcceptOrders'];
 
@@ -69,7 +70,7 @@ exports.updateAdminCredentials = async (req, res) => {
     if (newPassword) {
       const validation = validatePasswordStrength(newPassword);
       if (!validation.isValid) return res.status(400).json({ error: validation.message });
-      updateData.password = await bcrypt.hash(newPassword, 10);
+      updateData.password = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
     }
 
     if (Object.keys(updateData).length > 0) {
@@ -129,7 +130,7 @@ exports.updateBranchCredentials = async (req, res) => {
 
     const validation = validatePasswordStrength(newPassword);
     if (!validation.isValid) return res.status(400).json({ error: validation.message });
-    updateData.password = await bcrypt.hash(newPassword, 10);
+    updateData.password = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
 
     await prisma.user.update({
       where: { id: manager.id },

@@ -7,6 +7,7 @@ const TokenService = require('../services/tokenService');
 const otpService = require('../services/otpService');
 const bcrypt = require('bcrypt');
 const { validatePasswordStrength } = require('../utils/security');
+const { BCRYPT_ROUNDS } = require('../config/secrets');
 
 /**
  * Updates or creates a customer record and saves their FCM token.
@@ -135,6 +136,15 @@ const loginCustomer = async (req, res) => {
     const riskProfile = await customerRiskService.evaluateCustomerStatus(customer.id);
     const enrichedCustomer = { ...customer, ...riskProfile };
 
+    // 🛡️ Block blacklisted customers from receiving tokens
+    if (enrichedCustomer.isBlacklisted) {
+      logger.security('Blacklisted customer login attempt blocked', {
+        uuid: customer.uuid,
+        phone: cleanPhone.slice(0, 4) + '****'
+      });
+      return responseError(res, 'تم حظر حسابك مؤقتاً بسبب نشاط مشبوه', 'CUSTOMER_BLACKLISTED', 403);
+    }
+
     // 5. Issue Enterprise JWTs
     const accessToken = TokenService.generateAccessToken(enrichedCustomer);
     const refreshToken = await TokenService.generateAndSaveRefreshToken(enrichedCustomer);
@@ -151,8 +161,7 @@ const loginCustomer = async (req, res) => {
         id: customer.uuid,
         name: decrypt(customer.name),
         phone: decrypt(customer.phone),
-        username: customer.username,
-        isBlacklisted: enrichedCustomer.isBlacklisted
+        username: customer.username
       }
     });
   } catch (error) {
@@ -461,7 +470,7 @@ const changePassword = async (req, res) => {
       return responseError(res, 'كلمة المرور الحالية غير صحيحة', 'INVALID_CURRENT_PASSWORD', 401);
     }
 
-    const hashedNew = await bcrypt.hash(newPassword, 12);
+    const hashedNew = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
 
     await prisma.customer.update({
       where: { uuid },
