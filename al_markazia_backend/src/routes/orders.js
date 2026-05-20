@@ -51,6 +51,7 @@ const idempotency = require('../services/idempotencyService');
 const router = express.Router();
 
 // Require authentication for order creation — guests can only browse the menu
+// Idempotency-Key header (UUID) is mandatory — prevents duplicate orders on network retry
 router.post('/', authenticateToken, idempotency.guard(true), validateOrderBranch, healthGuard('db'), workingHoursGuard, orderLimiter, priceValidation, validateOrderCreate, createOrder);
 
 // New Secure Identity Route: Get orders for the authenticated customer

@@ -390,11 +390,31 @@ class IdempotencyService {
    */
   guard(required = false) {
     return (req, res, next) => {
-      const key = req.headers['x-idempotency-key'];
+      const key = req.headers['idempotency-key'] || req.headers['x-idempotency-key'];
+
       if (!key && required) {
-        return res.status(400).json({ error: 'IDEMPOTENCY_KEY_REQUIRED' });
+        return res.status(400).json({
+          success: false,
+          error: 'IDEMPOTENCY_KEY_REQUIRED',
+          message: 'مطلوب هيدر Idempotency-Key فريد (UUID) مع كل طلب شراء',
+          code: 'IDEMPOTENCY_KEY_REQUIRED'
+        });
       }
-      if (key) req.idempotencyKey = key;
+
+      if (key) {
+        // Validate UUID format to prevent abuse with arbitrary strings
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (!uuidRegex.test(key)) {
+          return res.status(400).json({
+            success: false,
+            error: 'INVALID_IDEMPOTENCY_KEY',
+            message: 'معرف المعاملة يجب أن يكون بصيغة UUID صحيحة',
+            code: 'INVALID_IDEMPOTENCY_KEY'
+          });
+        }
+        req.idempotencyKey = key;
+      }
+
       next();
     };
   }

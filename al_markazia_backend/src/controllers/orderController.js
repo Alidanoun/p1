@@ -111,7 +111,8 @@ exports.getOrderById = async (req, res) => {
  */
 
 exports.createOrder = async (req, res) => {
-  const idempotencyKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'];
+  // Idempotency key is enforced by middleware guard — must be a valid UUID
+  const idempotencyKey = req.idempotencyKey;
 
   try {
     const authUser = req.user;
@@ -125,7 +126,7 @@ exports.createOrder = async (req, res) => {
       {
         orderData: { ...req.body, branchId: validatedBranchId },
         cartItems: req.body.cartItems || req.body.items,
-        idempotencyKey: idempotencyKey || `create_${authUser.id}_${Date.now()}`
+        idempotencyKey
       },
       authUser
     );
