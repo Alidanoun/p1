@@ -25,6 +25,7 @@ const SOCKET_EVENTS = {
   DRIVER_LOCATION_UPDATE: 'tracking:location_update',
   NOTIFICATION_READ: 'notification:read',
   NOTIFICATION_READ_ALL: 'notification:read_all',
+  RESTAURANT_STATUS_CHANGED: 'restaurant:status_changed',
 };
 
 const SOCKET_ROOMS = {

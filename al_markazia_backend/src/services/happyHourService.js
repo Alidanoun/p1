@@ -28,30 +28,9 @@ class TimezoneCache {
   }
 
   async getBranchTimezone(branchId, prisma) {
-    if (!branchId) return DEFAULT_TIMEZONE;
-    const key = `tz:branch:${branchId}`;
     try {
-      if (this.redis && typeof this.redis.get === 'function') {
-        let tz = await this.redis.get(key);
-        if (!tz) {
-          const branch = await prisma.branch.findUnique({
-            where: { id: branchId },
-            select: { timezone: true }
-          });
-          tz = branch?.timezone || DEFAULT_TIMEZONE;
-          await this.redis.setex(key, this.ttl, tz).catch(() => {});
-        }
-        return tz;
-      }
-    } catch (e) {}
-
-    // Direct fallback if Redis degraded
-    try {
-      const branch = await prisma.branch.findUnique({
-        where: { id: branchId },
-        select: { timezone: true }
-      });
-      return branch?.timezone || DEFAULT_TIMEZONE;
+      const { getTimezone } = require('../utils/timezone');
+      return await getTimezone(branchId);
     } catch (e) {
       return DEFAULT_TIMEZONE;
     }
@@ -60,6 +39,8 @@ class TimezoneCache {
   async invalidate(branchId) {
     if (!branchId) return;
     try {
+      const nodeCache = require('../lib/memoryCache');
+      nodeCache.del(`tz_branch_${branchId}`);
       if (this.redis && typeof this.redis.del === 'function') {
         await this.redis.del(`tz:branch:${branchId}`);
       }

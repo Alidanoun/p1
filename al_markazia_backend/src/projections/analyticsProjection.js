@@ -3,6 +3,7 @@ const { toNumber, toMoney } = require('../utils/number');
 const accountingService = require('../services/accountingService');
 const redis = require('../lib/redis');
 const logger = require('../utils/logger');
+const { DEFAULT_TIMEZONE } = require('../config/constants');
 
 // Local in-memory fallbacks/cache for maximum performance, synchronous unit tests, and fault resilience
 const branchMap = new Map();
@@ -331,8 +332,16 @@ function handleStatusChange(payload) {
 
 async function syncFinancials(branchId) {
   const prisma = require('../lib/prisma');
-  const ammanNow = DateTime.now().setZone('Asia/Amman');
-  const ammanStartOfDay = ammanNow.startOf('day').toJSDate();
+  let tz = DEFAULT_TIMEZONE;
+  if (branchId) {
+    const branch = await prisma.branch.findUnique({
+      where: { id: branchId },
+      select: { timezone: true }
+    });
+    if (branch?.timezone) tz = branch.timezone;
+  }
+  const now = DateTime.now().setZone(tz);
+  const startOfDay = now.startOf('day').toJSDate();
 
   let metrics = getBranchMetrics(branchId);
   try {
@@ -343,7 +352,7 @@ async function syncFinancials(branchId) {
     where: {
       branchId,
       status: 'delivered',
-      createdAt: { gte: ammanStartOfDay },
+      createdAt: { gte: startOfDay },
       isDeleted: false
     },
     select: { total: true, subtotal: true, deliveryFee: true, discount: true },
@@ -354,7 +363,7 @@ async function syncFinancials(branchId) {
     where: {
       branchId,
       status: 'cancelled',
-      createdAt: { gte: ammanStartOfDay },
+      createdAt: { gte: startOfDay },
       isDeleted: false
     },
     select: { total: true },
@@ -402,8 +411,6 @@ async function syncFinancials(branchId) {
 
 async function replay(targetBranchId = null) {
   const prisma = require('../lib/prisma');
-  const ammanNow = DateTime.now().setZone('Asia/Amman');
-  const ammanStartOfDay = ammanNow.startOf('day').toJSDate();
 
   if (!targetBranchId) {
     const activeBranches = await prisma.branch.findMany({
@@ -417,10 +424,18 @@ async function replay(targetBranchId = null) {
   const branchesToProcess = targetBranchId ? [targetBranchId] : Array.from(activeBranchIds);
 
   for (const bid of branchesToProcess) {
+    let tz = DEFAULT_TIMEZONE;
+    const branchRecord = await prisma.branch.findUnique({
+      where: { id: bid },
+      select: { timezone: true }
+    });
+    if (branchRecord?.timezone) tz = branchRecord.timezone;
+    const startOfDay = DateTime.now().setZone(tz).startOf('day').toJSDate();
+
     const orders = await prisma.order.findMany({
       where: { 
         branchId: bid,
-        createdAt: { gte: ammanStartOfDay },
+        createdAt: { gte: startOfDay },
         isDeleted: false
       },
       select: { id: true, total: true, status: true, orderType: true, subtotal: true, deliveryFee: true, discount: true, tax: true, version: true },

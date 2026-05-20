@@ -31,19 +31,18 @@ async function withLock(lockName, ttlSeconds, fn) {
 }
 
 /**
- * 🌍 Load operating timezone from database settings.
- * Falls back to 'Asia/Amman' if the database is unavailable.
+ * 🌍 Load operating timezone using the central timezone helper.
  */
 async function loadTimezone() {
   try {
-    const prisma = require('../lib/prisma');
-    const settings = await prisma.restaurantSettings.findFirst({ where: { id: 1 }, select: { timezone: true } });
-    const tz = settings?.timezone || 'Asia/Amman';
+    const { getTimezone } = require('../utils/timezone');
+    const tz = await getTimezone();
     logger.info(`[Cron] Operating timezone loaded: ${tz}`);
     return tz;
   } catch (err) {
-    logger.warn('[Cron] Failed to load timezone from DB, falling back to Asia/Amman', { error: err.message });
-    return 'Asia/Amman';
+    const { DEFAULT_TIMEZONE } = require('../config/constants');
+    logger.warn(`[Cron] Failed to load timezone from helper, falling back to ${DEFAULT_TIMEZONE}`, { error: err.message });
+    return DEFAULT_TIMEZONE;
   }
 }
 

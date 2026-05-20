@@ -1,5 +1,6 @@
 const { DateTime } = require('luxon');
 const { toNumber } = require('../utils/number');
+const { DEFAULT_TIMEZONE } = require('../config/constants');
 
 /**
  * 📊 Analytics & Reporting Service
@@ -23,7 +24,16 @@ class AnalyticsService {
       throw new Error('ACCESS_DENIED: Unauthorized branch analytics');
     }
 
-    const now = DateTime.now().setZone('Asia/Amman');
+    let tz = DEFAULT_TIMEZONE;
+    if (branchId) {
+      const branch = await this.prisma.branch.findUnique({
+        where: { id: branchId },
+        select: { timezone: true }
+      });
+      if (branch?.timezone) tz = branch.timezone;
+    }
+
+    const now = DateTime.now().setZone(tz);
     const start = now.startOf('day').toJSDate();
     const end = now.endOf('day').toJSDate();
 
@@ -134,7 +144,16 @@ class AnalyticsService {
   async getDashboardMetrics(user, period = 'today') {
     if (!user) throw new Error('UNAUTHORIZED');
 
-    const now = DateTime.now().setZone('Asia/Amman');
+    const targetBranchId = user.role === 'admin' ? null : user.branchId;
+    let tz = DEFAULT_TIMEZONE;
+    if (targetBranchId) {
+      const branch = await this.prisma.branch.findUnique({
+        where: { id: targetBranchId },
+        select: { timezone: true }
+      });
+      if (branch?.timezone) tz = branch.timezone;
+    }
+    const now = DateTime.now().setZone(tz);
     let start, end;
 
     if (period === 'today') {
@@ -153,7 +172,7 @@ class AnalyticsService {
 
     // 1. 🛡️ Advanced Aggregation (Step 2 - DB Native)
     const metrics = await this.container.financialAggregatorService.aggregateBranchData(
-      user.role === 'admin' ? null : user.branchId,
+      targetBranchId,
       start,
       end
     );
@@ -163,7 +182,7 @@ class AnalyticsService {
     const orders = await this.prisma.order.findMany({
       where: {
         createdAt: { gte: start, lte: end },
-        branchId: user.role === 'admin' ? undefined : user.branchId,
+        branchId: targetBranchId || undefined,
         isDeleted: false
       },
       select: { createdAt: true, status: true }
@@ -171,7 +190,7 @@ class AnalyticsService {
 
     const chartMap = {};
     orders.forEach(o => {
-      const dt = DateTime.fromJSDate(o.createdAt).setZone('Asia/Amman');
+      const dt = DateTime.fromJSDate(o.createdAt).setZone(tz);
       const label = period === 'today' ? `${dt.hour}:00` : dt.toFormat('ccc', { locale: 'ar-EG' });
       chartMap[label] = (chartMap[label] || 0) + 1;
     });
@@ -182,7 +201,7 @@ class AnalyticsService {
     const topItemsData = await this.prisma.order.findMany({
       where: {
         createdAt: { gte: start, lte: end },
-        branchId: user.role === 'admin' ? undefined : user.branchId,
+        branchId: targetBranchId || undefined,
         isDeleted: false
       },
       select: { orderItems: { select: { itemName: true, quantity: true } } },
@@ -199,7 +218,7 @@ class AnalyticsService {
         totalDiscounts: metrics.totalDiscounts
       },
       chartData,
-      topItems: await this._calculateTopItems(start, end, user.role === 'admin' ? null : user.branchId)
+      topItems: await this._calculateTopItems(start, end, targetBranchId)
     };
   }
 

@@ -1,6 +1,7 @@
 const { DateTime } = require('luxon');
 const { toDecimal, Decimal } = require('../utils/number');
 const accountingService = require('./accountingService');
+const { DEFAULT_TIMEZONE } = require('../config/constants');
 
 /**
  * 🏛️ Financial Aggregator Service
@@ -12,15 +13,24 @@ class FinancialAggregatorService {
     this.container = container;
     this.prisma = container.prisma;
     this.logger = container.logger;
-    this.DEFAULT_TZ = 'Asia/Amman';
+    this.DEFAULT_TZ = DEFAULT_TIMEZONE;
   }
 
   /**
    * 🧮 Aggregate Branch Data for a Period
    */
   async aggregateBranchData(branchId, startDate, endDate) {
-    const start = DateTime.fromJSDate(startDate).setZone(this.DEFAULT_TZ).startOf('day').toJSDate();
-    const end = DateTime.fromJSDate(endDate).setZone(this.DEFAULT_TZ).endOf('day').toJSDate();
+    let tz = this.DEFAULT_TZ;
+    if (branchId) {
+      const branch = await this.prisma.branch.findUnique({
+        where: { id: branchId },
+        select: { timezone: true }
+      });
+      if (branch?.timezone) tz = branch.timezone;
+    }
+
+    const start = DateTime.fromJSDate(startDate).setZone(tz).startOf('day').toJSDate();
+    const end = DateTime.fromJSDate(endDate).setZone(tz).endOf('day').toJSDate();
 
     const whereBase = {
       createdAt: { gte: start, lte: end },
@@ -74,8 +84,8 @@ class FinancialAggregatorService {
    * Used for nightly snapshot generation.
    */
   async aggregateDailyGlobal(date) {
+    // We compute the system-wide baseline dayStart for the return object
     const dayStart = DateTime.fromJSDate(date).setZone(this.DEFAULT_TZ).startOf('day').toJSDate();
-    const dayEnd = DateTime.fromJSDate(date).setZone(this.DEFAULT_TZ).endOf('day').toJSDate();
 
     // Fetch all active branches
     const branches = await this.prisma.branch.findMany({
@@ -85,7 +95,8 @@ class FinancialAggregatorService {
 
     const results = [];
     for (const branch of branches) {
-      const metrics = await this.aggregateBranchData(branch.id, dayStart, dayEnd);
+      // Pass the raw date so each branch aggregates based on its own timezone boundaries
+      const metrics = await this.aggregateBranchData(branch.id, date, date);
       results.push({
         branchId: branch.id,
         date: dayStart,

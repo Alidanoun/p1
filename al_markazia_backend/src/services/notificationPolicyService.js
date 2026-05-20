@@ -1,6 +1,7 @@
 const prisma = require('../lib/prisma');
 const { DateTime } = require('luxon');
 const { EVENT_TYPE_CONFIG, NOTIFICATION_PRIORITIES } = require('../config/priorities.config');
+const { DEFAULT_TIMEZONE } = require('../config/constants');
 const logger = require('../utils/logger');
 
 /**
@@ -65,7 +66,7 @@ class NotificationPolicyService {
    * Checks if the current time is within the user's quiet hours.
    */
   async isQuietTime(user) {
-    const timezone = user.timezone || 'Africa/Cairo';
+    const timezone = user.timezone || DEFAULT_TIMEZONE;
     const now = DateTime.now().setZone(timezone);
     const hour = now.hour;
 

@@ -12,6 +12,41 @@ class WorkingHoursService {
   constructor() {
     this.CACHE_KEY = 'restaurant_status';
     this.CACHE_TTL = 30; // ⚡ Reduced to 30 seconds for better responsiveness
+    this.lastKnownState = new Map();
+    
+    // Poll the status every 30 seconds to automatically emit changes even if there are no incoming requests
+    setInterval(() => {
+      this.getStatus().catch(() => {});
+    }, 30000);
+  }
+
+  _cacheAndEmit(cacheKey, branchId, status) {
+    const lastState = this.lastKnownState.get(cacheKey);
+    const isChanged = !lastState || 
+                      lastState.isOpen !== status.isOpen || 
+                      lastState.isEmergency !== status.isEmergency || 
+                      lastState.isClosed !== status.isClosed;
+
+    if (isChanged && lastState !== undefined) {
+      try {
+        const socketModule = require('../socket');
+        if (socketModule.isReady && socketModule.isReady()) {
+          const { SOCKET_EVENTS } = require('../shared/socketEvents');
+          const payload = {
+            branchId: (branchId === 'all' || branchId === 'null' || branchId === 'undefined') ? null : branchId,
+            status: status
+          };
+          socketModule.getIO().emit(SOCKET_EVENTS.RESTAURANT_STATUS_CHANGED, payload);
+          logger.info(`[WorkingHours] Emitted restaurant:status_changed`, payload);
+        }
+      } catch (err) {
+        logger.error('[WorkingHours] Failed to emit status_changed', { error: err.message });
+      }
+    }
+
+    this.lastKnownState.set(cacheKey, status);
+    nodeCache.set(cacheKey, status, this.CACHE_TTL);
+    return status;
   }
 
   /**
@@ -59,8 +94,7 @@ class WorkingHoursService {
               reason: 'هذا الفرع مغلق مؤقتاً لأعمال الصيانة والتحديثات',
               reasonEn: 'This branch is temporarily closed for maintenance.'
             };
-            nodeCache.set(cacheKey, status, this.CACHE_TTL);
-            return status;
+            return this._cacheAndEmit(cacheKey, branchId, status);
           }
           
           // If branch is emergency closed
@@ -76,8 +110,7 @@ class WorkingHoursService {
                 reason: branch.closureReason || 'الفرع مغلق مؤقتاً للراحة أو لأسباب فنية',
                 nextOpenAt: reopenAtLocal ? reopenAtLocal.toISO() : null
               };
-              nodeCache.set(cacheKey, status, this.CACHE_TTL);
-              return status;
+              return this._cacheAndEmit(cacheKey, branchId, status);
             } else {
               // Auto-Reopen the branch in DB
               logger.info(`[WorkingHours] Branch ${branchId} emergency closure expired. Reopening automatically.`);
@@ -123,8 +156,7 @@ class WorkingHoursService {
             reason: settings.closureReason || 'المطعم مغلق حالياً لأسباب فنية',
             nextOpenAt: reopenAtLocal ? reopenAtLocal.toISO() : null
           };
-          nodeCache.set(cacheKey, status, this.CACHE_TTL);
-          return status;
+          return this._cacheAndEmit(cacheKey, branchId, status);
         } else {
           // 🚀 Persistence: Update DB to clear the expired flag to prevent log spam and logic drift
           logger.info('[WorkingHours] Emergency closure expired. Reopening automatically in DB.');
@@ -166,8 +198,7 @@ class WorkingHoursService {
             source: 'yesterday_shift',
             isLateNight: true 
           };
-          nodeCache.set(cacheKey, status, this.CACHE_TTL);
-          return status;
+          return this._cacheAndEmit(cacheKey, branchId, status);
         }
       }
 
@@ -177,8 +208,7 @@ class WorkingHoursService {
 
       if (!todaySchedule || todaySchedule.isClosed) {
         const status = await this._getClosedStatus(nowLocal, schedule, settings);
-        nodeCache.set(cacheKey, status, this.CACHE_TTL);
-        return status;
+        return this._cacheAndEmit(cacheKey, branchId, status);
       }
 
       const openM = getM(todaySchedule.openTime);
@@ -207,8 +237,7 @@ class WorkingHoursService {
           }
         : await this._getClosedStatus(nowLocal, schedule, settings);
 
-      nodeCache.set(cacheKey, status, this.CACHE_TTL);
-      return status;
+      return this._cacheAndEmit(cacheKey, branchId, status);
     } catch (error) {
       logger.error('[WORKING_HOURS_FAIL_CLOSE] reason=CALCULATION_ERROR. Blocking orders.', { error: error.message });
       return { 
