@@ -62,6 +62,15 @@ const prisma = basePrisma.$extends({
         if (writeActions.includes(operation) && args.data) {
           const isAlreadyEncrypted = (val) => {
             if (typeof val !== 'string' || !val.includes(':')) return false;
+            // GCM format: gcm:iv:ciphertext:tag
+            if (val.startsWith('gcm:')) {
+              const parts = val.split(':');
+              if (parts.length !== 4) return false;
+              const ivHex = parts[1];
+              const tagHex = parts[3];
+              return ivHex.length === 24 && tagHex.length === 32 && /^[0-9a-fA-F]+$/.test(ivHex) && /^[0-9a-fA-F]+$/.test(tagHex);
+            }
+            // Legacy CBC format: iv:ciphertext
             const [ivHex] = val.split(':');
             return ivHex.length === 32 && /^[0-9a-fA-F]+$/.test(ivHex);
           };
