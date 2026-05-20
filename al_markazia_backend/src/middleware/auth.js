@@ -228,6 +228,18 @@ const optionalAuth = async (req, res, next) => {
     return runInContext(req.user, () => next());
 
   } catch (error) {
+    // 🛡️ Block session hijacking attempts even in optional auth mode
+    if (error.message === 'SESSION_HIJACKED') {
+      logger.security('[OptionalAuth] Session hijack attempt blocked', { ip: req.ip, userAgent: req.headers['user-agent'] });
+      res.set('X-Session-Status', 'hijacked');
+      return res.status(403).json({
+        success: false,
+        error: 'جلسة غير صالحة',
+        message: 'تم اكتشاف نشاط مشبوه. يرجى تسجيل الدخول مجدداً.',
+        code: 'SESSION_HIJACKED'
+      });
+    }
+
     logger.debug(`[OptionalAuth] Invalid or expired token: ${error.message}. Treating user as Guest.`, { ip: req.ip });
     req.user = null;
     res.set('X-Session-Status', 'expired');

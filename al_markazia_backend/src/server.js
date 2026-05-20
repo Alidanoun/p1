@@ -152,7 +152,8 @@ async function startServer() {
     app.use(cors({
       origin: (origin, callback) => {
         if (!origin) return callback(null, true);
-        const isLocal = /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3})(:\d+)?$/.test(origin);
+        // Only allow localhost origins in development — production uses allowedOriginRegexes
+        const isLocal = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
         const isAllowed = allowedOriginRegexes.some(regex => regex.test(origin));
         if (isLocal || isAllowed) callback(null, true);
         else callback(new Error('Not allowed by CORS'), false);
