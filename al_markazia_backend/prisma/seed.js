@@ -39,7 +39,7 @@ async function main() {
       emailHash: emailHash,
       name: encrypt('System Administrator'),
       password: hashedPassword,
-      role: 'admin',
+      role: 'ADMIN',
       isActive: true
     }
   });

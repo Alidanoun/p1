@@ -25,7 +25,7 @@ async function main() {
     update: {
       password: hashedPassword,
       isActive: true,
-      role: 'admin',
+      role: 'ADMIN',
       failedAttempts: 0,
       lockUntil: null
     },
@@ -34,7 +34,7 @@ async function main() {
       emailHash: emailHash,
       password: hashedPassword,
       name: encrypt('System Administrator'),
-      role: 'admin',
+      role: 'ADMIN',
       isActive: true
     }
   });

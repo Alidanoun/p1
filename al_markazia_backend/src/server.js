@@ -281,7 +281,7 @@ async function startServer() {
           const SecurityPolicyService = require('./services/securityPolicyService');
 
           try {
-            console.log('🔄 [BackgroundSync] Starting system rehydration...');
+            logger.info('[BackgroundSync] Starting system rehydration...');
             console.time('🚀 [Rehydration] Total');
             
             await orderProjection.replay();

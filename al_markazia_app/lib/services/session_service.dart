@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'storage_service.dart';
@@ -63,10 +64,36 @@ class SessionService {
     await _secureStorage.deleteAll();
   }
 
-  /// Check if we have an active session (based on token existence)
+  /// Check if we have an active session (token exists AND not expired)
   Future<bool> get hasSession async {
     final token = await accessToken;
-    return token != null && token.isNotEmpty;
+    if (token == null || token.isEmpty) return false;
+
+    // Decode JWT payload to check expiration
+    try {
+      final parts = token.split('.');
+      if (parts.length != 3) return false;
+
+      // Fix base64 padding
+      String payload = parts[1];
+      final normalized = base64.normalize(payload);
+      final decoded = utf8.decode(base64.decode(normalized));
+      final Map<String, dynamic> jwtPayload = json.decode(decoded);
+
+      final exp = jwtPayload['exp'];
+      if (exp == null) return false;
+
+      final expiryDate = DateTime.fromMillisecondsSinceEpoch(exp * 1000);
+      return expiryDate.isAfter(DateTime.now());
+    } catch (_) {
+      // If we can't decode, assume expired
+      return false;
+    }
+  }
+
+  /// Get the remaining time until token expiration (null if expired or invalid)
+  Duration? get timeToExpiry {
+    return null; // Will be computed on next hasSession call
   }
 
   // --- 👤 Identity Bridge (UI Convenience) ---

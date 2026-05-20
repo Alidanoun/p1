@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/order_model.dart';
@@ -23,6 +24,13 @@ class CheckoutScreen extends StatefulWidget {
 
 class _CheckoutScreenState extends State<CheckoutScreen> {
   final _formKey = GlobalKey<FormState>();
+  Timer? _submitDebounce;
+
+  @override
+  void dispose() {
+    _submitDebounce?.cancel();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -34,6 +42,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   void _confirmOrder() async {
+    // 🛡️ Debounce: Prevent double-tap on Place Order button
+    if (_submitDebounce?.isActive ?? false) return;
+    _submitDebounce = Timer(const Duration(seconds: 2), () {});
+
     final checkout = context.read<CheckoutController>();
     final cart = context.read<CartController>();
     final auth = context.read<AuthController>();

@@ -35,7 +35,7 @@ class AlertService {
     await coordinator.coordinateAlert(alertId, async () => {
       logger.error(`[Alert] 🚨 CRITICAL DISPATCH: ${message}`);
       // Professional Integration: Telegram/Email logic goes here
-      console.error(`\x1b[41m\x1b[37m [SYSTEM ALERT - ${service}] ${message} \x1b[0m`);
+      logger.error(`[SYSTEM ALERT - ${service}] ${message}`);
     });
   }
 
@@ -45,7 +45,7 @@ class AlertService {
 
     await coordinator.coordinateAlert(alertId, async () => {
       logger.warn(`[Alert] 🟡 WARNING DISPATCH: ${message}`);
-      console.warn(`\x1b[43m\x1b[30m [SYSTEM WARNING - ${service}] ${message} \x1b[0m`);
+      logger.warn(`[SYSTEM WARNING - ${service}] ${message}`);
     });
   }
 

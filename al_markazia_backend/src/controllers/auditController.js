@@ -95,7 +95,7 @@ const getLogs = async (req, res) => {
       }
     });
   } catch (err) {
-    console.error('[AuditEnrichment] Error:', err);
+    logger.error('[AuditEnrichment] Error:', { error: err.message });
     response.error(res, 'Failed to fetch audit logs', 'AUDIT_FETCH_ERROR');
   }
 };

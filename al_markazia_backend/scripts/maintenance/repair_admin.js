@@ -33,7 +33,7 @@ async function repairAdmin() {
         emailHash: emailHash,
         password: hashedPassword,
         name: encryptedName,
-        role: 'admin',
+        role: 'ADMIN',
         isActive: true,
         uuid: 'b5083650-97e9-4a59-9914-19767f095fb8' // Use the one from the previous logs if possible
       }

@@ -36,7 +36,7 @@ async function seedBranches() {
         email: encryptedEmail,
         password: hashedPassword,
         branchId: branch.id,
-        role: 'branch_manager',
+        role: 'BRANCH_MANAGER',
         isActive: true
       },
       create: {
@@ -44,7 +44,7 @@ async function seedBranches() {
         emailHash: emailHash,
         name: encrypt(b.name + ' Manager'),
         password: hashedPassword,
-        role: 'branch_manager',
+        role: 'BRANCH_MANAGER',
         branchId: branch.id,
         isActive: true
       }

@@ -8,7 +8,7 @@ async function verifyRotationLogic() {
   
   try {
     // 1. Find the admin user
-    const user = await prisma.user.findFirst({ where: { role: 'admin' } });
+    const user = await prisma.user.findFirst({ where: { role: 'ADMIN' } });
     if (!user) throw new Error('Admin user not found for test');
 
     console.log(`👤 Testing rotation for: ${user.uuid}`);

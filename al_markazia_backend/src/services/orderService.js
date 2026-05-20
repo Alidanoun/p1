@@ -1363,7 +1363,7 @@ class OrderService {
           },
           branchItems: branchId ? {
             where: { branchId: branchId },
-            select: { isAvailable: true }
+            select: { isAvailable: true, stockCount: true }
           } : false
         }
       }),
@@ -1395,6 +1395,13 @@ class OrderService {
         // Branch-specific availability override
         const branchAvailability = dbItem.branchItems[0].isAvailable;
         if (!branchAvailability) throw new Error(`ITEM_UNAVAILABLE_IN_BRANCH:${dbItem.title}`);
+
+        // 🛡️ [STOCK-VALIDATION] Check stock count against requested quantity
+        const stockCount = dbItem.branchItems[0].stockCount;
+        const requestedQty = parseInt(item.quantity) || 1;
+        if (stockCount >= 0 && stockCount < requestedQty) {
+          throw new Error(`INSUFFICIENT_STOCK:${dbItem.title}:requested=${requestedQty}:available=${stockCount}`);
+        }
       } else {
         // Global availability fallback (if no branch context)
         if (!dbItem.isAvailable) throw new Error(`ITEM_UNAVAILABLE:${dbItem.title}`);

@@ -33,7 +33,7 @@ const logFinancialEvent = (auditData) => {
   
   // Also log to console in dev for visibility
   if (process.env.NODE_ENV !== 'production') {
-    console.log(`💰 [FINANCE] ${auditData.event} | Order: ${auditData.order_id} | Delta: ${auditData.delta}`);
+    logger.info(`[FINANCE] ${auditData.event} | Order: ${auditData.order_id} | Delta: ${auditData.delta}`);
   }
 };
 

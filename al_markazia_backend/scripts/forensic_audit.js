@@ -8,7 +8,7 @@ async function forensicAudit() {
   
   try {
     const users = await prisma.user.findMany({
-      where: { role: 'admin' },
+      where: { role: 'ADMIN' },
       include: { branch: true }
     });
 

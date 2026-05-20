@@ -18,19 +18,19 @@ const ACCOUNTS = [
   {
     email: 'admin@almarkazia.com',
     name: 'المدير العام',
-    role: 'admin',
+    role: 'ADMIN',
     branchId: null
   },
   {
     email: 'khalda@almarkazia.com',
     name: 'مدير فرع الخالدة',
-    role: 'branch_manager',
+    role: 'BRANCH_MANAGER',
     branchId: null // will be resolved
   },
   {
     email: 'madina@almarkazia.com',
     name: 'مدير فرع المدينة',
-    role: 'branch_manager',
+    role: 'BRANCH_MANAGER',
     branchId: null // will be resolved
   }
 ];

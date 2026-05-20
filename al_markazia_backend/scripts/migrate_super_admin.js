@@ -9,7 +9,7 @@ async function main() {
       role: 'super_admin',
     },
     data: {
-      role: 'admin',
+      role: 'ADMIN',
     },
   });
 
