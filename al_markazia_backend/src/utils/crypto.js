@@ -13,6 +13,7 @@ const GCM_TAG_LENGTH = 16;
 const GCM_PREFIX = 'gcm:';
 
 const rawKey = process.env.ENCRYPTION_KEY;
+const rawSalt = process.env.ENCRYPTION_SALT || 'al-markazia-enterprise-v2-scrypt-kdf-salt-2026-production';
 
 /**
  * 🛡️ Validates key existence and length.
@@ -22,7 +23,7 @@ function getEncryptionKey() {
   if (!rawKey || rawKey.length < 32) {
     throw new Error('CRITICAL_SECURITY_ERROR: ENCRYPTION_KEY is missing or too weak (min 32 chars).');
   }
-  return crypto.scryptSync(rawKey, 'salt-pepper', 32);
+  return crypto.scryptSync(rawKey, rawSalt, 32);
 }
 
 let cachedKey = null;
