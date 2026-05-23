@@ -19,6 +19,7 @@ import RewardStoreManager from './pages/RewardStoreManager';
 import DeliveryZonesManager from './pages/DeliveryZonesManager';
 import AuditLog from './pages/AuditLog';
 import BranchMenu from './pages/BranchMenu';
+import BranchManager from './pages/BranchManager';
 import ProtectedRoute from './components/ProtectedRoute';
 import ErrorBoundary from './components/ErrorBoundary';
 
@@ -124,6 +125,11 @@ function App() {
             <Route path="/audit" element={
               <ProtectedRoute requiredRole="admin">
                 <AuditLog />
+              </ProtectedRoute>
+            } />
+            <Route path="/branches" element={
+              <ProtectedRoute requiredRole="admin">
+                <BranchManager />
               </ProtectedRoute>
             } />
           </Route>

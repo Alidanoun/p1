@@ -1,0 +1,100 @@
+⟐ injected env (95) from .env.production · dotenvx@1.67.0
+⟐ injected env (95) from .env.production · dotenvx@1.67.0
+📡 [OTel] OpenTelemetry SDK initialized successfully
+[dotenv@17.3.1] injecting env (0) from .env -- tip: ⚡️ secrets for agents: https://dotenvx.com/as2
+🛡️  Sentry initialized - Environment: production
+[dotenv@17.3.1] injecting env (0) from .env -- tip: 🤖 agentic secret storage: https://dotenvx.com/as2
+[ioredis] Unhandled error event: ReplyError: WRONGPASS invalid username-password pair or user is disabled.
+    at parseError (/usr/src/app/node_modules/redis-parser/lib/parser.js:179:12)
+    at parseType (/usr/src/app/node_modules/redis-parser/lib/parser.js:302:14)
+ReplyError: WRONGPASS invalid username-password pair or user is disabled.
+    at parseError (/usr/src/app/node_modules/redis-parser/lib/parser.js:179:12)
+    at parseType (/usr/src/app/node_modules/redis-parser/lib/parser.js:302:14) {
+  command: { name: 'auth', args: [ '1512c1278d53baba1432788bf072de04' ] }
+}
+[ioredis] Unhandled error event: ReplyError: WRONGPASS invalid username-password pair or user is disabled.
+    at parseError (/usr/src/app/node_modules/redis-parser/lib/parser.js:179:12)
+    at parseType (/usr/src/app/node_modules/redis-parser/lib/parser.js:302:14)
+ReplyError: WRONGPASS invalid username-password pair or user is disabled.
+    at parseError (/usr/src/app/node_modules/redis-parser/lib/parser.js:179:12)
+    at parseType (/usr/src/app/node_modules/redis-parser/lib/parser.js:302:14) {
+  command: { name: 'auth', args: [ '1512c1278d53baba1432788bf072de04' ] }
+}
+[ioredis] Unhandled error event: ReplyError: WRONGPASS invalid username-password pair or user is disabled.
+    at parseError (/usr/src/app/node_modules/redis-parser/lib/parser.js:179:12)
+    at parseType (/usr/src/app/node_modules/redis-parser/lib/parser.js:302:14)
+[ioredis] Unhandled error event: ReplyError: NOAUTH Authentication required.
+    at parseError (/usr/src/app/node_modules/redis-parser/lib/parser.js:179:12)
+    at parseType (/usr/src/app/node_modules/redis-parser/lib/parser.js:302:14)
+ReplyError: WRONGPASS invalid username-password pair or user is disabled.
+    at parseError (/usr/src/app/node_modules/redis-parser/lib/parser.js:179:12)
+    at parseType (/usr/src/app/node_modules/redis-parser/lib/parser.js:302:14) {
+  command: { name: 'auth', args: [ '1512c1278d53baba1432788bf072de04' ] }
+}
+☠ Command failed with exit code 1: /usr/local/bin/node src/server.js
+This error originated either by throwing inside of an async function without a catch block, or by rejecting a promise which was not handled with .catch(). The promise rejected with the reason:
+ReplyError: WRONGPASS invalid username-password pair or user is disabled.
+    at parseError (/usr/src/app/node_modules/redis-parser/lib/parser.js:179:12)
+    at parseType (/usr/src/app/node_modules/redis-parser/lib/parser.js:302:14)
+ReplyError: WRONGPASS invalid username-password pair or user is disabled.
+    at parseError (/usr/src/app/node_modules/redis-parser/lib/parser.js:179:12)
+    at parseType (/usr/src/app/node_modules/redis-parser/lib/parser.js:302:14) {
+  command: { name: 'auth', args: [ '1512c1278d53baba1432788bf072de04' ] }
+}
+ReplyError: WRONGPASS invalid username-password pair or user is disabled.
+    at parseError (/usr/src/app/node_modules/redis-parser/lib/parser.js:179:12)
+    at parseType (/usr/src/app/node_modules/redis-parser/lib/parser.js:302:14) {
+  command: { name: 'auth', args: [ '1512c1278d53baba1432788bf072de04' ] }
+}
+ReplyError: WRONGPASS invalid username-password pair or user is disabled.
+    at parseError (/usr/src/app/node_modules/redis-parser/lib/parser.js:179:12)
+    at parseType (/usr/src/app/node_modules/redis-parser/lib/parser.js:302:14) {
+  command: { name: 'auth', args: [ '1512c1278d53baba1432788bf072de04' ] }
+}
+ReplyError: WRONGPASS invalid username-password pair or user is disabled.
+    at parseError (/usr/src/app/node_modules/redis-parser/lib/parser.js:179:12)
+    at parseType (/usr/src/app/node_modules/redis-parser/lib/parser.js:302:14) {
+  command: { name: 'auth', args: [ '1512c1278d53baba1432788bf072de04' ] }
+}
+ReplyError: WRONGPASS invalid username-password pair or user is disabled.
+    at parseError (/usr/src/app/node_modules/redis-parser/lib/parser.js:179:12)
+    at parseType (/usr/src/app/node_modules/redis-parser/lib/parser.js:302:14) {
+  command: { name: 'auth', args: [ '1512c1278d53baba1432788bf072de04' ] }
+}
+[ioredis] Unhandled error event: ReplyError: WRONGPASS invalid username-password pair or user is disabled.
+    at parseError (/usr/src/app/node_modules/redis-parser/lib/parser.js:179:12)
+    at parseType (/usr/src/app/node_modules/redis-parser/lib/parser.js:302:14)
+[ioredis] Unhandled error event: ReplyError: WRONGPASS invalid username-password pair or user is disabled.
+    at parseError (/usr/src/app/node_modules/redis-parser/lib/parser.js:179:12)
+    at parseType (/usr/src/app/node_modules/redis-parser/lib/parser.js:302:14)
+ReplyError: WRONGPASS invalid username-password pair or user is disabled.
+    at parseError (/usr/src/app/node_modules/redis-parser/lib/parser.js:179:12)
+    at parseType (/usr/src/app/node_modules/redis-parser/lib/parser.js:302:14) {
+  command: { name: 'auth', args: [ '1512c1278d53baba1432788bf072de04' ] }
+}
+[ioredis] Unhandled error event: ReplyError: WRONGPASS invalid username-password pair or user is disabled.
+    at parseError (/usr/src/app/node_modules/redis-parser/lib/parser.js:179:12)
+    at parseType (/usr/src/app/node_modules/redis-parser/lib/parser.js:302:14)
+[ioredis] Unhandled error event: ReplyError: NOAUTH Authentication required.
+    at parseError (/usr/src/app/node_modules/redis-parser/lib/parser.js:179:12)
+    at parseType (/usr/src/app/node_modules/redis-parser/lib/parser.js:302:14)
+ReplyError: WRONGPASS invalid username-password pair or user is disabled.
+    at parseError (/usr/src/app/node_modules/redis-parser/lib/parser.js:179:12)
+    at parseType (/usr/src/app/node_modules/redis-parser/lib/parser.js:302:14) {
+  command: { name: 'auth', args: [ '1512c1278d53baba1432788bf072de04' ] }
+}
+ReplyError: WRONGPASS invalid username-password pair or user is disabled.
+    at parseError (/usr/src/app/node_modules/redis-parser/lib/parser.js:179:12)
+    at parseType (/usr/src/app/node_modules/redis-parser/lib/parser.js:302:14) {
+  command: { name: 'auth', args: [ '1512c1278d53baba1432788bf072de04' ] }
+}
+[ioredis] Unhandled error event: ReplyError: WRONGPASS invalid username-password pair or user is disabled.
+    at parseError (/usr/src/app/node_modules/redis-parser/lib/parser.js:179:12)
+    at parseType (/usr/src/app/node_modules/redis-parser/lib/parser.js:302:14)
+⟐ injected env (95) from .env.production · dotenvx@1.67.0
+📡 [OTel] OpenTelemetry SDK initialized successfully
+[dotenv@17.3.1] injecting env (0) from .env -- tip: ⚡️ secrets for agents: https://dotenvx.com/as2
+[ioredis] Unhandled error event: ReplyError: WRONGPASS invalid username-password pair or user is disabled.
+    at parseError (/usr/src/app/node_modules/redis-parser/lib/parser.js:179:12)
+    at parseType (/usr/src/app/node_modules/redis-parser/lib/parser.js:302:14)
+☠ Command failed with exit code 1: /usr/local/bin/node src/server.js

@@ -162,6 +162,7 @@ exports.getAllBranches = async (req, res) => {
       select: {
         id: true,
         name: true,
+        code: true,
         address: true,
         phone: true,
         isActive: true,
@@ -269,6 +270,9 @@ exports.deleteBranch = async (req, res) => {
       req
     });
 
+    const io = require('../socket').getIO();
+    io?.emit('branch:updated');
+
     return response.success(res, { message: 'تم حذف الفرع بنجاح (حذف منطقي)' });
 
   } catch (error) {
@@ -322,7 +326,6 @@ exports.createBranch = async (req, res) => {
 
     const {
       name,
-      code,
       address,
       phone,
       managerEmail,
@@ -332,10 +335,13 @@ exports.createBranch = async (req, res) => {
       visibleInApp,
       appDisplayOrder
     } = req.body;
+    let { code } = req.body;
 
     if (!name || !code || !managerEmail || !managerPassword || !managerPin) {
       return response.error(res, 'الاسم والكود والبريد الإلكتروني وكلمة المرور والـ PIN مطلوبة', 'INVALID_PAYLOAD', 400);
     }
+    
+    code = code.trim().toUpperCase();
 
     // 1. Password Strength Validation
     const { validatePasswordStrength } = require('../utils/security');
@@ -458,6 +464,9 @@ exports.createBranch = async (req, res) => {
       metadata: { branchId: result.branch.id, branchName: result.branch.name, managerId: result.manager.id },
       req
     });
+
+    const io = require('../socket').getIO();
+    io?.emit('branch:updated');
 
     return response.success(res, {
       message: 'تم إنشاء الفرع ومدير الفرع بنجاح وتعيين الصلاحيات',
@@ -716,4 +725,69 @@ exports.getActiveBranchesForApp = async (req, res) => {
     return res.status(500).json({ success: false, error: 'Internal Server Error' });
   }
 };
+
+/**
+ * 📝 Update Branch Details
+ */
+exports.updateBranch = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, address, phone } = req.body;
+    const user = req.user;
+
+    const branch = await prisma.branch.update({
+      where: { id },
+      data: { name, address, phone }
+    });
+
+    await auditService.log({
+      action: 'BRANCH_UPDATED',
+      userId: user.id,
+      userRole: user.role,
+      metadata: { branchId: id, name },
+      req
+    });
+
+    const io = require('../socket').getIO();
+    io?.emit('branch:updated');
+
+    return response.success(res, { message: 'تم تحديث الفرع بنجاح', data: branch });
+  } catch (error) {
+    logger.error('Update branch error', { error: error.message });
+    return response.error(res, 'فشل في تحديث الفرع', 'SERVER_ERROR', 500);
+  }
+};
+
+/**
+ * 🔄 Toggle Branch Status
+ */
+exports.toggleBranchStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { isActive } = req.body;
+    const user = req.user;
+
+    const branch = await prisma.branch.update({
+      where: { id },
+      data: { isActive }
+    });
+
+    await auditService.log({
+      action: 'BRANCH_STATUS_TOGGLED',
+      userId: user.id,
+      userRole: user.role,
+      metadata: { branchId: id, isActive },
+      req
+    });
+
+    const io = require('../socket').getIO();
+    io?.emit('branch:updated');
+
+    return response.success(res, { message: 'تم تحديث حالة الفرع بنجاح', data: branch });
+  } catch (error) {
+    logger.error('Toggle branch status error', { error: error.message });
+    return response.error(res, 'فشل في تحديث حالة الفرع', 'SERVER_ERROR', 500);
+  }
+};
+
 

@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, ListOrdered, MenuSquare, LogOut, Utensils, Settings, BarChart2, TrendingUp, Send, Star, XCircle, Stars, MapPin, Moon, Sun, Gift, ShieldCheck } from 'lucide-react';
+import { LayoutDashboard, ListOrdered, MenuSquare, LogOut, Utensils, Settings, BarChart2, TrendingUp, Send, Star, XCircle, Stars, MapPin, Moon, Sun, Gift, ShieldCheck, Building2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { cn } from '../lib/utils';
@@ -13,23 +13,52 @@ const Sidebar = () => {
   const isAdmin = role === 'admin';
   const isBranchManager = role === 'manager' || role === 'branch_manager';
 
-  const navItems = [
-    { name: 'مركز العمليات', icon: LayoutDashboard, path: '/', isLive: true, show: isAdmin || isBranchManager },
-    { name: 'الطلبات الحية', icon: ListOrdered, path: '/orders', show: true },
-    { name: 'إدارة القائمة', icon: MenuSquare, path: '/menu', show: isAdmin },
-    { name: 'منيو الفرع', icon: Utensils, path: '/branch-menu', show: isAdmin || isBranchManager },
-
-    { name: 'بث الإشعارات', icon: Send, path: '/broadcast', show: isAdmin },
-    { name: 'إدارة التقييمات', icon: Star, path: '/reviews', show: isAdmin },
-    { name: 'إدارة الولاء', icon: Stars, path: '/loyalty', show: isAdmin },
-    { name: 'متجر المكافآت', icon: Gift, path: '/rewards-store', show: isAdmin },
-    { name: 'الطلبات الملغاة', icon: XCircle, path: '/cancelled-orders', show: isAdmin },
-    { name: 'الإحصائيات المتقدمة', icon: TrendingUp, path: '/analytics', show: isAdmin },
-    { name: 'المالية والتقارير', icon: BarChart2, path: '/reports', show: isAdmin },
-    { name: 'مناطق التوصيل', icon: MapPin, path: '/delivery-zones', show: isAdmin },
-    { name: 'سجل التدقيق', icon: ShieldCheck, path: '/audit', show: isAdmin },
-    { name: 'الإعدادات', icon: Settings, path: '/settings', show: isAdmin },
-  ].filter(item => item.show);
+  const navGroups = [
+    {
+      label: 'العمليات اليومية',
+      items: [
+        { name: 'مركز العمليات', icon: LayoutDashboard, path: '/', isLive: true, show: isAdmin || isBranchManager },
+        { name: 'الطلبات الحية', icon: ListOrdered, path: '/orders', show: true },
+        { name: 'الطلبات الملغاة', icon: XCircle, path: '/cancelled-orders', show: isAdmin },
+      ]
+    },
+    {
+      label: 'إدارة المحتوى',
+      show: isAdmin || isBranchManager,
+      items: [
+        { name: 'إدارة القائمة', icon: MenuSquare, path: '/menu', show: isAdmin },
+        { name: 'منيو الفرع', icon: Utensils, path: '/branch-menu', show: isBranchManager },
+        { name: 'مناطق التوصيل', icon: MapPin, path: '/delivery-zones', show: isAdmin },
+      ]
+    },
+    {
+      label: 'العملاء والتسويق',
+      show: isAdmin,
+      items: [
+        { name: 'التقييمات', icon: Star, path: '/reviews', show: isAdmin },
+        { name: 'برنامج الولاء', icon: Stars, path: '/loyalty', show: isAdmin },
+        { name: 'متجر المكافآت', icon: Gift, path: '/rewards-store', show: isAdmin },
+        { name: 'إشعارات وعروض', icon: Send, path: '/broadcast', show: isAdmin },
+      ]
+    },
+    {
+      label: 'التحليل والمالية',
+      show: isAdmin,
+      items: [
+        { name: 'الإحصائيات', icon: TrendingUp, path: '/analytics', show: isAdmin },
+        { name: 'التقارير المالية', icon: BarChart2, path: '/reports', show: isAdmin },
+      ]
+    },
+    {
+      label: 'الإدارة والنظام',
+      show: isAdmin,
+      items: [
+        { name: 'إدارة الفروع', icon: Building2, path: '/branches', show: isAdmin },
+        { name: 'الإعدادات', icon: Settings, path: '/settings', show: isAdmin },
+        { name: 'سجل التدقيق', icon: ShieldCheck, path: '/audit', show: isAdmin },
+      ]
+    },
+  ].filter(group => group.show !== false);
 
   return (
     <aside className="w-[280px] h-full flex flex-col bg-card/80 backdrop-blur-xl border-l border-border-subtle py-6 shrink-0 relative z-20 shadow-2xl">
@@ -45,43 +74,53 @@ const Sidebar = () => {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 flex flex-col gap-2 px-4 overflow-y-auto">
-        <div className="text-xs font-semibold text-text-muted mb-2 px-2">القائمة الرئيسية</div>
-        {navItems.map((item) => (
-          <NavLink
-            key={item.path}
-            to={item.path}
-            className={({ isActive }) => cn(
-              "group relative flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all duration-300 overflow-hidden",
-              isActive
-                ? "text-white bg-primary shadow-lg shadow-primary/20"
-                : "text-text-muted hover:text-white hover:bg-white/5"
-            )}
-          >
-            {({ isActive }) => (
-              <>
-                {isActive && (
-                  <motion.div
-                    layoutId="activeTab"
-                    className="absolute inset-0 bg-primary z-0"
-                    initial={false}
-                    transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                  />
-                )}
-                <div className="relative z-10 flex items-center gap-3 w-full">
-                  <item.icon className={cn("w-5 h-5 transition-colors", isActive ? "text-white" : "text-text-muted group-hover:text-primary")} />
-                  <span className="flex-1">{item.name}</span>
-                  {item.isLive && (
-                    <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                      <span className="text-[10px] font-black text-emerald-500 uppercase tracking-tighter">Live</span>
-                    </div>
+      <nav className="flex-1 flex flex-col gap-1 px-4 overflow-y-auto">
+        {navGroups.map((group) => {
+          const visibleItems = group.items.filter(item => item.show);
+          if (visibleItems.length === 0) return null;
+          return (
+            <div key={group.label} className="mb-4">
+              <p className="text-[10px] font-black text-text-muted/50 uppercase tracking-widest px-2 mb-2 mt-2">
+                {group.label}
+              </p>
+              {visibleItems.map((item) => (
+                <NavLink
+                  key={item.path}
+                  to={item.path}
+                  className={({ isActive }) => cn(
+                    "group relative flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all duration-300 overflow-hidden mb-1",
+                    isActive
+                      ? "text-white bg-primary shadow-lg shadow-primary/20"
+                      : "text-text-muted hover:text-white hover:bg-white/5"
                   )}
-                </div>
-              </>
-            )}
-          </NavLink>
-        ))}
+                >
+                  {({ isActive }) => (
+                    <>
+                      {isActive && (
+                        <motion.div
+                          layoutId="activeTab"
+                          className="absolute inset-0 bg-primary z-0"
+                          initial={false}
+                          transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                        />
+                      )}
+                      <div className="relative z-10 flex items-center gap-3 w-full">
+                        <item.icon className={cn("w-5 h-5 transition-colors", isActive ? "text-white" : "text-text-muted group-hover:text-primary")} />
+                        <span className="flex-1">{item.name}</span>
+                        {item.isLive && (
+                          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                            <span className="text-[10px] font-black text-emerald-500 uppercase tracking-tighter">Live</span>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </NavLink>
+              ))}
+            </div>
+          );
+        })}
       </nav>
 
       {/* Footer / Theme & Logout */}

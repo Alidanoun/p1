@@ -1,0 +1,5 @@
+CONTAINER ID   IMAGE                     COMMAND                  CREATED          STATUS                      PORTS                                                                          NAMES
+0b0df4d64973   nginx:1.25-alpine         "/docker-entrypoint.…"   47 minutes ago   Up 45 minutes (unhealthy)   0.0.0.0:80->80/tcp, [::]:80->80/tcp, 0.0.0.0:443->443/tcp, [::]:443->443/tcp   al-markazia-prod-proxy
+d4e17082734d   al_markazia_backend-app   "dumb-init -- npx @d…"   47 minutes ago   Up 6 minutes (unhealthy)    5000/tcp                                                                       al-markazia-prod-app
+3e12073fd67d   postgres:15-alpine        "docker-entrypoint.s…"   54 minutes ago   Up 52 minutes (healthy)     5432/tcp                                                                       al-markazia-prod-db
+5e58e544ed09   redis:7-alpine            "docker-entrypoint.s…"   54 minutes ago   Up 52 minutes (healthy)     6379/tcp                                                                       al-markazia-prod-redis

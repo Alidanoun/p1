@@ -1,0 +1,93 @@
+﻿=== POSTGRES CONTAINER ===
+                    List of relations
+ Schema |              Name              | Type  | Owner 
+--------+--------------------------------+-------+-------
+ public | AwardedLoyaltyPoints           | table | admin
+ public | BiometricDevice                | table | admin
+ public | Branch                         | table | admin
+ public | BranchItem                     | table | admin
+ public | BranchMetric                   | table | admin
+ public | BranchVariant                  | table | admin
+ public | BusinessPolicy                 | table | admin
+ public | Category                       | table | admin
+ public | Customer                       | table | admin
+ public | CustomerAuditLog               | table | admin
+ public | CustomerNotificationPreference | table | admin
+ public | CustomerReward                 | table | admin
+ public | DailyFinancialSnapshot         | table | admin
+ public | DeliveryZone                   | table | admin
+ public | Event                          | table | admin
+ public | FinancialApproval              | table | admin
+ public | FinancialLedger                | table | admin
+ public | HappyHour                      | table | admin
+ public | HappyHourLog                   | table | admin
+ public | HealthMetric                   | table | admin
+ public | IdempotencyKey                 | table | admin
+ public | IdempotencyRecord              | table | admin
+ public | Item                           | table | admin
+ public | ItemModifier                   | table | admin
+ public | ItemVariant                    | table | admin
+ public | LoyaltyConfig                  | table | admin
+ public | LoyaltyLedger                  | table | admin
+ public | ModifierGroup                  | table | admin
+ public | Notification                   | table | admin
+ public | NotificationLog                | table | admin
+ public | Order                          | table | admin
+ public | OrderAuditLog                  | table | admin
+ public | OrderAuditLogArchive           | table | admin
+ public | OrderCancellation              | table | admin
+ public | OrderItem                      | table | admin
+ public | OrderModificationEvent         | table | admin
+ public | OtpCode                        | table | admin
+ public | OutboxEvent                    | table | admin
+ public | Payment                        | table | admin
+ public | RefreshToken                   | table | admin
+ public | Reply                          | table | admin
+ public | RestaurantSettings             | table | admin
+ public | RestaurantSubscription         | table | admin
+ public | Review                         | table | admin
+ public | RewardItem                     | table | admin
+ public | SystemAuditLog                 | table | admin
+ public | SystemSettings                 | table | admin
+ public | User                           | table | admin
+ public | UserBranch                     | table | admin
+ public | UserBranchPreference           | table | admin
+ public | UserNotificationPreference     | table | admin
+ public | WorkingHour                    | table | admin
+ public | _prisma_migrations             | table | admin
+(53 rows)
+
+
+=== PRISMA MIGRATIONS ===
+[38;2;236;213;63m⟐ injected env (29) from .env · dotenvx@1.67.0[39m
+node.exe : warn The configuration property `package.json#prisma` is deprecated and will be removed in Prisma 7. Please 
+migrate to a Prisma config file (e.g., `prisma.config.ts`).
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (warn The config...ma.config.ts`).:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+For more information, see: https://pris.ly/prisma-config
+
+Loaded Prisma config from prisma.config.ts.
+
+warn The Prisma config file in prisma.config.ts overrides the deprecated `package.json#prisma` property in 
+package.json.
+  For more information, see: https://pris.ly/prisma-config
+
+Prisma config detected, skipping environment variable loading.
+Prisma schema loaded from prisma\schema.prisma
+Datasource "db": PostgreSQL database "al_markazia_db", schema "public" at "localhost:5432"
+
+2 migrations found in prisma/migrations
+
+Database schema is up to date!
+
+=== DB CONNECTION TEST ===
+[38;2;236;213;63m⟐ injected env (29) from .env · dotenvx@1.67.0[39m
+âœ… DB Connected. Users: 1
+
+=== REDIS PING ===
+NOAUTH Authentication required.
+

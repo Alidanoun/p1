@@ -105,7 +105,7 @@ const AuditLog = () => {
           </h1>
           <p className="text-slate-500 text-sm mt-1 flex items-center gap-2">
             <span className={`w-2 h-2 rounded-full ${isSocketConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span>
-            {isSocketConnected ? 'System monitoring active (Real-time)' : 'Disconnected from log stream'}
+            {isSocketConnected ? 'مراقبة النظام نشطة (بث مباشر)' : 'منقطع عن تدفق السجلات'}
           </p>
         </div>
         <div className="flex gap-3">
@@ -118,9 +118,9 @@ const AuditLog = () => {
       {/* 📊 Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         {[
-          { label: "Today's Events", value: stats.totalToday, icon: Clock, color: "blue" },
-          { label: "Failed Operations", value: stats.errorsToday, icon: AlertTriangle, color: "amber" },
-          { label: "Critical Alerts", value: stats.criticalToday, icon: Bug, color: "red" }
+          { label: "أحداث اليوم", value: stats.totalToday, icon: Clock, color: "blue" },
+          { label: "العمليات الفاشلة", value: stats.errorsToday, icon: AlertTriangle, color: "amber" },
+          { label: "تنبيهات حرجة", value: stats.criticalToday, icon: Bug, color: "red" }
         ].map((stat, i) => (
           <motion.div 
             initial={{ opacity: 0, y: 20 }}
@@ -148,7 +148,7 @@ const AuditLog = () => {
           <Search className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
           <input 
             type="text" 
-            placeholder="Search by Action (e.g. LOGIN)..." 
+            placeholder="ابحث في الإجراءات (مثال: LOGIN)..." 
             className="w-full bg-slate-950 border border-slate-800 rounded-lg py-2 pl-10 pr-4 focus:ring-2 focus:ring-blue-500 outline-none"
             onChange={(e) => setFilters(prev => ({ ...prev, action: e.target.value, page: 1 }))}
           />
@@ -157,18 +157,18 @@ const AuditLog = () => {
           className="bg-slate-950 border border-slate-800 rounded-lg py-2 px-4 outline-none"
           onChange={(e) => setFilters(prev => ({ ...prev, severity: e.target.value, page: 1 }))}
         >
-          <option value="">All Severities</option>
-          <option value="INFO">Info</option>
-          <option value="WARN">Warning</option>
-          <option value="CRITICAL">Critical</option>
+          <option value="">جميع المستويات</option>
+          <option value="INFO">معلومات</option>
+          <option value="WARN">تحذير</option>
+          <option value="CRITICAL">حرج</option>
         </select>
         <select 
           className="bg-slate-950 border border-slate-800 rounded-lg py-2 px-4 outline-none"
           onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value, page: 1 }))}
         >
-          <option value="">All Status</option>
-          <option value="SUCCESS">Success</option>
-          <option value="FAIL">Fail</option>
+          <option value="">جميع الحالات</option>
+          <option value="SUCCESS">ناجح</option>
+          <option value="FAIL">فاشل</option>
         </select>
       </div>
 
@@ -177,12 +177,12 @@ const AuditLog = () => {
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="border-b border-slate-800 bg-slate-900/50">
-              <th className="p-4 text-slate-400 font-medium text-sm">Timestamp</th>
-              <th className="p-4 text-slate-400 font-medium text-sm">Action</th>
-              <th className="p-4 text-slate-400 font-medium text-sm">User</th>
-              <th className="p-4 text-slate-400 font-medium text-sm">Entity</th>
-              <th className="p-4 text-slate-400 font-medium text-sm">Status</th>
-              <th className="p-4 text-slate-400 font-medium text-sm">Severity</th>
+              <th className="p-4 text-slate-400 font-medium text-sm">التوقيت</th>
+              <th className="p-4 text-slate-400 font-medium text-sm">الإجراء</th>
+              <th className="p-4 text-slate-400 font-medium text-sm">المستخدم</th>
+              <th className="p-4 text-slate-400 font-medium text-sm">الكيان</th>
+              <th className="p-4 text-slate-400 font-medium text-sm">الحالة</th>
+              <th className="p-4 text-slate-400 font-medium text-sm">الخطورة</th>
             </tr>
           </thead>
           <tbody>

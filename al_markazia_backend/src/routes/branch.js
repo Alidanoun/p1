@@ -19,6 +19,12 @@ router.get('/', optionalAuth, branchController.getAllBranches);
 // 🏢 Create New Branch (Admin Only)
 router.post('/', authenticateToken, isAdmin, branchController.createBranch);
 
+// 📝 Update Branch Details (Admin Only)
+router.put('/:id', authenticateToken, isAdmin, branchController.updateBranch);
+
+// 🔄 Toggle Branch Status (Admin Only)
+router.patch('/:id/status', authenticateToken, isAdmin, branchController.toggleBranchStatus);
+
 // 🔒 Branch Permissions (Admin or Branch Manager)
 router.get('/:id/permissions', authenticateToken, branchController.getBranchPermissions);
 router.put('/:id/permissions', authenticateToken, isAdmin, branchController.updateBranchPermissions);
