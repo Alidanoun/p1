@@ -439,6 +439,337 @@ class OrderService {
   }
 
   /**
+   * 🔄 Branch suggests replacement for an unavailable order item
+   */
+  async suggestReplacement(orderId, itemId, alternativeItemId, actor) {
+    const result = await this.prisma.$transaction(async (tx) => {
+      // 1. Fetch order with items
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+        include: { orderItems: true }
+      });
+
+      if (!order) throw new Error('ORDER_NOT_FOUND');
+
+      // 2. Fetch order item to replace
+      const orderItem = order.orderItems.find(item => item.id === itemId);
+      if (!orderItem) throw new Error('ORDER_ITEM_NOT_FOUND');
+      if (orderItem.status !== 'normal') throw new Error('INVALID_ITEM_STATUS');
+
+      // 3. Fetch alternative item
+      const alternativeItem = await tx.item.findUnique({
+        where: { id: alternativeItemId },
+        include: { branchItems: { where: { branchId: order.branchId } } }
+      });
+
+      if (!alternativeItem) throw new Error('ALTERNATIVE_ITEM_NOT_FOUND');
+
+      const branchItem = alternativeItem.branchItems[0];
+      if (!alternativeItem.isAvailable || (branchItem && !branchItem.isAvailable)) {
+        throw new Error('ALTERNATIVE_ITEM_UNAVAILABLE');
+      }
+
+      // 4. Update the order item
+      const updatedItem = await tx.orderItem.update({
+        where: { id: itemId },
+        data: {
+          status: 'pending_replacement_approval',
+          suggestedReplacementItemId: alternativeItemId,
+          replacementStatus: 'PENDING'
+        }
+      });
+
+      // 5. Create Audit Log
+      await tx.orderAuditLog.create({
+        data: {
+          orderId: order.id,
+          eventType: 'ORDER_REPLACEMENT_SUGGESTED',
+          eventAction: 'SUGGEST_REPLACEMENT',
+          changedBy: actor.uuid || actor.id?.toString() || 'SYSTEM',
+          changedByRole: actor.role || 'system',
+          newData: JSON.stringify({ itemId, suggestedReplacementItemId: alternativeItemId })
+        }
+      });
+
+      return {
+        order,
+        orderItem: updatedItem,
+        alternativeItemName: alternativeItem.title
+      };
+    }, { timeout: 15000 });
+
+    // 6. Schedule background timeout (15 minutes)
+    try {
+      const { orderQueue } = require('../queues/orderQueue');
+      await orderQueue.add(
+        'replacement-timeout',
+        { orderId, itemId, type: 'replacement-timeout' },
+        { delay: 15 * 60 * 1000 } // 15 minutes
+      );
+    } catch (err) {
+      this.logger.error('Failed to schedule replacement timeout job', { error: err.message });
+    }
+
+    // 7. Send notification to customer
+    try {
+      if (result.order.customerId) {
+        await this.container.notificationService.sendToUser(result.order.customerId, {
+          title: 'مقترح استبدال صنف 🔄',
+          message: `المطعم يقترح استبدال صنف [${result.orderItem.itemName}] بصنف [${result.alternativeItemName}]. لديك 15 دقيقة للموافقة أو الرفض.`,
+          type: 'replacement_suggested',
+          orderId: result.order.id
+        });
+      }
+    } catch (err) {
+      this.logger.error('Failed to send replacement notification to customer', { error: err.message });
+    }
+
+    return {
+      success: true,
+      orderItem: result.orderItem
+    };
+  }
+
+  /**
+   * 🔄 Customer (or System Timeout) responds to replacement suggestion
+   */
+  async respondReplacement(orderId, itemId, accept, preference = 'DEDUCT_FROM_BILL', actor) {
+    const { toNumber, toMoneyString } = require('../utils/number');
+    const pricingService = require('./pricingService');
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      // 1. Fetch order with items
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+        include: { orderItems: true }
+      });
+
+      if (!order) throw new Error('ORDER_NOT_FOUND');
+
+      // 2. Fetch the order item
+      const orderItem = order.orderItems.find(item => item.id === itemId);
+      if (!orderItem) throw new Error('ORDER_ITEM_NOT_FOUND');
+      if (orderItem.status !== 'pending_replacement_approval') {
+        throw new Error('INVALID_ITEM_STATUS');
+      }
+
+      let updatedOldItem;
+      let newOrderItem;
+      let itemsToKeep = [];
+
+      if (accept) {
+        // Fetch alternative item
+        const alternativeItem = await tx.item.findUnique({
+          where: { id: orderItem.suggestedReplacementItemId }
+        });
+        if (!alternativeItem) throw new Error('SUGGESTED_ITEM_NOT_FOUND');
+
+        // A. Mark old item as cancelled and replacementStatus = ACCEPTED
+        updatedOldItem = await tx.orderItem.update({
+          where: { id: itemId },
+          data: {
+            status: 'cancelled',
+            replacementStatus: 'ACCEPTED'
+          }
+        });
+
+        // B. Create new OrderItem
+        newOrderItem = await tx.orderItem.create({
+          data: {
+            orderId: order.id,
+            itemId: alternativeItem.id,
+            itemName: alternativeItem.title,
+            itemNameEn: alternativeItem.titleEn,
+            quantity: orderItem.quantity,
+            unitPrice: alternativeItem.basePrice,
+            lineTotal: toNumber(alternativeItem.basePrice) * orderItem.quantity,
+            replacedFromId: itemId,
+            status: 'normal'
+          }
+        });
+
+        // C. Calculate new totals
+        const activeItems = order.orderItems.filter(
+          item => item.id !== itemId && ['normal', 'pending_partial_cancel'].includes(item.status)
+        );
+        activeItems.push(newOrderItem);
+        itemsToKeep = activeItems;
+
+      } else {
+        // Reject replacement
+        // A. Mark old item as cancelled and replacementStatus = REJECTED
+        updatedOldItem = await tx.orderItem.update({
+          where: { id: itemId },
+          data: {
+            status: 'cancelled',
+            replacementStatus: 'REJECTED',
+            resolutionPreference: preference
+          }
+        });
+
+        // B. Create Coupon Request if selected
+        if (preference === 'COUPON_REQUEST') {
+          const existingCoupon = await tx.couponRequest.findFirst({
+            where: { orderId: order.id, itemId: orderItem.itemId }
+          });
+          if (!existingCoupon) {
+            await tx.couponRequest.create({
+              data: {
+                orderId: order.id,
+                customerId: order.customerId,
+                itemId: orderItem.itemId || 0,
+                itemPrice: orderItem.unitPrice,
+                status: 'PENDING'
+              }
+            });
+          }
+        }
+
+        // C. Calculate new totals
+        itemsToKeep = order.orderItems.filter(
+          item => item.id !== itemId && ['normal', 'pending_partial_cancel'].includes(item.status)
+        );
+      }
+
+      if (itemsToKeep.length === 0) {
+        throw new Error('CANNOT_CANCEL_ALL_ITEMS: Order must contain at least one item.');
+      }
+
+      // D. Recalculate Totals
+      const systemConfig = await configService.getFullConfig();
+      const financials = pricingService.calculateOrderTotals(
+        itemsToKeep,
+        toNumber(order.deliveryFee),
+        toNumber(order.discount),
+        systemConfig.business.taxRate
+      );
+
+      // E. Update Order
+      const updatedOrder = await tx.order.update({
+        where: { id: orderId, version: order.version },
+        data: {
+          total: toMoneyString(financials.total),
+          subtotal: toMoneyString(financials.subtotal),
+          tax: toMoneyString(financials.tax),
+          version: { increment: 1 }
+        },
+        include: { orderItems: true, customer: true }
+      });
+
+      // F. Create Audit Log
+      await tx.orderAuditLog.create({
+        data: {
+          orderId: order.id,
+          eventType: accept ? 'ORDER_REPLACEMENT_ACCEPTED' : 'ORDER_REPLACEMENT_REJECTED',
+          eventAction: 'RESPOND_REPLACEMENT',
+          changedBy: actor.uuid || actor.id?.toString() || 'SYSTEM',
+          changedByRole: actor.role || 'system',
+          newData: JSON.stringify({ itemId, accept, preference })
+        }
+      });
+
+      return {
+        order: updatedOrder,
+        accept,
+        preference,
+        oldItemName: orderItem.itemName
+      };
+    }, { timeout: 15000 });
+
+    // 3. Send notifications
+    try {
+      if (result.order.customerId) {
+        const title = accept ? 'تم استبدال الصنف بنجاح ✅' : 'تم إلغاء الصنف من الطلب ⚠️';
+        const message = accept
+          ? `تمت الموافقة على استبدال الصنف [${result.oldItemName}] في الطلب #${result.order.orderNumber}.`
+          : `تم إلغاء الصنف [${result.oldItemName}] وخصم قيمته من الفاتورة للطلب #${result.order.orderNumber}.` +
+            (preference === 'COUPON_REQUEST' ? ' تم إرسال طلب كوبون خصم للمراجعة خلال 24 ساعة.' : '');
+
+        await this.container.notificationService.sendToUser(result.order.customerId, {
+          title,
+          message,
+          type: accept ? 'replacement_accepted' : 'replacement_rejected',
+          orderId: result.order.id
+        });
+      }
+    } catch (err) {
+      this.logger.error('Failed to send notification to customer', { error: err.message });
+    }
+
+    return {
+      success: true,
+      order: result.order
+    };
+  }
+
+  /**
+   * 🎟️ Customer requests a discount coupon for a cancelled order item
+   */
+  async requestCouponForCancelledItem(orderId, itemId, actor) {
+    const result = await this.prisma.$transaction(async (tx) => {
+      // 1. Fetch order
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+        include: { orderItems: true }
+      });
+
+      if (!order) throw new Error('ORDER_NOT_FOUND');
+
+      // Ownership check
+      if (order.customerId !== actor.id && actor.role !== 'ADMIN') {
+        throw new Error('UNAUTHORIZED_ORDER_ACCESS');
+      }
+
+      // 2. Fetch order item
+      const orderItem = order.orderItems.find(item => item.id === itemId);
+      if (!orderItem) throw new Error('ORDER_ITEM_NOT_FOUND');
+      if (orderItem.status !== 'cancelled') throw new Error('ITEM_NOT_CANCELLED');
+
+      // 3. Check for existing coupon request
+      const existingRequest = await tx.couponRequest.findFirst({
+        where: { orderId, itemId: orderItem.itemId }
+      });
+      if (existingRequest) throw new Error('COUPON_REQUEST_ALREADY_EXISTS');
+
+      // 4. Create Coupon Request
+      const couponRequest = await tx.couponRequest.create({
+        data: {
+          orderId: order.id,
+          customerId: order.customerId,
+          itemId: orderItem.itemId || 0,
+          itemPrice: orderItem.unitPrice,
+          status: 'PENDING'
+        }
+      });
+
+      // 5. Update OrderItem preference
+      await tx.orderItem.update({
+        where: { id: itemId },
+        data: { resolutionPreference: 'COUPON_REQUEST' }
+      });
+
+      // 6. Create Audit Log
+      await tx.orderAuditLog.create({
+        data: {
+          orderId: order.id,
+          eventType: 'COUPON_REQUEST_CREATED',
+          eventAction: 'REQUEST_COUPON',
+          changedBy: actor.uuid || actor.id.toString(),
+          changedByRole: actor.role,
+          newData: JSON.stringify({ itemId })
+        }
+      });
+
+      return couponRequest;
+    }, { timeout: 15000 });
+
+    return {
+      success: true,
+      couponRequest: result
+    };
+  }
+
+  /**
    * ⏲️ Update estimated ready time
    */
   async updateOrderTimer(orderId, estimatedReadyAt, user = null) {

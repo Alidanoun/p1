@@ -122,7 +122,7 @@ async function startServer() {
         xsrfToken = crypto.randomBytes(24).toString('hex');
         
         const isProd = process.env.NODE_ENV === 'production';
-        const sameSite = isProd ? 'strict' : 'lax';
+        const sameSite = isProd ? 'none' : 'lax';
         const secure = isProd || req.secure || req.headers['x-forwarded-proto'] === 'https';
         
         res.cookie('XSRF-TOKEN', xsrfToken, {

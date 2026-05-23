@@ -35,7 +35,7 @@ services:
     image: redis:7-alpine
     container_name: al-markazia-prod-redis
     restart: always
-    command: ["redis-server", "/usr/local/etc/redis/redis-prod.conf"]
+    command: /bin/sh -c "cp /usr/local/etc/redis/redis-prod.conf /tmp/redis.conf && echo \"user app_main on >$$REDIS_PASSWORD ~* &* +@all\" >> /tmp/redis.conf && echo \"user app_worker on >$$REDIS_WORKER_PASSWORD ~bull:* ~stream:* ~idempotency:* ~cache:* ~audit:* ~health:* &* +@all\" >> /tmp/redis.conf && redis-server /tmp/redis.conf"
     environment:
       - REDIS_PASSWORD=${REDIS_PASSWORD}
       - REDIS_WORKER_PASSWORD=${REDIS_WORKER_PASSWORD}
@@ -72,9 +72,21 @@ services:
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-production_encryption_key_32_chars_long_long}
       - SENTRY_DSN=${SENTRY_DSN}
       - TIMEZONE=Asia/Amman
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT}
+      - SMTP_SECURE=${SMTP_SECURE}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      - EMAIL_FROM_ADDRESS=${EMAIL_FROM_ADDRESS}
+      - EMAIL_FROM_NAME=${EMAIL_FROM_NAME}
+      - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID}
+      - FIREBASE_CLIENT_EMAIL=${FIREBASE_CLIENT_EMAIL}
+      - FIREBASE_PRIVATE_KEY=${FIREBASE_PRIVATE_KEY}
     volumes:
       - app_prod_logs:/usr/src/app/logs
       - app_prod_uploads:/usr/src/app/uploads
+      - ./.env.production:/usr/src/app/.env.production:ro
+      - ./.env.keys:/usr/src/app/.env.keys:ro
     networks:
       - al_markazia_prod_network
     depends_on:
@@ -98,7 +110,8 @@ services:
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - app_prod_uploads:/usr/src/app/uploads:ro
-      - nginx_certs:/etc/nginx/certs:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - ../admin_panel/dist:/usr/share/nginx/html/admin_panel:ro
     networks:
       - al_markazia_prod_network
     depends_on:
@@ -119,4 +132,3 @@ volumes:
   redis_prod_data:
   app_prod_logs:
   app_prod_uploads:
-  nginx_certs:

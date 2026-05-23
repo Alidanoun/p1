@@ -1,6 +1,7 @@
 const express = require('express');
 const { getStatus, getSchedule, updateSchedule, toggleEmergencyClose, subscribeToReopen } = require('../controllers/restaurantController');
 const { authenticateToken, isAdmin, isManager } = require('../middleware/auth');
+const { checkPermission } = require('../middleware/permissionMiddleware');
 const { withCache, invalidateCache } = require('../middleware/cacheMiddleware');
 
 const router = express.Router();
@@ -13,17 +14,21 @@ router.get('/status', withCache('restaurant_status'), getStatus);
 
 /**
  * @route GET /api/restaurant/schedule
- * @desc Get full schedule and settings (Admin Only)
+ * @desc Get full schedule and settings (Admin / Branch Manager)
  */
-router.get('/schedule', authenticateToken, isAdmin, getSchedule);
+router.get('/schedule', authenticateToken, isManager, checkPermission('canModifyWorkHours', 'VIEW'), getSchedule);
 
 /**
  * @route POST /api/restaurant/schedule
- * @desc Update schedule and settings (Admin Only)
+ * @desc Update schedule and settings (Admin / Branch Manager)
  */
-router.post('/schedule', authenticateToken, isAdmin, invalidateCache('restaurant_status'), updateSchedule);
+router.post('/schedule', authenticateToken, isManager, checkPermission('canModifyWorkHours', 'EDIT_PIN'), invalidateCache('restaurant_status'), updateSchedule);
 
-router.post('/emergency-close', authenticateToken, isManager, invalidateCache('restaurant_status'), toggleEmergencyClose);
+/**
+ * @route POST /api/restaurant/emergency-close
+ * @desc Toggle emergency close (Admin / Branch Manager with permission)
+ */
+router.post('/emergency-close', authenticateToken, isManager, checkPermission('canToggleLiveMode'), invalidateCache('restaurant_status'), toggleEmergencyClose);
 
 /**
  * @route POST /api/restaurant/subscribe
@@ -36,3 +41,4 @@ router.post('/subscribe', (req, res, next) => {
 }, subscribeToReopen);
 
 module.exports = router;
+

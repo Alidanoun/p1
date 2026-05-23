@@ -24,4 +24,6 @@ test_security.js
 
 # Cryptographic Keys
 al_markazia_backend/src/config/keys/
-
+**/.env.keys
+**/.env.local
+**/.env.*.local

@@ -22,22 +22,12 @@ class ApiService {
   Timer? _silentRefreshTimer;
 
   static String get baseUrl {
-    const ip = String.fromEnvironment('SERVER_IP', defaultValue: 'localhost');
-    const port = String.fromEnvironment('SERVER_PORT', defaultValue: '');
-    final isProd = const bool.fromEnvironment('dart.vm.product');
-    final scheme = isProd ? 'https' : 'http';
-    final portSuffix = port.isNotEmpty ? ':$port' : (isProd ? '' : ':5010');
-    return '$scheme://$ip$portSuffix/api/v1';
+    return const String.fromEnvironment('API_URL', defaultValue: 'https://al-markazia.duckdns.org/api/v1');
   }
 
   /// 🔌 Socket Base URL (without /api/v1 prefix — Socket.IO connects to root)
   static String get socketUrl {
-    const ip = String.fromEnvironment('SERVER_IP', defaultValue: 'localhost');
-    const port = String.fromEnvironment('SERVER_PORT', defaultValue: '');
-    final isProd = const bool.fromEnvironment('dart.vm.product');
-    final scheme = isProd ? 'https' : 'http';
-    final portSuffix = port.isNotEmpty ? ':$port' : (isProd ? '' : ':5010');
-    return '$scheme://$ip$portSuffix';
+    return const String.fromEnvironment('SOCKET_URL', defaultValue: 'https://al-markazia.duckdns.org');
   }
 
   /// 🏥 Fetch Restaurant Operational Status

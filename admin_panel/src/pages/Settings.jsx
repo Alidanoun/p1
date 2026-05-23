@@ -51,6 +51,63 @@ const Settings = () => {
   const [branches, setBranches] = useState([]);
   const [updatingBranch, setUpdatingBranch] = useState(false);
 
+  const DEFAULT_PERMISSION_MATRIX = {
+    liveOrders: 'FULL',
+    manageOrders: 'FULL',
+    menu: 'FULL',
+    notifications: 'FULL',
+    reviews: 'VIEW',
+    loyalty: 'VIEW',
+    rewardsStore: 'NONE',
+    advancedAnalytics: 'VIEW',
+    financials: 'VIEW',
+    deliveryZones: 'EDIT_PIN',
+    auditLog: 'VIEW',
+    settings: 'EDIT_PIN',
+    canToggleLiveMode: false,
+    canModifyWorkHours: 'EDIT_PIN'
+  };
+
+  const [newBranch, setNewBranch] = useState({
+    name: '',
+    code: '',
+    address: '',
+    phone: '',
+    managerEmail: '',
+    managerPassword: '',
+    managerPin: '',
+    visibleInApp: true,
+    appDisplayOrder: 0,
+    allowedPermissions: { ...DEFAULT_PERMISSION_MATRIX }
+  });
+
+  const [selectedEditBranchId, setSelectedEditBranchId] = useState('');
+  const [editBranchPermissions, setEditBranchPermissions] = useState({ ...DEFAULT_PERMISSION_MATRIX });
+  const [loadingPermissions, setLoadingPermissions] = useState(false);
+  const [savingPermissions, setSavingPermissions] = useState(false);
+  const [creatingBranch, setCreatingBranch] = useState(false);
+
+  useEffect(() => {
+    if (!selectedEditBranchId) return;
+
+    const fetchPermissions = async () => {
+      setLoadingPermissions(true);
+      try {
+        const response = await api.get(`/branch/${selectedEditBranchId}/permissions`);
+        const result = unwrap(response);
+        if (result) {
+          setEditBranchPermissions(result);
+        }
+      } catch (error) {
+        toast.error('فشل في جلب صلاحيات الفرع');
+      } finally {
+        setLoadingPermissions(false);
+      }
+    };
+
+    fetchPermissions();
+  }, [selectedEditBranchId]);
+
   const [advancedConfig, setAdvancedConfig] = useState({
     business: {},
     security: {}
@@ -75,6 +132,7 @@ const Settings = () => {
       if (branchesData && branchesData.length > 0) {
         setBranches(branchesData);
         setBranchCredentials(prev => ({ ...prev, branchId: branchesData[0].id }));
+        setSelectedEditBranchId(branchesData[0].id);
       }
       
       if (scheduleData && scheduleData.schedule) {
@@ -202,6 +260,56 @@ const Settings = () => {
       toast.error(error.response?.data?.error || 'فشل في تحديث بيانات الفرع');
     } finally {
       setUpdatingBranch(false);
+    }
+  };
+
+  const handleCreateBranch = async (e) => {
+    e.preventDefault();
+    if (newBranch.managerPin.length !== 4 || isNaN(newBranch.managerPin)) {
+      toast.error('يجب أن يكون رمز PIN مكوناً من 4 أرقام');
+      return;
+    }
+    setCreatingBranch(true);
+    try {
+      await api.post('/branch', newBranch);
+      toast.success('تم إنشاء الفرع ومديره وصلاحياته بنجاح');
+      // Reset form
+      setNewBranch({
+        name: '',
+        code: '',
+        address: '',
+        phone: '',
+        managerEmail: '',
+        managerPassword: '',
+        managerPin: '',
+        visibleInApp: true,
+        appDisplayOrder: 0,
+        allowedPermissions: { ...DEFAULT_PERMISSION_MATRIX }
+      });
+      // Refresh branches list
+      const branchesData = await api.get('/branch').then(unwrap).catch(() => []);
+      setBranches(branchesData);
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'فشل في إنشاء الفرع');
+    } finally {
+      setCreatingBranch(false);
+    }
+  };
+
+  const handleUpdateBranchPermissions = async (e) => {
+    e.preventDefault();
+    if (!selectedEditBranchId) {
+      toast.error('يرجى تحديد فرع أولاً');
+      return;
+    }
+    setSavingPermissions(true);
+    try {
+      await api.put(`/branch/${selectedEditBranchId}/permissions`, { allowedPermissions: editBranchPermissions });
+      toast.success('تم تحديث صلاحيات الفرع لجميع المستخدمين وتطهير الكاش');
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'فشل في تحديث صلاحيات الفرع');
+    } finally {
+      setSavingPermissions(false);
     }
   };
 
@@ -549,7 +657,403 @@ const Settings = () => {
                     </form>
                   </div>
 
-                  {/* Card: Change Branch Credentials */}
+                  {/* Card: Create New Branch */}
+                  <div className="p-6 rounded-2xl bg-white/5 border border-white/5 space-y-4">
+                    <h3 className="text-lg font-bold text-white flex items-center gap-2 mb-4">
+                      <Plus className="w-5 h-5 text-emerald-500" /> إنشاء فرع جديد ومدير للفرع
+                    </h3>
+
+                    <form onSubmit={handleCreateBranch} className="space-y-6">
+                      <div className="bg-background/30 p-4 rounded-xl space-y-4">
+                        <h4 className="text-sm font-bold text-white mb-2">1. معلومات الفرع الأساسية</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <div className="space-y-2">
+                            <label className="text-xs font-bold text-text-muted pr-1">اسم الفرع</label>
+                            <input 
+                              type="text" 
+                              required
+                              className="glass-input text-right w-full" 
+                              placeholder="مثال: فرع عمان الغربية"
+                              value={newBranch.name} 
+                              onChange={e => setNewBranch({...newBranch, name: e.target.value})}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-xs font-bold text-text-muted pr-1">كود الفرع (فريد)</label>
+                            <input 
+                              type="text" 
+                              required
+                              className="glass-input text-right w-full font-mono placeholder:font-sans" 
+                              placeholder="مثال: AMM-WEST"
+                              value={newBranch.code} 
+                              onChange={e => setNewBranch({...newBranch, code: e.target.value.toUpperCase().trim()})}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-xs font-bold text-text-muted pr-1">العنوان</label>
+                            <input 
+                              type="text" 
+                              className="glass-input text-right w-full" 
+                              placeholder="شارع المدينة المنورة، بناء 10"
+                              value={newBranch.address} 
+                              onChange={e => setNewBranch({...newBranch, address: e.target.value})}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-xs font-bold text-text-muted pr-1">رقم الهاتف</label>
+                            <input 
+                              type="text" 
+                              className="glass-input text-right w-full font-mono placeholder:font-sans" 
+                              placeholder="07XXXXXXXX"
+                              value={newBranch.phone} 
+                              onChange={e => setNewBranch({...newBranch, phone: e.target.value})}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-xs font-bold text-text-muted pr-1">ظهور الفرع في التطبيق</label>
+                            <select 
+                              className="glass-input text-right w-full bg-background"
+                              value={newBranch.visibleInApp ? 'true' : 'false'}
+                              onChange={e => setNewBranch({...newBranch, visibleInApp: e.target.value === 'true'})}
+                            >
+                              <option value="true">مفعّل ويظهر للزبائن</option>
+                              <option value="false">مخفي عن الزبائن</option>
+                            </select>
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-xs font-bold text-text-muted pr-1">ترتيب الظهور في التطبيق</label>
+                            <input 
+                              type="number" 
+                              className="glass-input text-right w-full font-mono" 
+                              value={newBranch.appDisplayOrder} 
+                              onChange={e => setNewBranch({...newBranch, appDisplayOrder: parseInt(e.target.value) || 0})}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="bg-background/30 p-4 rounded-xl space-y-4">
+                        <h4 className="text-sm font-bold text-white mb-2">2. معلومات حساب مدير الفرع والـ PIN</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                          <div className="space-y-2">
+                            <label className="text-xs font-bold text-text-muted pr-1">البريد الإلكتروني للمدير</label>
+                            <input 
+                              type="email" 
+                              required
+                              className="glass-input text-right w-full" 
+                              placeholder="manager@example.com"
+                              value={newBranch.managerEmail} 
+                              onChange={e => setNewBranch({...newBranch, managerEmail: e.target.value})}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-xs font-bold text-text-muted pr-1">كلمة مرور الحساب</label>
+                            <input 
+                              type="password" 
+                              required
+                              className="glass-input text-right w-full font-mono placeholder:font-sans" 
+                              placeholder="••••••••"
+                              value={newBranch.managerPassword} 
+                              onChange={e => setNewBranch({...newBranch, managerPassword: e.target.value})}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-xs font-bold text-text-muted pr-1">رمز PIN للمدير (4 أرقام)</label>
+                            <input 
+                              type="password" 
+                              required
+                              maxLength={4}
+                              className="glass-input text-right w-full font-mono placeholder:font-sans" 
+                              placeholder="1234"
+                              value={newBranch.managerPin} 
+                              onChange={e => setNewBranch({...newBranch, managerPin: e.target.value.replace(/\D/g, '')})}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="bg-background/30 p-4 rounded-xl space-y-4">
+                        <h4 className="text-sm font-bold text-white mb-2">3. 🔒 تحديد صلاحيات الفرع (Permissions Matrix)</h4>
+                        
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-right text-sm">
+                            <thead>
+                              <tr className="bg-white/5 text-text-muted text-xs border-b border-white/5">
+                                <th className="p-3 font-bold text-right">اسم الوحدة</th>
+                                <th className="p-3 font-bold text-center">وصول كامل (FULL)</th>
+                                <th className="p-3 font-bold text-center">تعديل بـ PIN (EDIT_PIN)</th>
+                                <th className="p-3 font-bold text-center">قفل بـ PIN للقراءة والتعديل (EDIT_PIN_READ)</th>
+                                <th className="p-3 font-bold text-center">مشاهدة فقط (VIEW)</th>
+                                <th className="p-3 font-bold text-center">إخفاء وحظر (NONE)</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {[
+                                { key: 'liveOrders', label: 'الطلبات الحية (Live Orders)' },
+                                { key: 'manageOrders', label: 'إدارة الطلبات والتحضير (Manage Orders)' },
+                                { key: 'menu', label: 'قائمة المنتجات والمنيو (Menu)' },
+                                { key: 'notifications', label: 'بث الإشعارات والتنبيهات (Notifications)' },
+                                { key: 'reviews', label: 'إدارة التقييمات (Reviews)' },
+                                { key: 'loyalty', label: 'إدارة برنامج الولاء والعملاء (Loyalty)' },
+                                { key: 'rewardsStore', label: 'متجر المكافآت للزبائن (Rewards Store)' },
+                                { key: 'advancedAnalytics', label: 'التقارير والإحصائيات المتقدمة' },
+                                { key: 'financials', label: 'المالية والتقارير المالية (Financials)' },
+                                { key: 'deliveryZones', label: 'مناطق التوصيل ورسومها (Delivery Zones)' },
+                                { key: 'auditLog', label: 'سجلات النشاط والتدقيق (Audit Log)' },
+                                { key: 'settings', label: 'إعدادات الفرع وساعات الدوام (Settings)' },
+                                { key: 'canModifyWorkHours', label: 'تعديل أوقات وساعات العمل' }
+                              ].map(item => (
+                                <tr key={item.key} className="border-b border-white/5 hover:bg-white/5">
+                                  <td className="p-3 text-white font-bold">{item.label}</td>
+                                  <td className="p-3 text-center">
+                                    <input 
+                                      type="radio" 
+                                      name={`new_${item.key}`} 
+                                      value="FULL" 
+                                      checked={newBranch.allowedPermissions[item.key] === 'FULL'} 
+                                      onChange={() => setNewBranch({
+                                        ...newBranch, 
+                                        allowedPermissions: { ...newBranch.allowedPermissions, [item.key]: 'FULL' }
+                                      })} 
+                                    />
+                                  </td>
+                                  <td className="p-3 text-center">
+                                    <input 
+                                      type="radio" 
+                                      name={`new_${item.key}`} 
+                                      value="EDIT_PIN" 
+                                      checked={newBranch.allowedPermissions[item.key] === 'EDIT_PIN'} 
+                                      onChange={() => setNewBranch({
+                                        ...newBranch, 
+                                        allowedPermissions: { ...newBranch.allowedPermissions, [item.key]: 'EDIT_PIN' }
+                                      })} 
+                                    />
+                                  </td>
+                                  <td className="p-3 text-center">
+                                    <input 
+                                      type="radio" 
+                                      name={`new_${item.key}`} 
+                                      value="EDIT_PIN_READ" 
+                                      checked={newBranch.allowedPermissions[item.key] === 'EDIT_PIN_READ'} 
+                                      onChange={() => setNewBranch({
+                                        ...newBranch, 
+                                        allowedPermissions: { ...newBranch.allowedPermissions, [item.key]: 'EDIT_PIN_READ' }
+                                      })} 
+                                    />
+                                  </td>
+                                  <td className="p-3 text-center">
+                                    <input 
+                                      type="radio" 
+                                      name={`new_${item.key}`} 
+                                      value="VIEW" 
+                                      checked={newBranch.allowedPermissions[item.key] === 'VIEW'} 
+                                      onChange={() => setNewBranch({
+                                        ...newBranch, 
+                                        allowedPermissions: { ...newBranch.allowedPermissions, [item.key]: 'VIEW' }
+                                      })} 
+                                    />
+                                  </td>
+                                  <td className="p-3 text-center">
+                                    <input 
+                                      type="radio" 
+                                      name={`new_${item.key}`} 
+                                      value="NONE" 
+                                      checked={newBranch.allowedPermissions[item.key] === 'NONE'} 
+                                      onChange={() => setNewBranch({
+                                        ...newBranch, 
+                                        allowedPermissions: { ...newBranch.allowedPermissions, [item.key]: 'NONE' }
+                                      })} 
+                                    />
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        <div className="flex items-center justify-between border-t border-white/5 pt-4">
+                          <div>
+                            <span className="text-white text-sm font-bold block">ميزة الإغلاق العاجل والبث المباشر (Emergency Mode)</span>
+                            <span className="text-text-muted text-xs">تتيح للفرع إغلاق الطلبات في الحالات الطارئة وتغيير حالة البث المباشر فوراً</span>
+                          </div>
+                          <Switch 
+                            checked={newBranch.allowedPermissions.canToggleLiveMode} 
+                            onChange={checked => setNewBranch({
+                              ...newBranch, 
+                              allowedPermissions: { ...newBranch.allowedPermissions, canToggleLiveMode: checked }
+                            })} 
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end mt-4">
+                        <button 
+                          type="submit"
+                          disabled={creatingBranch}
+                          className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 px-8 rounded-xl transition-all disabled:opacity-50 flex items-center gap-2"
+                        >
+                          {creatingBranch ? 'جاري إنشاء الفرع...' : 'إنشاء الفرع ومدير الفرع'}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+
+                  {/* Card: Edit Existing Branch Permissions */}
+                  <div className="p-6 rounded-2xl bg-white/5 border border-white/5 space-y-4">
+                    <h3 className="text-lg font-bold text-white flex items-center gap-2 mb-4">
+                      <Shield className="w-5 h-5 text-indigo-500" /> تعديل صلاحيات الفروع الحالية
+                    </h3>
+
+                    <form onSubmit={handleUpdateBranchPermissions} className="space-y-6">
+                      <div className="space-y-2 mb-4">
+                        <label className="text-xs font-bold text-text-muted pr-1">تحديد الفرع للمراجعة والتعديل</label>
+                        <select 
+                          className="glass-input text-right w-full bg-background font-bold text-white"
+                          value={selectedEditBranchId}
+                          onChange={e => setSelectedEditBranchId(e.target.value)}
+                        >
+                          {branches.map(branch => (
+                            <option key={branch.id} value={branch.id}>{branch.name} ({branch.code})</option>
+                          ))}
+                          {branches.length === 0 && (
+                            <option value="">لا يوجد فروع مسجلة</option>
+                          )}
+                        </select>
+                      </div>
+
+                      {loadingPermissions ? (
+                        <div className="p-8 text-center text-text-muted flex justify-center items-center gap-2">
+                          <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                          <span>جاري تحميل مصفوفة الصلاحيات الحالية للفرع...</span>
+                        </div>
+                      ) : (
+                        <div className="bg-background/30 p-4 rounded-xl space-y-4">
+                          <h4 className="text-sm font-bold text-white mb-2">صلاحيات الوصول الديناميكية الحالية للفرع</h4>
+                          
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-right text-sm">
+                              <thead>
+                                <tr className="bg-white/5 text-text-muted text-xs border-b border-white/5">
+                                  <th className="p-3 font-bold text-right">اسم الوحدة</th>
+                                  <th className="p-3 font-bold text-center">وصول كامل (FULL)</th>
+                                  <th className="p-3 font-bold text-center">مشاهدة وتعديل بـ PIN</th>
+                                  <th className="p-3 font-bold text-center">مشاهدة فقط (VIEW)</th>
+                                  <th className="p-3 font-bold text-center">إخفاء وحظر (NONE)</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {[
+                                  { key: 'liveOrders', label: 'الطلبات الحية (Live Orders)' },
+                                  { key: 'manageOrders', label: 'إدارة الطلبات والتحضير (Manage Orders)' },
+                                  { key: 'menu', label: 'قائمة المنتجات والمنيو (Menu)' },
+                                  { key: 'notifications', label: 'بث الإشعارات والتنبيهات (Notifications)' },
+                                  { key: 'reviews', label: 'إدارة التقييمات (Reviews)' },
+                                  { key: 'loyalty', label: 'إدارة برنامج الولاء والعملاء (Loyalty)' },
+                                  { key: 'rewardsStore', label: 'متجر المكافآت للزبائن (Rewards Store)' },
+                                  { key: 'advancedAnalytics', label: 'التقارير والإحصائيات المتقدمة' },
+                                  { key: 'financials', label: 'المالية والتقارير المالية (Financials)' },
+                                  { key: 'deliveryZones', label: 'مناطق التوصيل ورسومها (Delivery Zones)' },
+                                  { key: 'auditLog', label: 'سجلات النشاط والتدقيق (Audit Log)' },
+                                  { key: 'settings', label: 'إعدادات الفرع وساعات الدوام (Settings)' },
+                                  { key: 'canModifyWorkHours', label: 'تعديل أوقات وساعات العمل' }
+                                ].map(item => (
+                                  <tr key={item.key} className="border-b border-white/5 hover:bg-white/5">
+                                    <td className="p-3 text-white font-bold">{item.label}</td>
+                                    <td className="p-3 text-center">
+                                      <input 
+                                        type="radio" 
+                                        name={`edit_${item.key}`} 
+                                        value="FULL" 
+                                        checked={editBranchPermissions[item.key] === 'FULL'} 
+                                        onChange={() => setEditBranchPermissions({
+                                          ...editBranchPermissions, 
+                                          [item.key]: 'FULL'
+                                        })} 
+                                      />
+                                    </td>
+                                    <td className="p-3 text-center">
+                                      <input 
+                                        type="radio" 
+                                        name={`edit_${item.key}`} 
+                                        value="EDIT_PIN" 
+                                        checked={editBranchPermissions[item.key] === 'EDIT_PIN'} 
+                                        onChange={() => setEditBranchPermissions({
+                                          ...editBranchPermissions, 
+                                          [item.key]: 'EDIT_PIN'
+                                        })} 
+                                      />
+                                    </td>
+                                    <td className="p-3 text-center">
+                                      <input 
+                                        type="radio" 
+                                        name={`edit_${item.key}`} 
+                                        value="EDIT_PIN_READ" 
+                                        checked={editBranchPermissions[item.key] === 'EDIT_PIN_READ'} 
+                                        onChange={() => setEditBranchPermissions({
+                                          ...editBranchPermissions, 
+                                          [item.key]: 'EDIT_PIN_READ'
+                                        })} 
+                                      />
+                                    </td>
+                                    <td className="p-3 text-center">
+                                      <input 
+                                        type="radio" 
+                                        name={`edit_${item.key}`} 
+                                        value="VIEW" 
+                                        checked={editBranchPermissions[item.key] === 'VIEW'} 
+                                        onChange={() => setEditBranchPermissions({
+                                          ...editBranchPermissions, 
+                                          [item.key]: 'VIEW'
+                                        })} 
+                                      />
+                                    </td>
+                                    <td className="p-3 text-center">
+                                      <input 
+                                        type="radio" 
+                                        name={`edit_${item.key}`} 
+                                        value="NONE" 
+                                        checked={editBranchPermissions[item.key] === 'NONE'} 
+                                        onChange={() => setEditBranchPermissions({
+                                          ...editBranchPermissions, 
+                                          [item.key]: 'NONE'
+                                        })} 
+                                      />
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          <div className="flex items-center justify-between border-t border-white/5 pt-4">
+                            <div>
+                              <span className="text-white text-sm font-bold block">ميزة الإغلاق العاجل والبث المباشر (Emergency Mode)</span>
+                              <span className="text-text-muted text-xs">تتيح للفرع إغلاق الطلبات في الحالات الطارئة وتغيير حالة البث المباشر فوراً</span>
+                            </div>
+                            <Switch 
+                              checked={!!editBranchPermissions.canToggleLiveMode} 
+                              onChange={checked => setEditBranchPermissions({
+                                ...editBranchPermissions, 
+                                canToggleLiveMode: checked
+                              })} 
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex justify-end mt-4">
+                        <button 
+                          type="submit"
+                          disabled={savingPermissions || loadingPermissions || !selectedEditBranchId}
+                          className="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-3 px-8 rounded-xl transition-all disabled:opacity-50 flex items-center gap-2"
+                        >
+                          {savingPermissions ? 'جاري حفظ التغييرات...' : 'حفظ وتحديث الصلاحيات'}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+
+                  {/* Card: Logs */}
                   <div className="p-6 rounded-2xl bg-white/5 border border-white/5 space-y-4">
                     <h3 className="text-lg font-bold text-white flex items-center gap-2 mb-4">
                       <Shield className="w-5 h-5 text-blue-500" /> إدارة حسابات الفروع

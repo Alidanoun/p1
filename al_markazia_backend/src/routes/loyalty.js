@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const loyaltyController = require('../controllers/loyaltyController');
-const { authenticateToken: authMiddleware, isAdmin: adminMiddleware } = require('../middleware/auth');
+const { authenticateToken: authMiddleware, isAdmin: adminMiddleware, isManager } = require('../middleware/auth');
+const { checkPermission } = require('../middleware/permissionMiddleware');
 
 /**
  * 🎁 Loyalty Routes
@@ -18,11 +19,11 @@ router.patch('/settings', authMiddleware, adminMiddleware, loyaltyController.upd
 router.get('/profile', authMiddleware, loyaltyController.getMyLoyaltyProfile);
 router.post('/share-product', authMiddleware, loyaltyController.rewardSocialShare);
 
-// 🛒 Rewards Store (Admin)
-router.get('/rewards', authMiddleware, adminMiddleware, loyaltyController.getAllRewards);
-router.post('/rewards', authMiddleware, adminMiddleware, loyaltyController.createReward);
-router.put('/rewards/:id', authMiddleware, adminMiddleware, loyaltyController.updateReward);
-router.delete('/rewards/:id', authMiddleware, adminMiddleware, loyaltyController.deleteReward);
+// 🛒 Rewards Store (Admin / Branch Manager)
+router.get('/rewards', authMiddleware, isManager, checkPermission('rewardsStore', 'VIEW'), loyaltyController.getAllRewards);
+router.post('/rewards', authMiddleware, isManager, checkPermission('rewardsStore', 'EDIT_PIN'), loyaltyController.createReward);
+router.put('/rewards/:id', authMiddleware, isManager, checkPermission('rewardsStore', 'EDIT_PIN'), loyaltyController.updateReward);
+router.delete('/rewards/:id', authMiddleware, isManager, checkPermission('rewardsStore', 'EDIT_PIN'), loyaltyController.deleteReward);
 
 // 🛒 Rewards Store (Mobile App)
 router.get('/store', loyaltyController.getActiveRewards); // Public or Auth
@@ -30,3 +31,4 @@ router.post('/store/claim', authMiddleware, loyaltyController.claimReward);
 router.get('/my-rewards', authMiddleware, loyaltyController.getMyRewards);
 
 module.exports = router;
+

@@ -11,7 +11,9 @@ import { SOCKET_EVENTS } from '../constants/socketEvents';
 
 const SocketContext = createContext();
 
-const SOCKET_URL = import.meta.env.VITE_API_URL || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5010');
+const SOCKET_URL = import.meta.env.VITE_API_URL 
+  ? new URL(import.meta.env.VITE_API_URL).origin 
+  : (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5010');
 
 export const SocketProvider = ({ children }) => {
   const { user, selectedBranchId, setSelectedBranchId } = useAuth();

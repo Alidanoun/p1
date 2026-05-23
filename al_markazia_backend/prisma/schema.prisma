@@ -55,6 +55,7 @@ model User {
   timezone        String   @default("UTC")
   quietHoursStart Int      @default(23)
   quietHoursEnd   Int      @default(7)
+  pinHash         String?
 
   @@index([branchId])
 }
@@ -100,6 +101,9 @@ model Branch {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  visibleInApp      Boolean   @default(true)
+  appDisplayOrder   Int       @default(0)
+
   users     User[]
   managedUsers UserBranch[]
   orders    Order[]
@@ -113,6 +117,40 @@ model Branch {
   financialApprovals FinancialApproval[]
   branchVariants BranchVariant[]
   businessPolicies BusinessPolicy[]
+  permissions   BranchPermissions?
+}
+
+enum PermissionLevel {
+  NONE
+  VIEW
+  EDIT_PIN
+  EDIT_PIN_READ
+  FULL
+}
+
+model BranchPermissions {
+  id                  String          @id @default(uuid())
+  branchId            String          @unique
+  branch              Branch          @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  liveOrders          PermissionLevel @default(FULL)
+  manageOrders        PermissionLevel @default(FULL)
+  menu                PermissionLevel @default(FULL)
+  notifications       PermissionLevel @default(FULL)
+  reviews             PermissionLevel @default(VIEW)
+  loyalty             PermissionLevel @default(VIEW)
+  rewardsStore        PermissionLevel @default(NONE)
+  advancedAnalytics   PermissionLevel @default(VIEW)
+  financials          PermissionLevel @default(VIEW)
+  deliveryZones       PermissionLevel @default(EDIT_PIN)
+  auditLog            PermissionLevel @default(VIEW)
+  settings            PermissionLevel @default(EDIT_PIN)
+
+  canToggleLiveMode   Boolean         @default(false)
+  canModifyWorkHours  PermissionLevel @default(EDIT_PIN)
+
+  updatedAt           DateTime        @updatedAt
+  updatedBy           String          // UUID of admin
 }
 
 model BranchItem {
@@ -293,6 +331,7 @@ model Order {
   happyHourId      String?
   happyHourDiscount Decimal?          @default(0) @db.Decimal(10, 2)
   happyHourMultiplier Decimal?        @default(1.0) @db.Decimal(3, 2)
+  couponRequests   CouponRequest[]
 
   @@index([status, createdAt(sort: Desc)])
   @@index([createdAt, status])
@@ -344,6 +383,11 @@ model OrderItem {
   replacedFrom      OrderItem?      @relation("ItemReplacement", fields: [replacedFromId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   replacements      OrderItem[]     @relation("ItemReplacement")
   originalPriceAtOrder Decimal?     @db.Decimal(10, 2)
+
+  // New fields for Partial Cancellation & Replacements
+  suggestedReplacementItemId Int?
+  resolutionPreference       String?    // DEDUCT_FROM_BILL, COUPON_REQUEST
+  replacementStatus          String?    // PENDING, ACCEPTED, REJECTED
 
   @@index([orderId])
   @@index([itemId])
@@ -401,6 +445,7 @@ model Customer {
   notificationPreferences CustomerNotificationPreference[]
   loyaltyLedgers      LoyaltyLedger[]
   notifications       Notification[] @relation("NotificationCustomer")
+  couponRequests      CouponRequest[]
 
   @@index([isBlacklisted])
 }
@@ -744,6 +789,8 @@ enum OrderItemStatus {
   pending_partial_cancel
   cancelled
   rejected
+  pending_customer_resolution
+  pending_replacement_approval
 }
 
 model LoyaltyConfig {
@@ -1104,4 +1151,21 @@ model SystemSettings {
   updatedAt               DateTime @updatedAt
 
   @@unique([key])
+}
+
+model CouponRequest {
+  id          String   @id @default(uuid())
+  orderId     Int
+  customerId  Int
+  itemId      Int
+  itemPrice   Decimal  @db.Decimal(10, 2)
+  status      String   @default("PENDING") // PENDING, RESOLVED, REJECTED
+  adminNotes  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  order       Order    @relation(fields: [orderId], references: [id])
+  customer    Customer @relation(fields: [customerId], references: [id])
+
+  @@index([status])
 }

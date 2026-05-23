@@ -9,9 +9,22 @@ const { requireBranchAccess, ensureBranchId } = require('../middleware/branchAut
  * Protected endpoints for branch operations and availability control.
  */
 
+// 📱 List Active Branches for App Consumer
+router.get('/active', branchController.getActiveBranchesForApp);
+
 // 📋 List All Branches (Public for apps, Filtered by role for dashboard)
 const { optionalAuth } = require('../middleware/auth');
 router.get('/', optionalAuth, branchController.getAllBranches);
+
+// 🏢 Create New Branch (Admin Only)
+router.post('/', authenticateToken, isAdmin, branchController.createBranch);
+
+// 🔒 Branch Permissions (Admin or Branch Manager)
+router.get('/:id/permissions', authenticateToken, branchController.getBranchPermissions);
+router.put('/:id/permissions', authenticateToken, isAdmin, branchController.updateBranchPermissions);
+
+// 🔑 Verify Manager PIN
+router.post('/verify-pin', authenticateToken, branchController.verifyManagerPin);
 
 // 🔄 Toggle Item Availability (Lazy Creation Strategy)
 router.post('/items/toggle', 
@@ -31,3 +44,4 @@ router.post('/validate', authenticateToken, branchController.validateBranchAcces
 router.delete('/:id', authenticateToken, isAdmin, branchController.deleteBranch);
 
 module.exports = router;
+

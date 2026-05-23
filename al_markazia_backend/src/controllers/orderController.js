@@ -600,3 +600,132 @@ exports.updatePreparationTime = async (req, res) => {
     return response.error(res, 'Failed to update preparation time', 'SERVER_ERROR', 500);
   }
 };
+
+exports.suggestReplacement = async (req, res) => {
+  try {
+    const orderId = parseInt(req.params.id);
+    const itemId = parseInt(req.params.itemId);
+    const { suggestedReplacementItemId } = req.body;
+    const idempotencyKey = req.headers['idempotency-key'] || `suggest_${orderId}_${itemId}_${Date.now()}`;
+
+    if (isNaN(orderId) || isNaN(itemId)) {
+      return response.error(res, 'معرف الطلب أو العنصر غير صحيح', 'INVALID_ID', 400);
+    }
+    if (!suggestedReplacementItemId) {
+      return response.error(res, 'معرف الصنف البديل مطلوب', 'REPLACEMENT_REQUIRED', 400);
+    }
+
+    const result = await contractGateway.execute(orderId, 'SUGGEST_REPLACEMENT', {
+      itemId,
+      suggestedReplacementItemId: parseInt(suggestedReplacementItemId),
+      idempotencyKey
+    }, req.user);
+
+    res.json({ success: true, data: result });
+  } catch (error) {
+    logger.error('suggestReplacement error', { error: error.message });
+    if (error.message === 'ORDER_NOT_FOUND') {
+      return response.error(res, 'الطلب غير موجود', 'ORDER_NOT_FOUND', 404);
+    }
+    if (error.message === 'ORDER_ITEM_NOT_FOUND') {
+      return response.error(res, 'العنصر المراد استبداله غير موجود', 'ITEM_NOT_FOUND', 404);
+    }
+    if (error.message === 'INVALID_ITEM_STATUS') {
+      return response.error(res, 'حالة العنصر لا تسمح بالاستبدال', 'INVALID_STATUS', 400);
+    }
+    if (error.message === 'ALTERNATIVE_ITEM_NOT_FOUND') {
+      return response.error(res, 'الصنف البديل المقترح غير موجود', 'ALTERNATIVE_NOT_FOUND', 404);
+    }
+    if (error.message === 'ALTERNATIVE_ITEM_UNAVAILABLE') {
+      return response.error(res, 'الصنف البديل غير متوفر حالياً', 'ALTERNATIVE_UNAVAILABLE', 400);
+    }
+    if (error.message === 'UNAUTHORIZED_ORDER_ACCESS') {
+      return response.error(res, 'غير مصرح لك بالوصول لهذا الطلب', 'FORBIDDEN', 403);
+    }
+    return response.error(res, 'فشل اقتراح صنف بديل', 'SERVER_ERROR', 500);
+  }
+};
+
+exports.respondReplacement = async (req, res) => {
+  try {
+    const orderId = parseInt(req.params.id);
+    const itemId = parseInt(req.params.itemId);
+    const { accept, preference } = req.body;
+    const idempotencyKey = req.headers['idempotency-key'] || `respond_${orderId}_${itemId}_${Date.now()}`;
+
+    if (isNaN(orderId) || isNaN(itemId)) {
+      return response.error(res, 'معرف الطلب أو العنصر غير صحيح', 'INVALID_ID', 400);
+    }
+    if (accept === undefined) {
+      return response.error(res, 'يجب تحديد القبول أو الرفض', 'ACCEPT_REQUIRED', 400);
+    }
+
+    const result = await contractGateway.execute(orderId, 'RESPOND_REPLACEMENT', {
+      itemId,
+      accept: !!accept,
+      preference: preference || 'DEDUCT_FROM_BILL',
+      idempotencyKey
+    }, req.user);
+
+    res.json({ success: true, data: result });
+  } catch (error) {
+    logger.error('respondReplacement error', { error: error.message });
+    if (error.message === 'ORDER_NOT_FOUND') {
+      return response.error(res, 'الطلب غير موجود', 'ORDER_NOT_FOUND', 404);
+    }
+    if (error.message === 'ORDER_ITEM_NOT_FOUND') {
+      return response.error(res, 'العنصر غير موجود', 'ITEM_NOT_FOUND', 404);
+    }
+    if (error.message === 'INVALID_ITEM_STATUS') {
+      return response.error(res, 'لم يتم تقديم طلب استبدال لهذا العنصر أو انتهت صلاحيته', 'INVALID_STATUS', 400);
+    }
+    if (error.message === 'SUGGESTED_ITEM_NOT_FOUND') {
+      return response.error(res, 'الصنف المقترح غير متوفر حالياً', 'ALTERNATIVE_UNAVAILABLE', 400);
+    }
+    if (error.message === 'CANNOT_CANCEL_ALL_ITEMS') {
+      return response.error(res, 'لا يمكن إلغاء جميع عناصر الطلب', 'CANNOT_CANCEL_ALL', 400);
+    }
+    if (error.message === 'UNAUTHORIZED_ORDER_ACCESS') {
+      return response.error(res, 'غير مصرح لك بالوصول لهذا الطلب', 'FORBIDDEN', 403);
+    }
+    return response.error(res, 'فشل الرد على مقترح الاستبدال', 'SERVER_ERROR', 500);
+  }
+};
+
+exports.requestCoupon = async (req, res) => {
+  try {
+    const orderId = parseInt(req.params.id);
+    const itemId = parseInt(req.params.itemId);
+    const idempotencyKey = req.headers['idempotency-key'] || `coupon_req_${orderId}_${itemId}_${Date.now()}`;
+
+    if (isNaN(orderId) || isNaN(itemId)) {
+      return response.error(res, 'معرف الطلب أو العنصر غير صحيح', 'INVALID_ID', 400);
+    }
+
+    const result = await contractGateway.execute(orderId, 'REQUEST_COUPON', {
+      itemId,
+      idempotencyKey
+    }, req.user);
+
+    res.json({ success: true, data: result });
+  } catch (error) {
+    logger.error('requestCoupon error', { error: error.message });
+    if (error.message === 'ORDER_NOT_FOUND') {
+      return response.error(res, 'الطلب غير موجود', 'ORDER_NOT_FOUND', 404);
+    }
+    if (error.message === 'ORDER_ITEM_NOT_FOUND') {
+      return response.error(res, 'العنصر غير موجود', 'ITEM_NOT_FOUND', 404);
+    }
+    if (error.message === 'ITEM_NOT_CANCELLED') {
+      return response.error(res, 'العنصر ليس ملغياً ولا يمكن طلب كوبون له', 'ITEM_NOT_CANCELLED', 400);
+    }
+    if (error.message === 'COUPON_REQUEST_ALREADY_EXISTS') {
+      return response.error(res, 'تم تقديم طلب كوبون خصم مسبقاً لهذا العنصر', 'COUPON_ALREADY_REQUESTED', 400);
+    }
+    if (error.message === 'UNAUTHORIZED_ORDER_ACCESS') {
+      return response.error(res, 'غير مصرح لك بالوصول لهذا الطلب', 'FORBIDDEN', 403);
+    }
+    return response.error(res, 'فشل طلب كوبون الخصم', 'SERVER_ERROR', 500);
+  }
+};
+

@@ -13,3 +13,7 @@ src/scratch/
 temp/
 debug/
 src/config/keys/
+.env.keys
+.env.local
+.env.*.local
+*.pem

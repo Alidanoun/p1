@@ -1,5 +1,6 @@
 const express = require('express');
 const { orderLimiter } = require('../middleware/rateLimiter');
+const { checkPermission } = require('../middleware/permissionMiddleware');
 
 const { 
   authenticateToken: authMiddleware, 
@@ -15,6 +16,7 @@ const { healthGuard } = require('../middleware/healthGuard');
 const workingHoursGuard = require('../middleware/workingHoursGuard');
 const { verifyOrderOwnership } = require('../middleware/ownership');
 const { validateId } = require('../utils/security');
+
 const priceValidation = require('../middleware/priceValidation');
 const { 
   createOrder, 
@@ -25,7 +27,6 @@ const {
   syncOrders,
   updateOrderStatus, 
   acceptAllNewOrders,
-  getCustomerOrders, 
   updateOrderTimer, 
   submitOrderRating, 
   cancelOrder, 
@@ -35,13 +36,15 @@ const {
   requestPartialCancel,
   handlePartialCancelRequest,
   getPendingPartialCancels,
-  updatePreparationTime
+  updatePreparationTime,
+  suggestReplacement,
+  respondReplacement,
+  requestCoupon
 } = require('../controllers/orderController');
 
 const {
   validatePartialCancelRequest,
   validateHandlePartialCancel,
-  validateCancelOrder,
   validateOrderCreate,
   validateOrderRating
 } = require('../middleware/orderValidation');
@@ -52,7 +55,7 @@ const router = express.Router();
 
 // Require authentication for order creation — guests can only browse the menu
 // Idempotency-Key header (UUID) is mandatory — prevents duplicate orders on network retry
-router.post('/', authenticateToken, idempotency.guard(true), validateOrderBranch, healthGuard('db'), workingHoursGuard, orderLimiter, priceValidation, validateOrderCreate, createOrder);
+router.post('/', authMiddleware, idempotency.guard(true), validateOrderBranch, healthGuard('db'), workingHoursGuard, orderLimiter, priceValidation, validateOrderCreate, createOrder);
 
 // New Secure Identity Route: Get orders for the authenticated customer
 router.get('/my-orders', authMiddleware, getMyOrders);
@@ -61,21 +64,21 @@ router.get('/my-orders', authMiddleware, getMyOrders);
 router.get('/report', authMiddleware, adminMiddleware, BranchAccessMiddleware, enforceIntent('read'), getOrdersReport);
 
 // Only admin/manager can view and update (RBAC v3)
-router.get('/', authMiddleware, hasPermission(PERMISSIONS.ORDER_VIEW), BranchAccessMiddleware, enforceIntent('read'), getOrders);
-router.get('/sync', authMiddleware, hasPermission(PERMISSIONS.ORDER_VIEW), BranchAccessMiddleware, enforceIntent('read'), syncOrders);
-router.get('/:id', authMiddleware, hasPermission(PERMISSIONS.ORDER_VIEW), BranchAccessMiddleware, enforceIntent('read'), validateId(), getOrderById);
-router.post('/accept-all', authMiddleware, hasPermission(PERMISSIONS.ORDER_UPDATE_STATUS), BranchAccessMiddleware, enforceIntent('write'), idempotency.guard(true), acceptAllNewOrders);
-router.patch('/:id/status', authMiddleware, hasPermission(PERMISSIONS.ORDER_UPDATE_STATUS), BranchAccessMiddleware, verifyOrderOwnership, enforceIntent('write'), healthGuard('db'), idempotency.guard(true), validateId(), updateOrderStatus);
-router.patch('/:id/timer', authMiddleware, hasPermission(PERMISSIONS.ORDER_MANAGE_TIMER), BranchAccessMiddleware, verifyOrderOwnership, enforceIntent('write'), idempotency.guard(true), validateId(), updateOrderTimer);
-router.patch('/:id/prep-time', authMiddleware, hasPermission(PERMISSIONS.ORDER_MANAGE_TIMER), BranchAccessMiddleware, verifyOrderOwnership, enforceIntent('write'), idempotency.guard(true), validateId(), updatePreparationTime);
+router.get('/', authMiddleware, checkPermission('liveOrders', 'VIEW'), hasPermission(PERMISSIONS.ORDER_VIEW), BranchAccessMiddleware, enforceIntent('read'), getOrders);
+router.get('/sync', authMiddleware, checkPermission('liveOrders', 'VIEW'), hasPermission(PERMISSIONS.ORDER_VIEW), BranchAccessMiddleware, enforceIntent('read'), syncOrders);
+router.get('/:id', authMiddleware, checkPermission('liveOrders', 'VIEW'), hasPermission(PERMISSIONS.ORDER_VIEW), BranchAccessMiddleware, enforceIntent('read'), validateId(), getOrderById);
+router.post('/accept-all', authMiddleware, checkPermission('manageOrders', 'FULL'), hasPermission(PERMISSIONS.ORDER_UPDATE_STATUS), BranchAccessMiddleware, enforceIntent('write'), idempotency.guard(true), acceptAllNewOrders);
+router.patch('/:id/status', authMiddleware, checkPermission('manageOrders', 'FULL'), hasPermission(PERMISSIONS.ORDER_UPDATE_STATUS), BranchAccessMiddleware, verifyOrderOwnership, enforceIntent('write'), healthGuard('db'), idempotency.guard(true), validateId(), updateOrderStatus);
+router.patch('/:id/timer', authMiddleware, checkPermission('manageOrders', 'EDIT_PIN'), hasPermission(PERMISSIONS.ORDER_MANAGE_TIMER), BranchAccessMiddleware, verifyOrderOwnership, enforceIntent('write'), idempotency.guard(true), validateId(), updateOrderTimer);
+router.patch('/:id/prep-time', authMiddleware, checkPermission('manageOrders', 'EDIT_PIN'), hasPermission(PERMISSIONS.ORDER_MANAGE_TIMER), BranchAccessMiddleware, verifyOrderOwnership, enforceIntent('write'), idempotency.guard(true), validateId(), updatePreparationTime);
 router.patch('/:id/rate', authMiddleware, verifyOrderOwnership, enforceIntent('write'), idempotency.guard(true), validateId(), validateOrderRating, submitOrderRating);
 
 // Cancel order (Unified logic for Customer and Admin)
 router.post('/:id/cancel', authMiddleware, BranchAccessMiddleware, verifyOrderOwnership, enforceIntent('write'), idempotency.guard(true), cancelOrder);
-router.post('/:id/approve-cancel', authMiddleware, hasPermission(PERMISSIONS.ORDER_CANCEL), BranchAccessMiddleware, verifyOrderOwnership, enforceIntent('write'), idempotency.guard(true), approveCancellation);
-router.post('/:id/reject-cancel', authMiddleware, hasPermission(PERMISSIONS.ORDER_CANCEL), BranchAccessMiddleware, verifyOrderOwnership, enforceIntent('write'), idempotency.guard(true), rejectCancellation);
+router.post('/:id/approve-cancel', authMiddleware, checkPermission('manageOrders', 'EDIT_PIN'), hasPermission(PERMISSIONS.ORDER_CANCEL), BranchAccessMiddleware, verifyOrderOwnership, enforceIntent('write'), idempotency.guard(true), approveCancellation);
+router.post('/:id/reject-cancel', authMiddleware, checkPermission('manageOrders', 'EDIT_PIN'), hasPermission(PERMISSIONS.ORDER_CANCEL), BranchAccessMiddleware, verifyOrderOwnership, enforceIntent('write'), idempotency.guard(true), rejectCancellation);
 
-router.post('/:id/handle-cancellation', authMiddleware, hasPermission(PERMISSIONS.ORDER_CANCEL), BranchAccessMiddleware, verifyOrderOwnership, enforceIntent('write'), idempotency.guard(true), validateId(), handleCancellationRequest);
+router.post('/:id/handle-cancellation', authMiddleware, checkPermission('manageOrders', 'EDIT_PIN'), hasPermission(PERMISSIONS.ORDER_CANCEL), BranchAccessMiddleware, verifyOrderOwnership, enforceIntent('write'), idempotency.guard(true), validateId(), handleCancellationRequest);
 
 // --- Partial Cancellation ---
 
@@ -95,6 +98,7 @@ router.post(
 router.post(
   "/:orderId/handle-partial-cancel",
   authMiddleware,
+  checkPermission('manageOrders', 'EDIT_PIN'),
   hasPermission(PERMISSIONS.ORDER_PARTIAL_CANCEL),
   BranchAccessMiddleware,
   enforceIntent('write'),
@@ -104,6 +108,7 @@ router.post(
   handlePartialCancelRequest
 );
 
+
 // Admin List Review
 router.get(
   "/pending-partial-cancels",
@@ -111,6 +116,46 @@ router.get(
   managerMiddleware,
   BranchAccessMiddleware,
   getPendingPartialCancels
+);
+
+// --- Item Replacement & Coupon Compensation ---
+// Branch suggests a replacement for an unavailable item
+router.post(
+  "/:id/items/:itemId/suggest-replacement",
+  authMiddleware,
+  checkPermission('manageOrders', 'EDIT_PIN'),
+  hasPermission(PERMISSIONS.ORDER_UPDATE_STATUS),
+  BranchAccessMiddleware,
+  verifyOrderOwnership,
+  enforceIntent('write'),
+  idempotency.guard(true),
+  validateId('id'),
+  validateId('itemId'),
+  suggestReplacement
+);
+
+// Customer (or system) responds to the replacement suggestion
+router.post(
+  "/:id/items/:itemId/respond-replacement",
+  authMiddleware,
+  verifyOrderOwnership,
+  enforceIntent('write'),
+  idempotency.guard(true),
+  validateId('id'),
+  validateId('itemId'),
+  respondReplacement
+);
+
+// Customer requests a coupon for a cancelled item
+router.post(
+  "/:id/items/:itemId/request-coupon",
+  authMiddleware,
+  verifyOrderOwnership,
+  enforceIntent('write'),
+  idempotency.guard(true),
+  validateId('id'),
+  validateId('itemId'),
+  requestCoupon
 );
 
 module.exports = router;

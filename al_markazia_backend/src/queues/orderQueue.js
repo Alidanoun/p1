@@ -37,7 +37,27 @@ const initOrderWorker = (container) => {
           idempotencyKey: `timeout_${orderId}_${uuidv4()}`
         }, { id: 'SYSTEM', role: 'system' });
         
-        logger.warn(`[OrderWorker] Order #${order.orderNumber} auto-cancelled due to timeout.`);
+      }
+    }
+
+    if (job.name === 'replacement-timeout') {
+      const { itemId } = job.data;
+      const orderItem = await prisma.orderItem.findUnique({
+        where: { id: itemId }
+      });
+      
+      if (orderItem && orderItem.status === 'pending_replacement_approval') {
+        const contractGateway = require('../services/contractGateway');
+        const { v4: uuidv4 } = require('uuid');
+        
+        await contractGateway.execute(orderId, 'RESPOND_REPLACEMENT', {
+          itemId,
+          accept: false,
+          preference: 'DEDUCT_FROM_BILL',
+          idempotencyKey: `timeout_replacement_${orderId}_${itemId}_${uuidv4()}`
+        }, { id: 'SYSTEM', role: 'system' });
+        
+        logger.warn(`[OrderWorker] Replacement timeout for item ${itemId} in order #${orderId} expired. Cancelled and deducted.`);
       }
     }
   }, {

@@ -32,7 +32,7 @@ async function main() {
     update: {
       password: hashedPassword,
       isActive: true,
-      role: 'admin'
+      role: 'ADMIN'
     },
     create: {
       email: encrypt(adminEmail),

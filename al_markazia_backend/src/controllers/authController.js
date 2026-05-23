@@ -37,7 +37,7 @@ const sanitizeToken = (token) => {
 // ── Helper: Secure Cookie Config ──────────────────────
 const getCookiePolicy = (req) => {
   const isProd = process.env.NODE_ENV === 'production';
-  const sameSite = isProd ? 'strict' : 'lax';
+  const sameSite = 'lax';
   const secure = isProd || req.secure || req.headers['x-forwarded-proto'] === 'https';
   return { sameSite, secure };
 };

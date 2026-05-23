@@ -66,7 +66,9 @@ class ContractGateway {
           case 'CREATE_ORDER': return await this.container.orderService.createOrder(context.orderData, actor);
           case 'REQUEST_PARTIAL_CANCEL': return await this.container.orderService.requestPartialCancel(orderId, context.items, context.reason, actor, context);
           case 'APPROVE_PARTIAL_CANCEL': return await this.container.orderService.applyPartialCancellation(orderId, context.itemsToCancel, actor, context.notificationId, context.managerPassword);
-          // ... add other cases as needed or use a generic router
+          case 'SUGGEST_REPLACEMENT': return await this.container.orderService.suggestReplacement(orderId, context.itemId, context.suggestedReplacementItemId, actor);
+          case 'RESPOND_REPLACEMENT': return await this.container.orderService.respondReplacement(orderId, context.itemId, context.accept, context.preference, actor);
+          case 'REQUEST_COUPON': return await this.container.orderService.requestCouponForCancelledItem(orderId, context.itemId, actor);
           default:
             // Fallback for non-refactored paths
             return await this._legacyExecute(orderId, action, context, actor);

@@ -427,7 +427,7 @@ class SecurityPolicyService {
       const activeUsers = await prisma.user.findMany({
         where: { 
           isActive: true,
-          role: { in: ['admin', 'branch_manager', 'manager'] }
+          role: { in: ['ADMIN', 'BRANCH_MANAGER', 'MANAGER'] }
         },
         select: { id: true, role: true, branchId: true }
       });

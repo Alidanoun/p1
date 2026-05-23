@@ -1,5 +1,6 @@
 const express = require('express');
-const { authenticateToken, isAdmin } = require('../middleware/auth');
+const { authenticateToken, isAdmin, isManager } = require('../middleware/auth');
+const { checkPermission } = require('../middleware/permissionMiddleware');
 const deliveryZoneController = require('../controllers/deliveryZoneController');
 const { rateLimit } = require('express-rate-limit');
 
@@ -15,10 +16,11 @@ const zonePublicLimiter = rateLimit({
 // 🔓 Public Routes (for Mobile App)
 router.get('/active', zonePublicLimiter, deliveryZoneController.getActiveZones);
 
-// 🔒 Admin Routes
-router.get('/', authenticateToken, isAdmin, deliveryZoneController.getAllZones);
-router.post('/', authenticateToken, isAdmin, deliveryZoneController.createZone);
-router.put('/:id', authenticateToken, isAdmin, deliveryZoneController.updateZone);
-router.delete('/:id', authenticateToken, isAdmin, deliveryZoneController.deleteZone);
+// 🔒 Admin / Branch Manager Routes
+router.get('/', authenticateToken, isManager, checkPermission('deliveryZones', 'VIEW'), deliveryZoneController.getAllZones);
+router.post('/', authenticateToken, isManager, checkPermission('deliveryZones', 'EDIT_PIN'), deliveryZoneController.createZone);
+router.put('/:id', authenticateToken, isManager, checkPermission('deliveryZones', 'EDIT_PIN'), deliveryZoneController.updateZone);
+router.delete('/:id', authenticateToken, isManager, checkPermission('deliveryZones', 'EDIT_PIN'), deliveryZoneController.deleteZone);
 
 module.exports = router;
+

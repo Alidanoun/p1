@@ -1,4 +1,5 @@
 // tests/jest.setup.js
+process.env.NODE_ENV = 'test';
 require('dotenv').config();
 if (process.env.NODE_ENV === 'test') {
   // توليد مفاتيح حقيقية لبيئة الاختبارات لتفادي تجاوز التحقق

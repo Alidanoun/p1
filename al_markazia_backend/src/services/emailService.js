@@ -4,18 +4,20 @@ const logger = require('../utils/logger');
 class EmailService {
   constructor() {
     this.transporter = nodemailer.createTransport({
-      service: 'gmail',
+      host: process.env.SMTP_HOST || 'smtp.gmail.com',
+      port: process.env.SMTP_PORT || 587,
+      secure: process.env.SMTP_SECURE === 'true',
       auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASSWORD
       }
     });
 
     // 🔍 Connection Diagnostic
-    if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-      logger.info(`📧 Email Service Initialized for: ${process.env.EMAIL_USER}`);
+    if (process.env.SMTP_USER && process.env.SMTP_PASSWORD) {
+      logger.info(`📧 Email Service Initialized for: ${process.env.SMTP_USER}`);
     } else {
-      logger.warn('⚠️ Email Service: Missing credentials in .env');
+      logger.warn('⚠️ Email Service: Missing SMTP credentials in .env');
     }
   }
 
@@ -24,7 +26,7 @@ class EmailService {
    */
   async sendOtp(email, code) {
     const mailOptions = {
-      from: `"مطعم المركزية" <${process.env.EMAIL_USER}>`,
+      from: `"${process.env.EMAIL_FROM_NAME || 'مطعم المركزية'}" <${process.env.EMAIL_FROM_ADDRESS || process.env.SMTP_USER}>`,
       to: email,
       subject: 'كود التحقق الخاص بك - مطعم المركزية',
       html: `
@@ -54,7 +56,7 @@ class EmailService {
    */
   async sendPasswordResetOtp(email, code) {
     const mailOptions = {
-      from: `"مطعم المركزية" <${process.env.EMAIL_USER}>`,
+      from: `"${process.env.EMAIL_FROM_NAME || 'مطعم المركزية'}" <${process.env.EMAIL_FROM_ADDRESS || process.env.SMTP_USER}>`,
       to: email,
       subject: '🔐 طلب إعادة تعيين كلمة المرور - مطعم المركزية',
       html: `
