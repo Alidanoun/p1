@@ -59,29 +59,6 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=5000
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-production_secure_db_password_32_chars_long}@db:5432/${POSTGRES_DB:-al_markazia_prod_db}?schema=public
-      - REDIS_URL=redis://${REDIS_USERNAME:-app_main}:${REDIS_PASSWORD:-redis_production_secure_password_32_chars}@redis:6379
-      - REDIS_USERNAME=${REDIS_USERNAME:-app_main}
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_production_secure_password_32_chars}
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_WORKER_USERNAME=${REDIS_WORKER_USERNAME:-app_worker}
-      - REDIS_WORKER_PASSWORD=${REDIS_WORKER_PASSWORD:-redis_production_secure_worker_password_32_chars}
-      - JWT_SECRET=${JWT_SECRET:-production_jwt_secret_key_32_chars_long_long}
-      - REFRESH_TOKEN_SECRET=${REFRESH_TOKEN_SECRET:-production_refresh_secret_key_32_chars_long}
-      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-production_encryption_key_32_chars_long_long}
-      - SENTRY_DSN=${SENTRY_DSN}
-      - TIMEZONE=Asia/Amman
-      - SMTP_HOST=${SMTP_HOST}
-      - SMTP_PORT=${SMTP_PORT}
-      - SMTP_SECURE=${SMTP_SECURE}
-      - SMTP_USER=${SMTP_USER}
-      - SMTP_PASSWORD=${SMTP_PASSWORD}
-      - EMAIL_FROM_ADDRESS=${EMAIL_FROM_ADDRESS}
-      - EMAIL_FROM_NAME=${EMAIL_FROM_NAME}
-      - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID}
-      - FIREBASE_CLIENT_EMAIL=${FIREBASE_CLIENT_EMAIL}
-      - FIREBASE_PRIVATE_KEY=${FIREBASE_PRIVATE_KEY}
     volumes:
       - app_prod_logs:/usr/src/app/logs
       - app_prod_uploads:/usr/src/app/uploads

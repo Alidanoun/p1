@@ -29,8 +29,22 @@ class TimezoneCache {
 
   async getBranchTimezone(branchId, prisma) {
     try {
-      const { getTimezone } = require('../utils/timezone');
-      return await getTimezone(branchId);
+      if (this.redis && typeof this.redis.get === 'function') {
+        const cached = await this.redis.get(`tz:branch:${branchId}`);
+        if (cached) return cached;
+      }
+
+      const branch = await prisma.branch.findUnique({
+        where: { id: branchId },
+        select: { timezone: true }
+      });
+      const tz = branch?.timezone || DEFAULT_TIMEZONE;
+
+      if (this.redis && typeof this.redis.setex === 'function' && tz) {
+        await this.redis.setex(`tz:branch:${branchId}`, this.ttl, tz).catch(() => {});
+      }
+
+      return tz;
     } catch (e) {
       return DEFAULT_TIMEZONE;
     }

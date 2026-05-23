@@ -5,7 +5,7 @@ const prisma = new PrismaClient();
 
 async function repairAdmin() {
   const email = 'admin@almarkazia.com';
-  const password = '123456';
+  const password = 'Almarkazia123@';
   const name = 'Admin';
   
   console.log('🔧 Repairing Admin Account...');
@@ -18,7 +18,7 @@ async function repairAdmin() {
 
     // Upsert the user
     const user = await prisma.user.upsert({
-      where: { email: encryptedEmail }, // This might be tricky if it's already there but not encrypted
+      where: { emailHash: emailHash },
       update: {
         email: encryptedEmail,
         emailHash: emailHash,

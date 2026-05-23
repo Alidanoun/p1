@@ -5,6 +5,7 @@
 const BRANCH_ISOLATED_MODELS = new Set([
   'Order',
   'BranchItem',
+  'BranchPermissions',
   'FinancialLedger',
   'DailyFinancialSnapshot',
   'SystemAuditLog',

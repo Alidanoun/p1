@@ -17,7 +17,7 @@ async function getTimezone(branchId = null) {
       if (cached) return cached;
       
       const branch = await prisma.branch.findUnique({
-        where: { id: typeof branchId === 'string' ? parseInt(branchId) : branchId },
+        where: { id: branchId },
         select: { timezone: true }
       });
       
