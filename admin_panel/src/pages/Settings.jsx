@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Save, MessageCircle, Bell, Shield, Settings as SettingsIcon, Clock, Phone, MapPin, Image as ImageIcon, Plus, Smartphone, ExternalLink } from 'lucide-react';
+import { Save, MessageCircle, Bell, Shield, Settings as SettingsIcon, Clock, Phone, MapPin, Image as ImageIcon, Plus, Smartphone, ExternalLink, Building2 } from 'lucide-react';
 import { toast } from 'sonner';
 import Header from '../components/Header';
 import { cn } from '../lib/utils';
