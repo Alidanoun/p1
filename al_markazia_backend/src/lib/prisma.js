@@ -44,6 +44,10 @@ const prisma = basePrisma.$extends({
       email: { needs: { email: true }, compute(c) { try { return decrypt(c.email); } catch { logger.error('[Prisma] Decryption failed for customer.email — returning null'); return null; } } },
       phone: { needs: { phone: true }, compute(c) { try { return decrypt(c.phone); } catch { logger.error('[Prisma] Decryption failed for customer.phone — returning null'); return null; } } },
       name: { needs: { name: true }, compute(c) { try { return decrypt(c.name); } catch { logger.error('[Prisma] Decryption failed for customer.name — returning null'); return null; } } }
+    },
+    branch: {
+      phone: { needs: { phone: true }, compute(b) { try { return decrypt(b.phone); } catch { logger.error('[Prisma] Decryption failed for branch.phone — returning null'); return null; } } },
+      name: { needs: { name: true }, compute(b) { try { return decrypt(b.name); } catch { logger.error('[Prisma] Decryption failed for branch.name — returning null'); return null; } } }
     }
   },
   query: {
