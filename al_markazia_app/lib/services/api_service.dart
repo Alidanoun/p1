@@ -336,6 +336,8 @@ class ApiService {
 
   Future<OrderModel?> placeOrder(OrderModel order) async {
     final heads = await _headers;
+    // إضافة مفتاح Idempotency لمنع تكرار الطلبات (مطلوب من الباك إند)
+    heads['idempotency-key'] = 'mobile_order_${DateTime.now().millisecondsSinceEpoch}';
     return _withRetry(() => _orderApi.placeOrder(order, heads));
   }
 
