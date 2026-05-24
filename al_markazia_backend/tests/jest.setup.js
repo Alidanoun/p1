@@ -4,31 +4,37 @@ require('dotenv').config();
 
 // Mock ioredis client to prevent socket connection errors during tests
 jest.mock('ioredis', () => {
-  const MockRedis = jest.fn().mockImplementation(() => {
-    return {
-      on: jest.fn(),
+  const EventEmitter = require('events');
+  const mockInstance = () => {
+    const ee = new EventEmitter();
+    return Object.assign(ee, {
+      get: jest.fn().mockResolvedValue(null),
+      set: jest.fn().mockResolvedValue('OK'),
+      setex: jest.fn().mockResolvedValue('OK'),
+      del: jest.fn().mockResolvedValue(1),
+      ping: jest.fn().mockResolvedValue('PONG'),
+      incr: jest.fn().mockResolvedValue(1),
+      subscribe: jest.fn().mockResolvedValue(null),
+      publish: jest.fn().mockResolvedValue(0),
+      psubscribe: jest.fn().mockResolvedValue(null),
+      punsubscribe: jest.fn().mockResolvedValue(null),
+      defineCommand: jest.fn().mockResolvedValue('OK'),
+      info: jest.fn().mockResolvedValue('redis_version:7.0.0'),
+      quit: jest.fn().mockResolvedValue('OK'),
       duplicate: jest.fn().mockReturnThis(),
-      options: { db: 0 },
+      expire: jest.fn().mockResolvedValue(1),
+      ttl: jest.fn().mockResolvedValue(-1),
+      options: { host: 'localhost', port: 6379, db: 0 },
       status: 'connecting',
-      get: jest.fn(() => Promise.resolve(null)),
-      set: jest.fn(() => Promise.resolve('OK')),
-      setex: jest.fn(() => Promise.resolve('OK')),
-      del: jest.fn(() => Promise.resolve(0)),
-      incr: jest.fn(() => Promise.resolve(1)),
-      expire: jest.fn(() => Promise.resolve(1)),
-      ttl: jest.fn(() => Promise.resolve(-1)),
-      ping: jest.fn(() => Promise.resolve('PONG')),
-      quit: jest.fn(() => Promise.resolve('OK')),
-      subscribe: jest.fn(() => Promise.resolve('OK')),
-      unsubscribe: jest.fn(() => Promise.resolve('OK')),
-      psubscribe: jest.fn(() => Promise.resolve('OK')),
-      punsubscribe: jest.fn(() => Promise.resolve('OK')),
-      send_command: jest.fn((cmd, args, cb) => {
-        if (cb) cb(null, 1);
-        return Promise.resolve(1);
-      }),
-    };
-  });
+      xgroup: jest.fn().mockResolvedValue('OK'),
+      xadd: jest.fn().mockResolvedValue('1-0'),
+      xack: jest.fn().mockResolvedValue(1),
+      xautoclaim: jest.fn().mockResolvedValue(['0-0', []]),
+      xreadgroup: jest.fn().mockResolvedValue([]),
+    });
+  };
+  const MockRedis = jest.fn(mockInstance);
+  MockRedis.prototype = EventEmitter.prototype;
   MockRedis.default = MockRedis;
   return MockRedis;
 });

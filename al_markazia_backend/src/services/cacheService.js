@@ -1,6 +1,6 @@
-const Redis = require('ioredis');
 const NodeCache = require('node-cache');
 const logger = require('../utils/logger');
+const { redisCache, redisPubSub } = require('../lib/redis');
 
 /**
  * 🎯 Centralized Cache Service (Singleton)
@@ -23,18 +23,8 @@ class CacheService {
     this.failureThreshold = 5;
     this.resetTimeout = 60000; // 60 seconds
 
-    // 2. Redis Configuration
-    const redisConfig = {
-      host: process.env.REDIS_HOST || 'localhost',
-      port: process.env.REDIS_PORT || 6379,
-      username: process.env.REDIS_USERNAME || undefined,
-      password: process.env.REDIS_PASSWORD || undefined,
-      retryStrategy: (times) => Math.min(times * 50, 2000),
-      commandTimeout: 3000
-    };
-    
-    this.redis = new Redis(redisConfig);
-    this.pubSub = new Redis({ ...redisConfig, enableReadyCheck: false });
+    this.redis = redisCache;
+    this.pubSub = redisPubSub;
     this.isSubscribed = false;
 
     this.setupPubSub();
@@ -87,6 +77,10 @@ class CacheService {
   }
 
   setupPubSub() {
+    if (this.pubSub.status === 'ready' && !this.isSubscribed) {
+      this.subscribe();
+    }
+
     this.pubSub.on('connect', () => {
       logger.info(`📡 [CachePubSub] Connected from instance ${this.instanceId}`);
       if (!this.isSubscribed) this.subscribe();
@@ -210,8 +204,6 @@ class CacheService {
   async destroy() {
     try {
       this.localCache.flushAll();
-      await this.redis.quit();
-      await this.pubSub.quit();
     } catch (err) {
       logger.logError('CacheService.destroy', err);
     }

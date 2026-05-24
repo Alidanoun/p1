@@ -1,5 +1,5 @@
 const { Queue, Worker } = require('bullmq');
-const redis = require('../lib/redis');
+const { redisBullMQ } = require('../lib/redis');
 const logger = require('../utils/logger');
 const prisma = require('../lib/prisma');
 
@@ -8,7 +8,7 @@ const prisma = require('../lib/prisma');
  * Handles timeouts, delayed tasks, and automated SLA enforcement.
  */
 const orderQueue = new Queue('order-lifecycle', {
-  connection: redis.duplicate(),
+  connection: redisBullMQ.duplicate(),
   defaultJobOptions: {
     removeOnComplete: true,
     removeOnFail: { age: 86400 } // Keep failed jobs for 24 hours
@@ -61,7 +61,7 @@ const initOrderWorker = (container) => {
       }
     }
   }, {
-    connection: redis.duplicate(),
+    connection: redisBullMQ.duplicate(),
     concurrency: 5
   });
 

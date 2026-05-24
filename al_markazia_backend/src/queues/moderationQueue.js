@@ -1,12 +1,12 @@
 const { Queue, Worker } = require('bullmq');
-const redis = require('../lib/redis');
+const { redisBullMQ } = require('../lib/redis');
 const prisma = require('../lib/prisma');
 const logger = require('../utils/logger');
 const { analyzeContent } = require('../utils/contentFilter');
 const ratingAggregate = require('../services/ratingAggregate');
 
 const moderationQueue = new Queue('moderation', {
-  connection: redis.options
+  connection: redisBullMQ
 });
 
 let moderationWorker;
@@ -49,7 +49,7 @@ if (process.env.NODE_ENV !== 'test') {
       throw err;
     }
   }, {
-    connection: redis.options
+    connection: redisBullMQ.duplicate()
   });
 }
 

@@ -1,6 +1,6 @@
 // src/queues/emailQueue.js
 const { Queue, Worker } = require('bullmq');
-const redis = require('../lib/redis');
+const { redisBullMQ } = require('../lib/redis');
 const emailService = require('../services/emailService');
 const logger = require('../utils/logger');
 
@@ -8,7 +8,7 @@ const logger = require('../utils/logger');
  * 📨 Enterprise Email Queue
  */
 const emailQueue = new Queue('email-queue', {
-  connection: redis.options, // Reuse existing connection options
+  connection: redisBullMQ,
   defaultJobOptions: {
     attempts: 3,
     backoff: {
@@ -45,7 +45,7 @@ if (process.env.NODE_ENV !== 'test') {
       }
     },
     { 
-      connection: redis.options,
+      connection: redisBullMQ.duplicate(),
       concurrency: 5 // Process up to 5 emails simultaneously
     }
   );

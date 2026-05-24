@@ -45,11 +45,14 @@ router.get('/', async (req, res) => {
   // 2. Redis Check
   try {
     const startRedis = Date.now();
-    await redis.ping();
+    const status = await redis.checkRedisHealth();
+    const isAllUp = status.cache && status.bullmq && status.pubsub;
     healthInfo.checks.redis = {
-      status: 'UP',
-      latency: `${Date.now() - startRedis}ms`
+      status: isAllUp ? 'UP' : 'DEGRADED',
+      latency: `${Date.now() - startRedis}ms`,
+      details: status
     };
+    if (!isAllUp) hasError = true;
   } catch (err) {
     healthInfo.checks.redis = { status: 'DOWN', error: err.message };
     hasError = true;

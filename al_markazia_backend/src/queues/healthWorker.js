@@ -1,5 +1,6 @@
 const { Queue, Worker } = require('bullmq');
-const redis = require('../lib/redis');
+const { redisCache, redisBullMQ, redisPubSub } = require('../lib/redis');
+const redis = redisCache;
 const prisma = require('../lib/prisma');
 const logger = require('../utils/logger');
 const observability = require('../services/observabilityService');
@@ -8,7 +9,7 @@ const socketInit = require('../socket');
 const admin = require('firebase-admin');
 const { v4: uuidv4 } = require('uuid');
 
-const healthQueue = new Queue('healthQueue', { connection: redis.options });
+const healthQueue = new Queue('healthQueue', { connection: redisBullMQ });
 const instanceId = uuidv4();
 
 /**
@@ -72,7 +73,11 @@ async function checkDatabase() {
 }
 
 async function checkRedis() {
-  await redis.ping();
+  await Promise.all([
+    redisCache.ping(),
+    redisBullMQ.ping(),
+    redisPubSub.ping()
+  ]);
   return true;
 }
 
@@ -134,7 +139,7 @@ const initHealthWorker = async () => {
     
     return await performHealthChecks();
   }, { 
-    connection: redis.options,
+    connection: redisBullMQ.duplicate(),
     concurrency: 1, 
   });
 

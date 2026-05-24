@@ -309,28 +309,54 @@ function makeResilient(redisClient, label) {
   });
 }
 
-// 💎 DB 0: Primary Cache & Shared State (with fail-fast protection)
-const cache = new Redis({ ...baseConfig, db: 0, commandTimeout: 3000, retryStrategy: createRetryStrategy('Cache') });
+// 1️⃣ Cache Connection (أعلى أولوية - يفشل بسرعة للـ Fallback)
+const cache = new Redis({
+  ...baseConfig,
+  db: 0,
+  connectionName: 'cache',
+  maxRetriesPerRequest: 2,
+  commandTimeout: 500,
+  retryStrategy: createRetryStrategy('Cache'),
+});
 
-// 📡 DB 1: Distributed Event Bus (Pub/Sub)
-const publisher = new Redis({ ...baseConfig, db: 1, commandTimeout: 3000, retryStrategy: createRetryStrategy('Pub') });
-const subscriber = new Redis({ ...baseConfig, db: 1, enableReadyCheck: false, retryStrategy: createRetryStrategy('Sub') });
-const socketSubscriber = new Redis({ ...baseConfig, db: 1, enableReadyCheck: false, retryStrategy: createRetryStrategy('Socket') });
+// 2️⃣ BullMQ Connection (بدون timeout - مناسب للأمور المعلقة)
+const bullmq = new Redis({
+  ...baseConfig,
+  db: 0,
+  connectionName: 'bullmq',
+  maxRetriesPerRequest: null,
+  retryStrategy: createRetryStrategy('BullMQ'),
+});
 
-const clients = [cache, publisher, subscriber, socketSubscriber];
+// 3️⃣ Pub/Sub Connection (blocking commands - Pub/Sub)
+const pubsub = new Redis({
+  ...baseConfig,
+  db: 0,
+  connectionName: 'pubsub',
+  maxRetriesPerRequest: null,
+  retryStrategy: createRetryStrategy('PubSub'),
+});
+
+const clients = [cache, bullmq, pubsub];
+const labels = ['Cache', 'BullMQ', 'PubSub'];
 
 clients.forEach((client, index) => {
   client.on('connect', () => {
-    const labels = ['Cache', 'Publisher', 'Subscriber', 'SocketSubscriber'];
     logger.info(`Redis [${labels[index]}] connected successfully to DB ${client.options.db}`);
   });
 
   client.on('error', (err) => {
-    logger.error(`Redis connection error`, { error: err.message });
+    logger.error(`Redis [${labels[index]}] connection error`, { error: err.message });
   });
 });
 
-const createSubscriber = () => new Redis({ ...baseConfig, db: 1, enableReadyCheck: false, retryStrategy: createRetryStrategy('Sub') });
+const createSubscriber = () => new Redis({
+  ...baseConfig,
+  db: 0,
+  connectionName: 'pubsub_sub_custom',
+  enableReadyCheck: false,
+  retryStrategy: (times) => Math.min(times * 100, 3000),
+});
 
 // 🛡️ Shield child/cloned connections (like in BullMQ or custom workers) from inheriting commandTimeout
 const originalOptions = cache.options;
@@ -351,15 +377,45 @@ cache.duplicate = (overrideOptions) => {
 
 // 🛰️ Hybrid Resilient Redis Export
 const resilientCache = makeResilient(cache, 'Cache');
-const resilientPublisher = makeResilient(publisher, 'Publisher');
-const resilientSubscriber = makeResilient(subscriber, 'Subscriber');
-const resilientSocketSubscriber = makeResilient(socketSubscriber, 'SocketSubscriber');
+const resilientBullMQ = makeResilient(bullmq, 'BullMQ');
+const resilientPubSub = makeResilient(pubsub, 'PubSub');
 
+// التوافق الرجعي
+resilientCache.redisCache = resilientCache;
+resilientCache.redisBullMQ = resilientBullMQ;
+resilientCache.redisPubSub = resilientPubSub;
+resilientCache.redis = resilientCache;
+
+// دوال الـ Pub/Sub للموديلات الأخرى
 resilientCache.cache = resilientCache;
-resilientCache.publisher = resilientPublisher;
-resilientCache.subscriber = resilientSubscriber;
-resilientCache.socketSubscriber = resilientSocketSubscriber;
+resilientCache.publisher = resilientCache;
+resilientCache.subscriber = resilientPubSub;
+resilientCache.socketSubscriber = resilientPubSub;
 resilientCache.createSubscriber = () => makeResilient(createSubscriber(), 'Sub');
 resilientCache.getRedis = () => resilientCache;
+
+// Health Check
+resilientCache.checkRedisHealth = async function() {
+  const results = await Promise.allSettled([
+    cache.ping(),
+    bullmq.ping(),
+    pubsub.ping(),
+  ]);
+  return {
+    cache: results[0].status === 'fulfilled',
+    bullmq: results[1].status === 'fulfilled',
+    pubsub: results[2].status === 'fulfilled',
+  };
+};
+
+// الإغلاق المركزي النظيف
+resilientCache.quitAll = async function() {
+  await Promise.allSettled([
+    cache.quit(),
+    bullmq.quit(),
+    pubsub.quit()
+  ]);
+  logger.info('🔌 [Redis] All isolated connections quit safely.');
+};
 
 module.exports = resilientCache;

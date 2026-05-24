@@ -364,16 +364,18 @@ async function shutdown(signal) {
     const cacheService = require('./services/cacheService');
     const happyHourService = require('./services/happyHourService');
     const auditService = require('./services/auditService');
+    const redis = require('./lib/redis');
 
     await Promise.all([
       prisma.$disconnect(),
       cacheService.destroy(),
       happyHourService.destroy(),
       auditService.destroy(),
+      redis.quitAll(),
       new Promise(resolve => setTimeout(resolve, 1500)) // Final grace period
     ]);
     
-    logger.info('All services (DB, Cache, HappyHour, Audit) disconnected safely.');
+    logger.info('All services (DB, Cache, HappyHour, Audit, Redis) disconnected safely.');
 
     clearTimeout(timeoutGuard);
     process.exit(0);

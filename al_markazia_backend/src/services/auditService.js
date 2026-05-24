@@ -1,10 +1,10 @@
-const Redis = require('ioredis');
 const { sanitizeForAudit } = require('../utils/auditSanitizer');
 const { translateAction, getFriendlyCategory } = require('../utils/auditTranslator');
 const { decrypt } = require('../utils/crypto');
 
 const { getRequestId, getCorrelationId } = require('../utils/context');
 const { trace } = require('@opentelemetry/api');
+const { redisCache, redisPubSub } = require('../lib/redis');
 
 /**
  * 🕵️ Enterprise Audit Service
@@ -18,16 +18,8 @@ class AuditService {
     this.logger = container.logger;
     this.instanceId = process.env.INSTANCE_ID || `inst-${Math.random().toString(36).substr(2, 5)}`;
     
-    // 📡 Redis Cluster Sync
-    const redisConfig = {
-      host: process.env.REDIS_HOST || 'localhost',
-      port: process.env.REDIS_PORT || 6379,
-      username: process.env.REDIS_USERNAME || undefined,
-      password: process.env.REDIS_PASSWORD || undefined,
-    };
-
-    this.publisher = new Redis(redisConfig);
-    this.subscriber = new Redis({ ...redisConfig, enableReadyCheck: false });
+    this.publisher = redisCache;
+    this.subscriber = redisPubSub;
 
     this.setupSubscriber();
   }
@@ -36,6 +28,11 @@ class AuditService {
    * 📡 Listen for logs from other instances
    */
   setupSubscriber() {
+    if (this.subscriber.status === 'ready') {
+      this.subscriber.subscribe('audit:log_broadcast');
+      this.logger.info(`🕵️ [AuditSync] Subscriber Active (Immediate): ${this.instanceId}`);
+    }
+
     this.subscriber.on('connect', () => {
       this.subscriber.subscribe('audit:log_broadcast');
       this.logger.info(`🕵️ [AuditSync] Subscriber Active: ${this.instanceId}`);
@@ -251,8 +248,7 @@ class AuditService {
    * 🧹 Graceful Cleanup
    */
   async destroy() {
-    await this.publisher.quit();
-    await this.subscriber.quit();
+    // Shared connection destruction is handled on server shutdown
   }
 
   /**
