@@ -9,49 +9,48 @@ const moderationQueue = new Queue('moderation', {
   connection: redis.options
 });
 
-/**
- * 🛠️ Moderation Worker
- * Processes reviews: Auto-Approves or Flags.
- */
-const moderationWorker = new Worker('moderation', async (job) => {
-  const { reviewId } = job.data;
-  
-  try {
-    const review = await prisma.review.findUnique({
-      where: { id: reviewId },
-      include: { order: true }
-    });
-
-    if (!review) return;
-
-    const { isClean, flags } = analyzeContent(review.comment);
-
-    if (isClean) {
-      // ✅ Auto-Approve
-      await prisma.review.update({
+let moderationWorker;
+if (process.env.NODE_ENV !== 'test') {
+  moderationWorker = new Worker('moderation', async (job) => {
+    const { reviewId } = job.data;
+    
+    try {
+      const review = await prisma.review.findUnique({
         where: { id: reviewId },
-        data: { status: 'APPROVED' }
+        include: { order: true }
       });
-      
-      // 📊 Update Redis Aggregates (Write-Aggregate)
-      await ratingAggregate.updateFromReview(reviewId);
-      
-      logger.info(`[Moderation] ✅ Auto-approved review ${reviewId}`);
-    } else {
-      // 🚩 Flag for manual review
-      await prisma.review.update({
-        where: { id: reviewId },
-        data: { status: 'FLAGGED', isFlagged: true, rejectedReason: flags.join(', ') }
-      });
-      
-      logger.warn(`[Moderation] 🚩 Flagged review ${reviewId}`, { flags });
+
+      if (!review) return;
+
+      const { isClean, flags } = analyzeContent(review.comment);
+
+      if (isClean) {
+        // ✅ Auto-Approve
+        await prisma.review.update({
+          where: { id: reviewId },
+          data: { status: 'APPROVED' }
+        });
+        
+        // 📊 Update Redis Aggregates (Write-Aggregate)
+        await ratingAggregate.updateFromReview(reviewId);
+        
+        logger.info(`[Moderation] ✅ Auto-approved review ${reviewId}`);
+      } else {
+        // 🚩 Flag for manual review
+        await prisma.review.update({
+          where: { id: reviewId },
+          data: { status: 'FLAGGED', isFlagged: true, rejectedReason: flags.join(', ') }
+        });
+        
+        logger.warn(`[Moderation] 🚩 Flagged review ${reviewId}`, { flags });
+      }
+    } catch (err) {
+      logger.error(`[Moderation] ❌ Worker failed for review ${reviewId}`, { error: err.message });
+      throw err;
     }
-  } catch (err) {
-    logger.error(`[Moderation] ❌ Worker failed for review ${reviewId}`, { error: err.message });
-    throw err;
-  }
-}, {
-  connection: redis.options
-});
+  }, {
+    connection: redis.options
+  });
+}
 
 module.exports = { moderationQueue };

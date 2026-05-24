@@ -50,7 +50,7 @@ describe('⭐ Reviews System - Integration Test', () => {
     await prisma.refreshToken.create({
       data: {
         token: 'test_customer_refresh_token',
-        userId: testCustomer.uuid,
+        customerId: testCustomer.id,
         role: 'customer',
         jti: customerJti,
         expiresAt: new Date(Date.now() + 3600000)
@@ -80,7 +80,7 @@ describe('⭐ Reviews System - Integration Test', () => {
     await prisma.refreshToken.create({
       data: {
         token: 'test_admin_refresh_token',
-        userId: testAdmin.uuid,
+        userId: testAdmin.id,
         role: 'admin',
         jti: adminJti,
         expiresAt: new Date(Date.now() + 3600000)
@@ -161,12 +161,10 @@ describe('⭐ Reviews System - Integration Test', () => {
     // Revoke Refresh Tokens
     await prisma.refreshToken.deleteMany({
       where: {
-        userId: {
-          in: [
-            testCustomer?.uuid,
-            testAdmin?.uuid
-          ].filter(Boolean)
-        }
+        OR: [
+          ...(testCustomer ? [{ customerId: testCustomer.id }] : []),
+          ...(testAdmin ? [{ userId: testAdmin.id }] : [])
+        ]
       }
     });
 

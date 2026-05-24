@@ -647,13 +647,14 @@ const resetPassword = async (req, res) => {
       }
 
       await tx.refreshToken.updateMany({
-        where: { userId: updatedAccount.uuid },
+        where: isUser ? { userId: updatedAccount.id } : { customerId: updatedAccount.id },
         data: { isRevoked: true }
       });
 
       await tx.systemAuditLog.create({
         data: {
-          userId: updatedAccount.uuid,
+          userId: isUser ? updatedAccount.id : null,
+          customerId: isUser ? null : updatedAccount.id,
           userRole: isUser ? updatedAccount.role : 'customer',
           action: 'PASSWORD_RESET',
           ip: req.ip,

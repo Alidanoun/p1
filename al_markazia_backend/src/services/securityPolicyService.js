@@ -505,6 +505,14 @@ class SecurityPolicyService {
       try {
         localBranchCache.del(cacheKey);
         await redis.del(cacheKey);
+
+        // ⚡ Clear L1 token cache for this user to prevent version drift lag
+        try {
+          const TokenService = require('./tokenService');
+          TokenService.invalidateUserL1Cache(userId);
+        } catch (tokenCacheErr) {
+          logger.warn('[SecurityPolicy] L1 token cache invalidation failed', { error: tokenCacheErr.message });
+        }
       } catch (cacheErr) {
         logger.warn('[SecurityPolicy] Cache invalidation failed (non-critical optimization drop)', { error: cacheErr.message });
       }

@@ -36,7 +36,9 @@ const factories = {
   notificationService: () => {
     const { NotificationService } = require('../services/notificationService');
     const instance = new NotificationService(container);
-    instance.init();
+    if (process.env.NODE_ENV !== 'test') {
+      instance.init();
+    }
     return instance;
   },
   outboxService: () => {
@@ -102,7 +104,9 @@ const factories = {
   pressureService: () => {
     const { PressureService } = require('../services/pressureService');
     const instance = new PressureService(container);
-    instance.startMonitoring();
+    if (process.env.NODE_ENV !== 'test') {
+      instance.startMonitoring();
+    }
     return instance;
   },
   financialAggregatorService: () => {

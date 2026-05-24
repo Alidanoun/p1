@@ -630,35 +630,37 @@ module.exports = {
     });
 
     // 🕵️ System Audit: Monitor Active Sockets & Rooms every 5 mins
-    setInterval(() => {
-      const roomCount = io.sockets.adapter.rooms.size;
-      const clientCount = io.engine.clientsCount;
-      logger.debug('📡 [Socket Audit] Status', { activeClients: clientCount, activeRooms: roomCount });
-    }, 5 * 60 * 1000);
+    if (process.env.NODE_ENV !== 'test') {
+      setInterval(() => {
+        const roomCount = io.sockets.adapter.rooms.size;
+        const clientCount = io.engine.clientsCount;
+        logger.debug('📡 [Socket Audit] Status', { activeClients: clientCount, activeRooms: roomCount });
+      }, 5 * 60 * 1000);
 
-    // 🛡️ [SEC-FIX] Periodic Security Revalidation (Every 120s)
-    // Ensures long-lived sockets don't drift from DB security state.
-    setInterval(async () => {
-      const sockets = await io.fetchSockets();
-      for (const s of sockets) {
-        if (s.user) {
-          const validation = await TokenService.validateSessionState({
-            id: s.user.id,
-            sid: s.user.jti,
-            av: s.user.av,
-            pv: s.user.pv
-          });
+      // 🛡️ [SEC-FIX] Periodic Security Revalidation (Every 120s)
+      // Ensures long-lived sockets don't drift from DB security state.
+      setInterval(async () => {
+        const sockets = await io.fetchSockets();
+        for (const s of sockets) {
+          if (s.user) {
+            const validation = await TokenService.validateSessionState({
+              id: s.user.id,
+              sid: s.user.jti,
+              av: s.user.av,
+              pv: s.user.pv
+            });
 
-          if (!validation.valid) {
-            logger.security('📡 [Socket] Periodic validation failed. Notifying client.', { userId: s.user.id, reason: validation.reason });
-            s.emit('AUTH_REVALIDATE_REQUIRED', { reason: validation.reason });
-            
-            // Give client 10s to refresh/reconnect, then force disconnect
-            setTimeout(() => s.disconnect(true), 10000);
+            if (!validation.valid) {
+              logger.security('📡 [Socket] Periodic validation failed. Notifying client.', { userId: s.user.id, reason: validation.reason });
+              s.emit('AUTH_REVALIDATE_REQUIRED', { reason: validation.reason });
+              
+              // Give client 10s to refresh/reconnect, then force disconnect
+              setTimeout(() => s.disconnect(true), 10000);
+            }
           }
         }
-      }
-    }, 120 * 1000);
+      }, 120 * 1000);
+    }
 
     // Mark as ready and notify all waiting promises
     isReady = true;

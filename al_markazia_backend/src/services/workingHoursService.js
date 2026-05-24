@@ -15,13 +15,15 @@ class WorkingHoursService {
     this.lastKnownState = new Map();
     
     // Poll the status every 30 seconds to automatically emit changes even if there are no incoming requests
-    setInterval(async () => {
-      try {
-        await this.getStatus();
-      } catch (err) {
-        logger.error('[WorkingHours] ⚠️ Polling cycle failed', { error: err.message });
-      }
-    }, 15000);
+    if (process.env.NODE_ENV !== 'test') {
+      setInterval(async () => {
+        try {
+          await this.getStatus();
+        } catch (err) {
+          logger.error('[WorkingHours] ⚠️ Polling cycle failed', { error: err.message });
+        }
+      }, 15000);
+    }
   }
 
   _cacheAndEmit(cacheKey, branchId, status) {

@@ -51,6 +51,8 @@ model User {
   branch       Branch?  @relation(fields: [branchId], references: [id])
   managedBranches UserBranch[]
   notificationPreferences UserNotificationPreference[]
+  refreshTokens   RefreshToken[]   @relation("UserTokens")
+  systemAuditLogs SystemAuditLog[] @relation("UserLogs")
   
   timezone        String   @default("UTC")
   quietHoursStart Int      @default(23)
@@ -446,6 +448,8 @@ model Customer {
   loyaltyLedgers      LoyaltyLedger[]
   notifications       Notification[] @relation("NotificationCustomer")
   couponRequests      CouponRequest[]
+  refreshTokens   RefreshToken[]   @relation("CustomerTokens")
+  systemAuditLogs SystemAuditLog[] @relation("CustomerLogs")
 
   @@index([isBlacklisted])
 }
@@ -684,20 +688,25 @@ model DeliveryZone {
 /// of either a User (staff/admin) or a Customer. This enables a unified session table without resorting to
 /// multiple distinct token tables or complex, hard-to-maintain polymorphic relational structures in Prisma.
 model RefreshToken {
-  id        String   @id @default(uuid())
-  token     String   @unique
-  jti       String?  @unique
-  userId    String
-  role      String
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-  updatedAt DateTime @default(now()) @updatedAt
-  isRevoked Boolean  @default(false)
-  isUsed    Boolean  @default(false)
+  id          String    @id @default(uuid())
+  token       String    @unique
+  jti         String?   @unique
+  role        String
+  expiresAt   DateTime
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @default(now()) @updatedAt
+  isRevoked   Boolean   @default(false)
+  isUsed      Boolean   @default(false)
   tokenFamily String?
   fingerprint String?
 
+  userId      Int?
+  user        User?     @relation("UserTokens", fields: [userId], references: [id], onDelete: Cascade)
+  customerId  Int?
+  customer    Customer? @relation("CustomerTokens", fields: [customerId], references: [id], onDelete: Cascade)
+
   @@index([userId])
+  @@index([customerId])
   @@index([token])
   @@index([jti])
   @@index([tokenFamily])
@@ -739,7 +748,6 @@ model OtpCode {
 
 model SystemAuditLog {
   id           String   @id @default(uuid())
-  userId       String?  // Can be User uuid or Customer uuid
   userEmail    String?
   userRole     String?
   action       String   // LOGIN_SUCCESS, PRICE_UPDATE, etc.
@@ -755,7 +763,13 @@ model SystemAuditLog {
   createdAt    DateTime @default(now())
   isDeleted    Boolean  @default(false)
 
+  userId       Int?
+  user         User?     @relation("UserLogs", fields: [userId], references: [id], onDelete: SetNull)
+  customerId   Int?
+  customer     Customer? @relation("CustomerLogs", fields: [customerId], references: [id], onDelete: SetNull)
+
   @@index([userId])
+  @@index([customerId])
   @@index([action])
   @@index([branchId])
   @@index([entityType, entityId])

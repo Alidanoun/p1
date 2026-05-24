@@ -529,7 +529,7 @@ const deleteAccount = async (req, res) => {
         }
       }),
       prisma.refreshToken.updateMany({
-        where: { userId: uuid },
+        where: { customerId: customer.id },
         data: { isRevoked: true }
       }),
       prisma.customerNotificationPreference.deleteMany({

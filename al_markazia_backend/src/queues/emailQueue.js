@@ -20,46 +20,46 @@ const emailQueue = new Queue('email-queue', {
   },
 });
 
-/**
- * 👷 Worker: Processes email jobs in the background
- */
-const emailWorker = new Worker(
-  'email-queue',
-  async (job) => {
-    const { type, email, code, purpose } = job.data;
-    
-    logger.info(`👷 [Email Worker] Processing job ${job.id} for ${email}...`);
+let emailWorker;
+if (process.env.NODE_ENV !== 'test') {
+  emailWorker = new Worker(
+    'email-queue',
+    async (job) => {
+      const { type, email, code, purpose } = job.data;
+      
+      logger.info(`👷 [Email Worker] Processing job ${job.id} for ${email}...`);
 
-    switch (type) {
-      case 'otp':
-        const success = await emailService.sendOtp(email, code);
-        if (!success) throw new Error('Failed to send OTP email');
-        break;
-        
-      case 'password_reset':
-        const resetSuccess = await emailService.sendPasswordResetOtp(email, code);
-        if (!resetSuccess) throw new Error('Failed to send Reset OTP email');
-        break;
+      switch (type) {
+        case 'otp':
+          const success = await emailService.sendOtp(email, code);
+          if (!success) throw new Error('Failed to send OTP email');
+          break;
+          
+        case 'password_reset':
+          const resetSuccess = await emailService.sendPasswordResetOtp(email, code);
+          if (!resetSuccess) throw new Error('Failed to send Reset OTP email');
+          break;
 
-      default:
-        logger.warn(`⚠️ [Email Worker] Unknown job type: ${type}`);
+        default:
+          logger.warn(`⚠️ [Email Worker] Unknown job type: ${type}`);
+      }
+    },
+    { 
+      connection: redis.options,
+      concurrency: 5 // Process up to 5 emails simultaneously
     }
-  },
-  { 
-    connection: redis.options,
-    concurrency: 5 // Process up to 5 emails simultaneously
-  }
-);
+  );
 
-// --- 🎧 Worker Event Listeners ---
+  // --- 🎧 Worker Event Listeners ---
 
-emailWorker.on('completed', (job) => {
-  logger.info(`✅ [Email Queue] Job ${job.id} completed successfully.`);
-});
+  emailWorker.on('completed', (job) => {
+    logger.info(`✅ [Email Queue] Job ${job.id} completed successfully.`);
+  });
 
-emailWorker.on('failed', (job, err) => {
-  logger.error(`❌ [Email Queue] Job ${job.id} failed after ${job.attemptsMade} attempts: ${err.message}`);
-});
+  emailWorker.on('failed', (job, err) => {
+    logger.error(`❌ [Email Queue] Job ${job.id} failed after ${job.attemptsMade} attempts: ${err.message}`);
+  });
+}
 
 /**
  * 🚀 Public Helper: Add OTP to queue

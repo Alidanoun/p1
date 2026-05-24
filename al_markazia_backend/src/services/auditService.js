@@ -133,8 +133,53 @@ class AuditService {
       // ✅ Sanitize metadata before saving
       const cleanMetadata = sanitizeForAudit(tracingMetadata);
 
+      let userDbId = null;
+      let customerDbId = null;
+
+      if (userId) {
+        if (typeof userId === 'number' || !isNaN(userId)) {
+          const numId = parseInt(userId, 10);
+          if (userRole === 'customer') {
+            customerDbId = numId;
+          } else {
+            userDbId = numId;
+          }
+        } else {
+          // Resolve UUID string to numeric ID
+          if (userRole === 'customer') {
+            const cust = await this.prisma.customer.findUnique({
+              where: { uuid: userId },
+              select: { id: true }
+            });
+            if (cust) customerDbId = cust.id;
+          } else if (userRole) {
+            const usr = await this.prisma.user.findUnique({
+              where: { uuid: userId },
+              select: { id: true }
+            });
+            if (usr) userDbId = usr.id;
+          } else {
+            // No role specified: check User first, then Customer
+            const usr = await this.prisma.user.findUnique({
+              where: { uuid: userId },
+              select: { id: true }
+            });
+            if (usr) {
+              userDbId = usr.id;
+            } else {
+              const cust = await this.prisma.customer.findUnique({
+                where: { uuid: userId },
+                select: { id: true }
+              });
+              if (cust) customerDbId = cust.id;
+            }
+          }
+        }
+      }
+
       const logEntry = {
-        userId: userId !== undefined && userId !== null ? String(userId) : null,
+        userId: userDbId,
+        customerId: customerDbId,
         userEmail: params.userEmail || req?.user?.email || null,
         userRole,
         action,

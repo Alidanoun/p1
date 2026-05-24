@@ -27,7 +27,25 @@ const getLogs = async (req, res) => {
     // Build Filter
     const where = {};
     if (action) where.action = action;
-    if (userId) where.userId = userId;
+    if (userId) {
+      if (typeof userId === 'number' || !isNaN(userId)) {
+        where.userId = parseInt(userId, 10);
+      } else {
+        // Resolve UUID string to numeric ID
+        const user = await prisma.user.findUnique({ where: { uuid: userId }, select: { id: true } });
+        if (user) {
+          where.userId = user.id;
+        } else {
+          const customer = await prisma.customer.findUnique({ where: { uuid: userId }, select: { id: true } });
+          if (customer) {
+            where.customerId = customer.id;
+          } else {
+            // Neither found: fail-closed to prevent leaking other logs
+            where.userId = -1;
+          }
+        }
+      }
+    }
     if (status) where.status = status;
     if (severity) where.severity = severity;
     if (entityType) where.entityType = entityType;

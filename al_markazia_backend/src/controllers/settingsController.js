@@ -5,6 +5,7 @@ const SecurityPolicyService = require('../services/securityPolicyService');
 const { decrypt, hashBlind } = require('../utils/crypto');
 const { validatePasswordStrength } = require('../utils/security');
 const { BCRYPT_ROUNDS } = require('../config/secrets');
+const auditService = require('../services/auditService');
 
 const BOOLEAN_KEYS = ['notificationsEnabled', 'autoAcceptOrders'];
 
@@ -83,14 +84,12 @@ exports.updateAdminCredentials = async (req, res) => {
       });
 
       // Log the change
-      await prisma.systemAuditLog.create({
-        data: {
-          userId: adminId,
-          userRole: admin.role,
-          action: 'UPDATE_ADMIN_CREDENTIALS',
-          ip: req.ip,
-          metadata: { emailChanged: !!updateData.email, passwordChanged: !!updateData.password }
-        }
+      await auditService.log({
+        userId: adminId,
+        userRole: admin.role,
+        action: 'UPDATE_ADMIN_CREDENTIALS',
+        metadata: { emailChanged: !!updateData.email, passwordChanged: !!updateData.password },
+        req
       });
       // 🛡️ [SEC-FIX] Invalidate permissions cache immediately
       await SecurityPolicyService.invalidateUserPermissions(adminId);
@@ -142,14 +141,12 @@ exports.updateBranchCredentials = async (req, res) => {
     });
 
     // Log the change
-    await prisma.systemAuditLog.create({
-      data: {
-        userId: adminId,
-        userRole: 'ADMIN',
-        action: 'UPDATE_BRANCH_CREDENTIALS',
-        ip: req.ip,
-        metadata: { branchId, managerId: manager.id, emailChanged: !!updateData.email }
-      }
+    await auditService.log({
+      userId: adminId,
+      userRole: 'ADMIN',
+      action: 'UPDATE_BRANCH_CREDENTIALS',
+      metadata: { branchId, managerId: manager.id, emailChanged: !!updateData.email },
+      req
     });
 
     // 🛡️ [SEC-FIX] Invalidate permissions cache immediately
@@ -216,15 +213,14 @@ exports.updateAdvancedConfig = async (req, res) => {
     });
 
     // 📝 Log to System Audit
-    await prisma.systemAuditLog.create({
-      data: {
-        userId: req.user.id,
-        userRole: req.user.role,
-        action: `UPDATE_${type.toUpperCase()}_CONFIG`,
-        entityType: 'SystemSettings',
-        entityId: masterConfig.id.toString(),
-        metadata: { diff: data }
-      }
+    await auditService.log({
+      userId: req.user.id,
+      userRole: req.user.role,
+      action: `UPDATE_${type.toUpperCase()}_CONFIG`,
+      entityType: 'SystemSettings',
+      entityId: masterConfig.id.toString(),
+      metadata: { diff: data },
+      req
     });
 
     // 🏆 Trigger Automatic Bestsellers update if toggled ON
@@ -307,14 +303,12 @@ exports.updateBulkSettings = async (req, res) => {
 
     // 📝 Add System Audit Log
     try {
-      await prisma.systemAuditLog.create({
-        data: {
-          userId: req.user?.uuid || req.user?.id?.toString(),
-          userRole: req.user?.role || 'admin',
-          action: 'UPDATE_BULK_SETTINGS',
-          ip: req.ip,
-          metadata: { updatedKeys: Object.keys(settings).filter(k => settings[k]?.length < 1000) }
-        }
+      await auditService.log({
+        userId: req.user?.id || req.user?.uuid,
+        userRole: req.user?.role || 'admin',
+        action: 'UPDATE_BULK_SETTINGS',
+        metadata: { updatedKeys: Object.keys(settings).filter(k => settings[k]?.length < 1000) },
+        req
       });
     } catch (auditErr) {
       logger.error('Failed to write system audit log', { error: auditErr.message });

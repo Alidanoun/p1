@@ -55,9 +55,11 @@ async function startServer() {
     const io = socketModule.init(server);
     happyHourService.setIO(io);
 
-    await Promise.all([
-      happyHourService.initialize()
-    ]);
+    if (process.env.NODE_ENV !== 'test') {
+      await Promise.all([
+        happyHourService.initialize()
+      ]);
+    }
     
     logger.info('🚀 Systems Initialized: Cache, Socket, HappyHour');
 
