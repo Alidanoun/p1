@@ -12,6 +12,7 @@ import 'app_events.dart';
 import '../models/restaurant_status.dart';
 import '../features/checkout/models/delivery_zone.dart';
 import '../models/branch_model.dart';
+import 'package:uuid/uuid.dart';
 
 /// 🏥 Enterprise API Service (Intelligent Interceptor & Resilience Layer)
 class ApiService {
@@ -336,8 +337,8 @@ class ApiService {
 
   Future<OrderModel?> placeOrder(OrderModel order) async {
     final heads = await _headers;
-    // إضافة مفتاح Idempotency لمنع تكرار الطلبات (مطلوب من الباك إند)
-    heads['idempotency-key'] = 'mobile_order_${DateTime.now().millisecondsSinceEpoch}';
+    // الباك إند يشترط أن يكون idempotency-key بصيغة UUID v4
+    heads['idempotency-key'] = const Uuid().v4();
     return _withRetry(() => _orderApi.placeOrder(order, heads));
   }
 
