@@ -8,18 +8,18 @@ const { z } = require('zod');
 // 1. Order Creation Contract
 const CreateOrderSchema = z.object({
   branchId: z.string().min(1),
-  items: z.array(z.any()).optional(),
-  cartItems: z.array(z.any()).optional(),
-  customerPhone: z.string().min(5).optional(),
-  phone: z.string().min(5).optional(),
-  customerName: z.string().optional(),
-  paymentMethod: z.string().optional(),
-  orderType: z.string().optional(),
-  deliveryType: z.string().optional(),
-  address: z.string().optional(),
-  addressId: z.string().optional(),
-  deliveryZoneId: z.union([z.string(), z.number()]).optional(),
-  notes: z.string().optional()
+  items: z.array(z.any()).nullish(),
+  cartItems: z.array(z.any()).nullish(),
+  customerPhone: z.string().min(5).nullish(),
+  phone: z.string().min(5).nullish(),
+  customerName: z.string().nullish(),
+  paymentMethod: z.string().nullish(),
+  orderType: z.string().nullish(),
+  deliveryType: z.string().nullish(),
+  address: z.string().nullish(),
+  addressId: z.string().nullish(),
+  deliveryZoneId: z.union([z.string(), z.number()]).nullish(),
+  notes: z.string().nullish()
 }).passthrough();
 
 // 2. Status Transition Contract (Command)
