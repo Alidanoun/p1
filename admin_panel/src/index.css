@@ -228,3 +228,14 @@ input[type=number] {
   contain: layout style;
   will-change: transform;
 }
+
+@media print {
+  @page {
+    size: 80mm auto;
+    margin: 0;
+  }
+  
+  .invoice-print-wrapper {
+    page-break-after: always;
+  }
+}

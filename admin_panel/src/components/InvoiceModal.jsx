@@ -1,9 +1,20 @@
+import { useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Package, Printer, X } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { formatCurrencyArabic } from '../lib/formatters';
+import { useReactToPrint } from 'react-to-print';
+import { ThermalInvoiceTemplate } from './ThermalInvoiceTemplate';
 
 const InvoiceModal = ({ order, isOpen, onClose }) => {
+  const componentRef = useRef(null);
+
+  const handlePrint = useReactToPrint({
+    contentRef: componentRef,
+    documentTitle: `Invoice-${order?.id || 'order'}`,
+    onAfterPrint: () => console.log('Print success'),
+  });
+
   if (!order) return null;
 
   return (
@@ -23,7 +34,7 @@ const InvoiceModal = ({ order, isOpen, onClose }) => {
             exit={{ opacity: 0, scale: 0.9, y: 20 }}
             className="relative bg-white text-slate-900 w-full max-w-sm rounded-2xl p-8 shadow-2xl flex flex-col items-center"
           >
-            {/* Close button for desktop/non-overlay clicks */}
+            {/* Close button */}
             <button 
               onClick={onClose}
               className="absolute top-4 right-4 p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 hover:text-slate-600"
@@ -40,21 +51,21 @@ const InvoiceModal = ({ order, isOpen, onClose }) => {
             </div>
 
             <div className="w-full space-y-3 mb-8 border-y border-dashed border-slate-200 py-6 max-h-[40vh] overflow-y-auto pr-2">
-              {order.cartItems?.map((item, i) => (
+              {(order.cartItems || order.orderItems || []).map((item, i) => (
                 <div key={i} className="flex justify-between text-sm">
                   <div className="flex flex-col">
-                    <span className="font-medium text-slate-700">{item.qty}x {item.title}</span>
+                    <span className="font-medium text-slate-700">{item.qty || item.quantity}x {item.title || item.name}</span>
                     {item.optionsText && <span className="text-[10px] text-slate-400">{item.optionsText}</span>}
                   </div>
-                  <span className="font-bold">{formatCurrencyArabic(item.lineTotal)}</span>
+                  <span className="font-bold">{formatCurrencyArabic(item.lineTotal || (item.price * (item.qty || 1)))}</span>
                 </div>
               ))}
               <div className="pt-4 border-t border-slate-100 space-y-2">
                 <div className="flex justify-between text-xs text-slate-500">
                   <span>المجموع الفرعي</span>
-                  <span>{formatCurrencyArabic(order.subtotal)}</span>
+                  <span>{formatCurrencyArabic(order.subtotal || 0)}</span>
                 </div>
-                {order.deliveryFee > 0 && (
+                {(order.deliveryFee > 0) && (
                   <div className="flex justify-between text-xs text-slate-500">
                     <span>رسوم التوصيل</span>
                     <span>{formatCurrencyArabic(order.deliveryFee)}</span>
@@ -65,7 +76,7 @@ const InvoiceModal = ({ order, isOpen, onClose }) => {
                 </div>
                 <div className="flex justify-between font-black text-lg pt-2 text-slate-900 border-t border-slate-50">
                   <span>الإجمالي الكلي</span>
-                  <span className="text-primary">{formatCurrencyArabic(order.totalPrice || order.total)}</span>
+                  <span className="text-primary">{formatCurrencyArabic(order.totalPrice || order.total || 0)}</span>
                 </div>
               </div>
             </div>
@@ -82,12 +93,17 @@ const InvoiceModal = ({ order, isOpen, onClose }) => {
             </div>
 
             <button
-              onClick={() => window.print()}
+              onClick={handlePrint}
               className="mt-8 w-full bg-slate-900 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-slate-800 transition-all shadow-lg"
             >
               <Printer className="w-5 h-5" />
-              <span>طباعة الآن</span>
+              <span>طباعة الفاتورة الحرارية</span>
             </button>
+
+            {/* Hidden thermal print template */}
+            <div style={{ display: 'none' }}>
+              <ThermalInvoiceTemplate ref={componentRef} order={order} />
+            </div>
           </motion.div>
         </div>
       )}
