@@ -296,7 +296,8 @@ exports.createItem = async (req, res) => {
       preparationTime,
       variants,
       modifierGroups,
-      optionGroups
+      optionGroups,
+      isGlobal
     } = req.body;
 
     if (!title || typeof title !== 'string' || title.trim() === '') {
@@ -338,6 +339,8 @@ exports.createItem = async (req, res) => {
       }
     }
 
+    const parsedIsGlobal = isGlobal === undefined ? true : (isGlobal === 'true' || isGlobal === true);
+
     const item = await prisma.$transaction(async (tx) => {
       const newItem = await tx.item.create({
         data: {
@@ -352,7 +355,7 @@ exports.createItem = async (req, res) => {
           excludeFromStats: excludeFromStats === 'true' || excludeFromStats === true,
           preparationTime: preparationTime ? parseInt(preparationTime) : null,
           image: imageUrl,
-          isGlobal: isGlobal === undefined ? true : (isGlobal === 'true' || isGlobal === true),
+          isGlobal: parsedIsGlobal,
           variants: {
             create: parsedVariants.map(v => ({
               name: v.name,
@@ -390,6 +393,22 @@ exports.createItem = async (req, res) => {
           modifierGroups: { include: { modifiers: true } }
         }
       });
+
+      // 🔄 Auto-link to all active branches if isGlobal is true
+      if (newItem.isGlobal) {
+        const activeBranches = await tx.branch.findMany({ where: { isActive: true } });
+        if (activeBranches.length > 0) {
+          await tx.branchItem.createMany({
+            data: activeBranches.map(b => ({
+              branchId: b.id,
+              itemId: newItem.id,
+              isAvailable: true,
+              stockCount: -1
+            })),
+            skipDuplicates: true
+          });
+        }
+      }
 
       const mappedGroups = (newItem.modifierGroups || []).map(g => ({
         ...g,
