@@ -1346,10 +1346,10 @@ class OrderService {
           deliveryZoneId: deliveryDetails.zoneId,
           deliveryZoneName: deliveryDetails.zoneName,
           deliveryMinOrder: deliveryDetails.minOrder,
-          preparationTimeMinutes: Math.round(config.business.slaPrepTimeMinutes * (config.business.peakMultiplier || 1.0)),
-          deliveryTimeMinutes: config.business.slaDeliveryTimeMinutes,
-          estimatedReadyAt: new Date(Date.now() + Math.round(config.business.slaPrepTimeMinutes * (config.business.peakMultiplier || 1.0)) * 60000),
-          estimatedArrivalAt: new Date(Date.now() + (Math.round(config.business.slaPrepTimeMinutes * (config.business.peakMultiplier || 1.0)) + config.business.slaDeliveryTimeMinutes) * 60000),
+          preparationTimeMinutes: Math.round((config.business.slaPrepTimeMinutes || 30) * (config.business.peakMultiplier || 1.0)),
+          deliveryTimeMinutes: config.business.slaDeliveryTimeMinutes || 30,
+          estimatedReadyAt: new Date(Date.now() + Math.round((config.business.slaPrepTimeMinutes || 30) * (config.business.peakMultiplier || 1.0)) * 60000),
+          estimatedArrivalAt: new Date(Date.now() + (Math.round((config.business.slaPrepTimeMinutes || 30) * (config.business.peakMultiplier || 1.0)) + (config.business.slaDeliveryTimeMinutes || 30)) * 60000),
           orderItems: {
             create: validatedItems
           }
