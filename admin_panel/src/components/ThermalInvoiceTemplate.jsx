@@ -9,18 +9,18 @@ export const ThermalInvoiceTemplate = React.forwardRef(({ order }, ref) => {
 
   // Assuming order has these properties directly or nested under order.branch / order.restaurant
   const branchName = order.branch?.name || order.restaurantName || "المركزية";
-  const branchAddress = order.branch?.address || "السعودية";
+  const branchAddress = order.branch?.address || "الاردن";
   const taxNumber = order.branch?.taxNumber || order.taxNumber || "312345678900003"; // fallback or mock
   const phone = order.branch?.phone || order.phone || "";
-  
+
   const orderId = order.id || order.orderId || "";
   const createdAt = order.createdAt || new Date();
-  
+
   const subtotal = order.subtotal || 0;
   const deliveryFee = order.deliveryFee || 0;
   const tax = order.tax || 0; // if you have explicit tax amount
   const total = order.total || order.totalPrice || 0;
-  
+
   const qrCodeValue = generateZatcaQrCode(
     branchName,
     taxNumber,
