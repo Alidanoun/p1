@@ -266,7 +266,7 @@ const LiveOrders = () => {
 
   const onUpdateStatus = async (id, status, version) => {
     try {
-      const idempotencyKey = `manual_upd_${id}_${status}_${Date.now()}`;
+      const idempotencyKey = crypto.randomUUID();
       await api.patch(`/orders/${id}/status`, 
         { status, version },
         { headers: { 'idempotency-key': idempotencyKey } }
@@ -315,7 +315,7 @@ const LiveOrders = () => {
 
     setIsSubmittingCancel(true);
     try {
-      const idempotencyKey = `cancel_req_${orderToCancel.id}_${Date.now()}`;
+      const idempotencyKey = crypto.randomUUID();
       await api.post(`/orders/${orderToCancel.id}/cancel`, 
         {
           reason: cancelReason,
@@ -363,7 +363,7 @@ const LiveOrders = () => {
     }
 
     try {
-      const idempotencyKey = `drag_upd_${draggableId}_${newStatus}_${Date.now()}`;
+      const idempotencyKey = crypto.randomUUID();
       await api.patch(`/orders/${draggableId}/status`, 
         { status: newStatus, version: orderToUpdate.version },
         { headers: { 'idempotency-key': idempotencyKey } }
@@ -535,7 +535,7 @@ const LiveOrders = () => {
                     if (handleAction === 'reject' && !rejectionReason) return toast.error('يرجى ذكر سبب الرفض');
                     setIsHandlingRequest(true);
                     try {
-                      const idempotencyKey = `${handleAction}_cancel_${orderToCancel.id}_${Date.now()}`;
+                      const idempotencyKey = crypto.randomUUID();
                       const endpoint = handleAction === 'approve' ? 'approve-cancel' : 'reject-cancel';
                       
                       await api.post(`/orders/${orderToCancel.id}/${endpoint}`, 
