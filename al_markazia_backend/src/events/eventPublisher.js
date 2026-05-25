@@ -26,20 +26,21 @@ async function publishEvent({
 
     // 1. 🏗️ Level 2: Durable Persistence (Transactional Outbox)
     // We expect 'tx' to be provided if we are inside a transaction.
-    const tx = metadata.tx || prisma; 
+    const { tx, ...cleanMetadata } = metadata;
+    const dbTx = tx || prisma; 
     const container = require('../lib/container');
     const outboxService = container.outboxService;
     
     let persistedEvent = null;
     if (isCritical) {
-      persistedEvent = await outboxService.enqueue(tx, {
+      persistedEvent = await outboxService.enqueue(dbTx, {
         type,
         aggregateId,
-        aggregateType: metadata.aggregateType || 'unknown',
+        aggregateType: cleanMetadata.aggregateType || 'unknown',
         payload,
         version,
         eventSequence,
-        metadata: { ...metadata, correlationId: corrId, causationId }
+        metadata: { ...cleanMetadata, correlationId: corrId, causationId }
       });
       
       // 💓 Pulse: Trigger immediate background processing AFTER transaction commit
