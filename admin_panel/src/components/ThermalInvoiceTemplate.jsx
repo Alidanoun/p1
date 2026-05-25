@@ -35,7 +35,10 @@ export const ThermalInvoiceTemplate = React.forwardRef(({ order }, ref) => {
       padding: "0 4mm",
       paddingTop: "5mm",
       fontSize: "14px",
-      color: "#000"
+      color: "#000",
+      whiteSpace: "normal",
+      wordBreak: "break-word",
+      overflowWrap: "break-word"
     }}>
       {/* Header */}
       <div style={{ textAlign: 'center', marginBottom: '8px' }}>
