@@ -825,7 +825,7 @@ const Settings = () => {
                                     <input
                                       type="text"
                                       className="glass-input text-right w-full font-mono placeholder:font-sans bg-background/50 text-center"
-                                      placeholder="+966 50 000 0000"
+                                      placeholder="+962 79 000 0000"
                                       value={selectedEditBranchId === 'new' ? newBranch.phone : editBranchPhone}
                                       onChange={e => selectedEditBranchId === 'new' ? setNewBranch({ ...newBranch, phone: e.target.value }) : setEditBranchPhone(e.target.value)}
                                     />

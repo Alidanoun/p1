@@ -1,6 +1,5 @@
 import React from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { generateZatcaQrCode } from '../lib/zatcaQr';
 import { formatCurrencyArabic } from '../lib/formatters';
 import { format } from 'date-fns';
 
@@ -21,19 +20,19 @@ export const ThermalInvoiceTemplate = React.forwardRef(({ order }, ref) => {
   const tax = order.tax || 0; // if you have explicit tax amount
   const total = order.total || order.totalPrice || 0;
 
-  const qrCodeValue = generateZatcaQrCode(
-    branchName,
-    taxNumber,
-    new Date(createdAt).toISOString(),
-    total.toString(),
-    tax.toString()
-  );
+  // Use a standard tracking URL for the QR instead of Saudi ZATCA format
+  const qrCodeValue = `https://almarkazia.app/order/${orderId}`;
 
   return (
     <div ref={ref} className="invoice-print-wrapper" dir="rtl" style={{
+      position: 'absolute',
+      top: 0, left: 0, right: 0,
       fontFamily: "'Arial', 'Tahoma', sans-serif",
-      width: "74mm",
+      width: "100%",
+      maxWidth: "80mm",
+      boxSizing: "border-box",
       margin: "0 auto",
+      padding: "0 4mm",
       paddingTop: "5mm",
       fontSize: "12px",
       color: "#000"

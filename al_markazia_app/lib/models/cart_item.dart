@@ -8,6 +8,7 @@ class CartItem {
   final String image;
   final double unitPrice; // basePrice + selected options
   int quantity;
+  final double? lineTotal;
   final String optionsText;
   final String? optionsTextEn;
   final List<int> optionIds;
@@ -21,13 +22,19 @@ class CartItem {
     required this.image,
     required this.unitPrice,
     this.quantity = 1,
+    this.lineTotal,
     this.optionsText = '',
     this.optionsTextEn,
     this.optionIds = const [],
     this.note = '',
   });
 
-  double get totalPrice => unitPrice * quantity;
+  double get totalPrice {
+    if (lineTotal != null) {
+      return lineTotal!;
+    }
+    return unitPrice * quantity;
+  }
 
   String get displayTitle {
     final lang = StorageService.instance.getLanguageCode();
@@ -54,6 +61,7 @@ class CartItem {
       image: json['image'] ?? '',
       unitPrice: double.tryParse(json['unitPrice']?.toString() ?? '0') ?? 0.0,
       quantity: json['quantity'] ?? 1,
+      lineTotal: json['lineTotal'] != null ? double.tryParse(json['lineTotal'].toString()) : null,
       optionsText: json['optionsText'] ?? '',
       optionsTextEn: json['optionsTextEn'],
       optionIds: (json['optionIds'] as List?)?.map((e) => e as int).toList() ?? [],
