@@ -12,6 +12,7 @@ const InvoiceModal = ({ order, isOpen, onClose }) => {
   const handlePrint = useReactToPrint({
     contentRef: componentRef,
     documentTitle: `Invoice-${order?.id || 'order'}`,
+    pageStyle: `@page { size: 80mm auto; margin: 0; } body { margin: 0; padding: 0; }`,
     onAfterPrint: () => console.log('Print success'),
   });
 

@@ -34,21 +34,21 @@ export const ThermalInvoiceTemplate = React.forwardRef(({ order }, ref) => {
       margin: "0 auto",
       padding: "0 4mm",
       paddingTop: "5mm",
-      fontSize: "12px",
+      fontSize: "14px",
       color: "#000"
     }}>
       {/* Header */}
       <div style={{ textAlign: 'center', marginBottom: '8px' }}>
-        <h2 style={{ fontSize: '16px', margin: '0 0 4px 0' }}>{branchName}</h2>
-        <p style={{ margin: '2px 0', fontSize: '11px' }}>{branchAddress}</p>
-        {phone && <p style={{ margin: '2px 0', fontSize: '11px' }}>{phone}</p>}
-        <p style={{ margin: '2px 0', fontSize: '11px' }}>الرقم الضريبي: {taxNumber}</p>
+        <h2 style={{ fontSize: '24px', fontWeight: '900', margin: '0 0 4px 0' }}>{branchName}</h2>
+        <p style={{ margin: '2px 0', fontSize: '14px' }}>{branchAddress}</p>
+        {phone && <p style={{ margin: '2px 0', fontSize: '14px' }}>{phone}</p>}
+        <p style={{ margin: '2px 0', fontSize: '14px' }}>الرقم الضريبي: {taxNumber}</p>
       </div>
 
       <hr style={{ borderTop: '1px dashed #000', borderBottom: 'none', margin: '8px 0' }} />
 
       {/* Order Info */}
-      <div style={{ marginBottom: '8px', fontSize: '11px' }}>
+      <div style={{ marginBottom: '8px', fontSize: '14px' }}>
         <p style={{ margin: '2px 0' }}>رقم الطلب: {orderId.toString().substring(0, 8)}</p>
         <p style={{ margin: '2px 0' }}>التاريخ: {format(new Date(createdAt), 'yyyy/MM/dd HH:mm')}</p>
         <p style={{ margin: '2px 0' }}>النوع: {order.orderType === 'delivery' ? 'توصيل' : 'استلام'}</p>
@@ -63,24 +63,24 @@ export const ThermalInvoiceTemplate = React.forwardRef(({ order }, ref) => {
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '8px' }}>
         <thead>
           <tr>
-            <th style={{ textAlign: 'right', paddingBottom: '4px', borderBottom: '1px solid #000', fontSize: '11px' }}>الصنف</th>
-            <th style={{ textAlign: 'center', paddingBottom: '4px', borderBottom: '1px solid #000', fontSize: '11px' }}>الكمية</th>
-            <th style={{ textAlign: 'left', paddingBottom: '4px', borderBottom: '1px solid #000', fontSize: '11px' }}>السعر</th>
+            <th style={{ textAlign: 'right', paddingBottom: '4px', borderBottom: '1px solid #000', fontSize: '14px' }}>الصنف</th>
+            <th style={{ textAlign: 'center', paddingBottom: '4px', borderBottom: '1px solid #000', fontSize: '14px' }}>الكمية</th>
+            <th style={{ textAlign: 'left', paddingBottom: '4px', borderBottom: '1px solid #000', fontSize: '14px' }}>السعر</th>
           </tr>
         </thead>
         <tbody>
           {(order.cartItems || order.orderItems || []).map((item, i) => (
             <React.Fragment key={i}>
               <tr>
-                <td style={{ paddingTop: '4px', fontSize: '11px' }}>{item.title || item.name}</td>
-                <td style={{ paddingTop: '4px', textAlign: 'center', fontSize: '11px' }}>{item.qty || item.quantity}</td>
-                <td style={{ paddingTop: '4px', textAlign: 'left', fontSize: '11px' }}>
+                <td style={{ paddingTop: '4px', fontSize: '14px' }}>{item.title || item.name}</td>
+                <td style={{ paddingTop: '4px', textAlign: 'center', fontSize: '14px' }}>{item.qty || item.quantity}</td>
+                <td style={{ paddingTop: '4px', textAlign: 'left', fontSize: '14px' }}>
                   {formatCurrencyArabic(item.lineTotal || (item.price * (item.qty || 1)))}
                 </td>
               </tr>
               {(item.optionsText || (item.modifiers && item.modifiers.length > 0)) && (
                 <tr>
-                  <td colSpan={3} style={{ paddingRight: '8px', fontSize: '10px', color: '#333' }}>
+                  <td colSpan={3} style={{ paddingRight: '8px', fontSize: '12px', color: '#333' }}>
                     + {item.optionsText || item.modifiers?.join('، ')}
                   </td>
                 </tr>
@@ -94,17 +94,17 @@ export const ThermalInvoiceTemplate = React.forwardRef(({ order }, ref) => {
 
       {/* Financials */}
       <div style={{ marginBottom: '8px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '11px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '14px' }}>
           <span>المجموع الفرعي</span>
           <span>{formatCurrencyArabic(subtotal)}</span>
         </div>
         {deliveryFee > 0 && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '11px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '14px' }}>
             <span>رسوم التوصيل</span>
             <span>{formatCurrencyArabic(deliveryFee)}</span>
           </div>
         )}
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '12px', fontWeight: 'bold' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '16px', fontWeight: 'bold' }}>
           <span>الإجمالي الكلي (شامل الضريبة)</span>
           <span>{formatCurrencyArabic(total)}</span>
         </div>
@@ -119,7 +119,7 @@ export const ThermalInvoiceTemplate = React.forwardRef(({ order }, ref) => {
         </div>
       </div>
 
-      <p style={{ textAlign: 'center', fontSize: '11px', marginTop: '12px', marginBottom: '0' }}>شكراً لزيارتكم</p>
+      <p style={{ textAlign: 'center', fontSize: '14px', marginTop: '12px', marginBottom: '0' }}>شكراً لزيارتكم</p>
     </div>
   );
 });
