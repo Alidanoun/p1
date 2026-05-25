@@ -35,7 +35,9 @@ class OrderApi {
       
       // 🚀 Superior Error Parsing: Extract clean message from Enterprise structure
       String errorMsg = 'Failed to place order';
-      if (errorData['error'] != null) {
+      if (errorData['message'] != null) {
+        errorMsg = errorData['message'].toString();
+      } else if (errorData['error'] != null) {
         if (errorData['error'] is Map) {
           errorMsg = errorData['error']['message'] ?? errorMsg;
           if (errorData['error']['code'] == 'PRICE_CHANGED') {

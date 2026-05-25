@@ -253,7 +253,7 @@ class CheckoutController extends ChangeNotifier {
         timestamp: DateTime.now(),
         customerName: customerName,
         customerPhone: customerPhone,
-        orderType: orderType == 'delivery' ? 'delivery' : 'pickup',
+        orderType: orderType == 'delivery' ? 'delivery' : 'takeaway',
         address: orderType == 'delivery' 
             ? '${l10n.addressAreaLabel}: ${selectedZone?.name}\n${l10n.addressStreetLabel}: $street - ${l10n.addressBuildingLabel}: $building' 
             : null,
