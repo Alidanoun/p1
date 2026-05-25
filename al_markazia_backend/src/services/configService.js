@@ -20,7 +20,7 @@ class ConfigService {
     this.DEFAULT_PEAK_MULTIPLIER = 1.5;
   }
 
-  isPeakHour(timezone = 'Africa/Cairo') {
+  isPeakHour(timezone = 'Asia/Amman') {
     const hour = DateTime.now().setZone(timezone).hour;
     return this.PEAK_HOURS.some(s => hour >= s.start && hour < s.end);
   }
@@ -68,6 +68,8 @@ class ConfigService {
           maxRating: policyMap['MAX_RATING']?.val || 5,
           defaultDeliveryFee: policyMap['DEFAULT_DELIVERY_FEE']?.val || 1.0,
           freeCancelWindowMinutes: policyMap['FREE_CANCEL_WINDOW_MINUTES']?.val || 5,
+          slaPrepTimeMinutes: policyMap['SLA_PREP_TIME_MINUTES']?.val || 30,
+          slaDeliveryTimeMinutes: policyMap['SLA_DELIVERY_TIME_MINUTES']?.val || 30,
           peakMultiplier: peakMultiplier,
           isPeakHour: isPeak
         },
@@ -113,7 +115,7 @@ class ConfigService {
   _getSafeModeFallbacks() {
     const isPeak = this.isPeakHour();
     return {
-      business: { taxRate: 0.16, maxCancellationReasonLength: 500, maxRating: 5, defaultDeliveryFee: 1.0, freeCancelWindowMinutes: 5, peakMultiplier: isPeak ? this.DEFAULT_PEAK_MULTIPLIER : 1.0, isPeakHour: isPeak },
+      business: { taxRate: 0.16, maxCancellationReasonLength: 500, maxRating: 5, defaultDeliveryFee: 1.0, freeCancelWindowMinutes: 5, slaPrepTimeMinutes: 30, slaDeliveryTimeMinutes: 30, peakMultiplier: isPeak ? this.DEFAULT_PEAK_MULTIPLIER : 1.0, isPeakHour: isPeak },
       security: { maxLoginAttempts: 5, lockDurationMinutes: 15, timingDelayMs: 300, passwordMinLength: 8 },
       loyalty: { pointsPerJod: 10, minPointsToRedeem: 500, pointsToJodRate: 100 }
     };

@@ -28,7 +28,7 @@ const registerValidation = [
     .withMessage('كلمة المرور يجب أن تحتوي على حرف كبير، حرف صغير، رقم، ورمز خاص'),
   body('phone')
     .optional()
-    .isMobilePhone('any').withMessage('رقم الهاتف غير صحيح')
+    .matches(/^(\+?962|0)7[789]\d{7}$/).withMessage('رقم هاتف أردني غير صحيح')
 ];
 
 module.exports = {

@@ -54,7 +54,7 @@ model User {
   refreshTokens   RefreshToken[]   @relation("UserTokens")
   systemAuditLogs SystemAuditLog[] @relation("UserLogs")
   
-  timezone        String   @default("UTC")
+  timezone        String   @default("Asia/Amman")
   quietHoursStart Int      @default(23)
   quietHoursEnd   Int      @default(7)
   pinHash         String?
@@ -95,7 +95,7 @@ model Branch {
   isDeleted Boolean  @default(false)
   deletedAt DateTime?
   country   String?  @default("JO")
-  timezone  String?  @default("Africa/Cairo")
+  timezone  String?  @default("Asia/Amman")
   isEmergencyClosed Boolean   @default(false)
   closureReason     String?
   reopenAt          DateTime?
@@ -441,7 +441,7 @@ model Customer {
   orders              Order[]
   reviews             Review[]
   customerRewards     CustomerReward[]
-  timezone            String?            @default("Africa/Cairo")
+  timezone            String?            @default("Asia/Amman")
   quietHoursStart     Int                @default(23)
   quietHoursEnd       Int                @default(7)
   notificationPreferences CustomerNotificationPreference[]

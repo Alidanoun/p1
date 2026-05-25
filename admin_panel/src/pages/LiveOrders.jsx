@@ -24,6 +24,17 @@ import BranchStats from '../components/BranchStats';
 const NEW_ORDER_SOUND = 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3';
 const CANCEL_REQUEST_SOUND = 'https://assets.mixkit.co/active_storage/sfx/2190/2190-preview.mp3';
 
+// Safe UUID generation for HTTP/HTTPS contexts
+const generateUUID = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    var r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+};
+
 const COLUMNS = [
   { id: 'new', title: 'طلبات جديدة', color: 'bg-amber-500', icon: Clock, statuses: ['pending'] },
   { id: 'in_progress', title: 'قيد التنفيذ', icon: Play, color: 'bg-indigo-500', statuses: ['confirmed', 'preparing'] },
@@ -266,7 +277,7 @@ const LiveOrders = () => {
 
   const onUpdateStatus = async (id, status, version) => {
     try {
-      const idempotencyKey = crypto.randomUUID();
+      const idempotencyKey = generateUUID();
       await api.patch(`/orders/${id}/status`, 
         { status, version },
         { headers: { 'idempotency-key': idempotencyKey } }
@@ -315,7 +326,7 @@ const LiveOrders = () => {
 
     setIsSubmittingCancel(true);
     try {
-      const idempotencyKey = crypto.randomUUID();
+      const idempotencyKey = generateUUID();
       await api.post(`/orders/${orderToCancel.id}/cancel`, 
         {
           reason: cancelReason,
@@ -363,7 +374,7 @@ const LiveOrders = () => {
     }
 
     try {
-      const idempotencyKey = crypto.randomUUID();
+      const idempotencyKey = generateUUID();
       await api.patch(`/orders/${draggableId}/status`, 
         { status: newStatus, version: orderToUpdate.version },
         { headers: { 'idempotency-key': idempotencyKey } }
@@ -535,7 +546,7 @@ const LiveOrders = () => {
                     if (handleAction === 'reject' && !rejectionReason) return toast.error('يرجى ذكر سبب الرفض');
                     setIsHandlingRequest(true);
                     try {
-                      const idempotencyKey = crypto.randomUUID();
+                      const idempotencyKey = generateUUID();
                       const endpoint = handleAction === 'approve' ? 'approve-cancel' : 'reject-cancel';
                       
                       await api.post(`/orders/${orderToCancel.id}/${endpoint}`, 

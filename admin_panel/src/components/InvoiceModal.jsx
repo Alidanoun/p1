@@ -10,7 +10,7 @@ const InvoiceModal = ({ order, isOpen, onClose }) => {
   const componentRef = useRef(null);
 
   const handlePrint = useReactToPrint({
-    contentRef: componentRef,
+    contentRef: () => componentRef.current,
     documentTitle: `Invoice-${order?.id || 'order'}`,
     pageStyle: `@page { size: 80mm auto; margin: 0; } body { margin: 0; padding: 0; }`,
     onAfterPrint: () => console.log('Print success'),
@@ -21,7 +21,7 @@ const InvoiceModal = ({ order, isOpen, onClose }) => {
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 print:hidden">
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -52,15 +52,20 @@ const InvoiceModal = ({ order, isOpen, onClose }) => {
             </div>
 
             <div className="w-full space-y-3 mb-8 border-y border-dashed border-slate-200 py-6 max-h-[40vh] overflow-y-auto pr-2">
-              {(order.cartItems || order.orderItems || []).map((item, i) => (
-                <div key={i} className="flex justify-between text-sm">
-                  <div className="flex flex-col">
-                    <span className="font-medium text-slate-700">{item.qty || item.quantity}x {item.title || item.name}</span>
-                    {item.optionsText && <span className="text-[10px] text-slate-400">{item.optionsText}</span>}
+              {(order.cartItems || order.orderItems || order.items || []).map((item, i) => {
+                const qty = item.qty || item.quantity || 1;
+                const price = Number(item.price || 0);
+                const lineTotal = item.lineTotal !== undefined ? Number(item.lineTotal) : (price * qty);
+                return (
+                  <div key={i} className="flex justify-between text-sm">
+                    <div className="flex flex-col">
+                      <span className="font-medium text-slate-700">{qty}x {item.title || item.name}</span>
+                      {item.optionsText && <span className="text-[10px] text-slate-400">{item.optionsText}</span>}
+                    </div>
+                    <span className="font-bold">{formatCurrencyArabic(lineTotal)}</span>
                   </div>
-                  <span className="font-bold">{formatCurrencyArabic(item.lineTotal || (item.price * (item.qty || 1)))}</span>
-                </div>
-              ))}
+                );
+              })}
               <div className="pt-4 border-t border-slate-100 space-y-2">
                 <div className="flex justify-between text-xs text-slate-500">
                   <span>المجموع الفرعي</span>
@@ -94,19 +99,51 @@ const InvoiceModal = ({ order, isOpen, onClose }) => {
             </div>
 
             <button
-              onClick={handlePrint}
+              onClick={() => {
+                // Fallback to window.print if handlePrint is somehow failing
+                setTimeout(() => window.print(), 100);
+              }}
               className="mt-8 w-full bg-slate-900 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-slate-800 transition-all shadow-lg"
             >
               <Printer className="w-5 h-5" />
               <span>طباعة الفاتورة الحرارية</span>
             </button>
-
-            {/* Hidden thermal print template */}
-            <div style={{ display: 'none' }}>
-              <ThermalInvoiceTemplate ref={componentRef} order={order} />
-            </div>
           </motion.div>
         </div>
+      )}
+      
+      {/* Global Print Styles and Hidden Thermal Template */}
+      {isOpen && (
+        <>
+          <style type="text/css">
+            {`
+              @media print {
+                body * {
+                  visibility: hidden;
+                }
+                #printable-thermal-receipt, #printable-thermal-receipt * {
+                  visibility: visible;
+                }
+                #printable-thermal-receipt {
+                  position: absolute;
+                  left: 0;
+                  top: 0;
+                  width: 80mm;
+                  margin: 0;
+                  padding: 0;
+                  display: block !important;
+                }
+                @page {
+                  size: 80mm auto;
+                  margin: 0;
+                }
+              }
+            `}
+          </style>
+          <div id="printable-thermal-receipt" style={{ display: 'none' }} className="print:block">
+            <ThermalInvoiceTemplate ref={componentRef} order={order} />
+          </div>
+        </>
       )}
     </AnimatePresence>
   );

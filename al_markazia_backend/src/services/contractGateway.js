@@ -81,7 +81,22 @@ class ContractGateway {
       await this.container.circuitBreakerService.recordSuccess('ORDER_OPERATIONS');
       return result;
     } catch (error) {
-      await this.container.circuitBreakerService.recordFailure('ORDER_OPERATIONS');
+      // 🛡️ Only infrastructure/unexpected errors trip the circuit breaker, not business errors
+      const businessErrors = [
+        'ITEM_NOT_FOUND', 'ITEM_NOT_IN_BRANCH', 'ITEM_UNAVAILABLE',
+        'INSUFFICIENT_STOCK', 'EMPTY_ORDER_NOT_ALLOWED', 'INVALID_TRANSITION',
+        'BRANCH_ACCESS_DENIED', 'ORDER_FORBIDDEN', 'AUTH_REQUIRED',
+        'CONTRACT_VIOLATION', 'MISSING_IDEMPOTENCY_KEY', 'IDEMPOTENCY_MISMATCH',
+        'BRANCH_ISOLATION_VIOLATION', 'CONCURRENCY_CONFLICT',
+        'BRANCH_NOT_OPERATIONAL', 'ORDER_NOT_FOUND', 'UNAUTHORIZED', 'SYSTEM_BUSY'
+      ];
+      
+      const isBusinessError = businessErrors.some(be => error.message?.includes(be));
+      
+      if (!isBusinessError) {
+        await this.container.circuitBreakerService.recordFailure('ORDER_OPERATIONS');
+      }
+      
       if (idempotencyKey) await this.container.idempotencyService.rollback(idempotencyKey);
       throw error;
     } finally {

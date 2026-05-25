@@ -399,9 +399,8 @@ class _AuthScreenState extends State<AuthScreen>
                 'رقم الجوال',
                 Icons.phone_android_rounded,
               ),
-              validator: (val) => (val == null || val.length < 9)
-                  ? 'يرجى إدخال رقم جوال صحيح'
-                  : null,
+              validator: (val) => Validators.validatePhone(
+                  val, 'رقم الجوال مطلوب', 'يجب أن يبدأ بـ 077/078/079'),
               onSaved: (val) => regPhone = val!.trim(),
             ),
             const SizedBox(height: 16),

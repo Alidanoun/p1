@@ -1209,6 +1209,10 @@ class OrderService {
 
     // 0. Fetch Dynamic Business Policies
     const config = await configService.getFullConfig();
+    const prepTime = Math.max(1, parseInt(config.business?.slaPrepTimeMinutes) || 30);
+    const peakMult = Math.max(0.1, parseFloat(config.business?.peakMultiplier) || 1.0);
+    const deliveryTime = Math.max(1, parseInt(config.business?.slaDeliveryTimeMinutes) || 30);
+    const totalPrepMinutes = Math.round(prepTime * peakMult);
 
     // 1. 🛡️ Canonical Branch Resolution (Security Boundary)
     const targetBranchId = await this._resolveBranchId(data.branchId || data.branch, authUser?.id);
@@ -1346,10 +1350,10 @@ class OrderService {
           deliveryZoneId: deliveryDetails.zoneId,
           deliveryZoneName: deliveryDetails.zoneName,
           deliveryMinOrder: deliveryDetails.minOrder,
-          preparationTimeMinutes: Math.round((config.business.slaPrepTimeMinutes || 30) * (config.business.peakMultiplier || 1.0)),
-          deliveryTimeMinutes: config.business.slaDeliveryTimeMinutes || 30,
-          estimatedReadyAt: new Date(Date.now() + Math.round((config.business.slaPrepTimeMinutes || 30) * (config.business.peakMultiplier || 1.0)) * 60000),
-          estimatedArrivalAt: new Date(Date.now() + (Math.round((config.business.slaPrepTimeMinutes || 30) * (config.business.peakMultiplier || 1.0)) + (config.business.slaDeliveryTimeMinutes || 30)) * 60000),
+          preparationTimeMinutes: totalPrepMinutes,
+          deliveryTimeMinutes: deliveryTime,
+          estimatedReadyAt: new Date(Date.now() + totalPrepMinutes * 60000),
+          estimatedArrivalAt: new Date(Date.now() + (totalPrepMinutes + deliveryTime) * 60000),
           orderItems: {
             create: validatedItems
           }

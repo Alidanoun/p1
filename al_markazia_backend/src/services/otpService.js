@@ -208,16 +208,14 @@ class OtpService {
    * 📞 Normalize Jordanian phone number formats
    */
   normalizePhone(phone) {
-    if (!phone || typeof phone !== 'string') return null;
-    let clean = phone.replace(/[^\d+]/g, '');
-    if (clean.startsWith('+')) {
-      clean = clean.substring(1);
-    }
-    clean = clean.replace(/^0+/, '');
-    if (clean.length === 9 && clean.startsWith('7')) {
-      clean = '962' + clean;
-    }
-    return clean;
+    if (!phone) return null;
+    let p = phone.toString().trim().replace(/\s+/g, '');
+    // قبول +9627XXXXXXXX أو 009627XXXXXXXX
+    if (p.startsWith('+962')) p = '0' + p.slice(4);
+    if (p.startsWith('00962')) p = '0' + p.slice(5);
+    // تحقق: يجب أن يبدأ بـ 07 ويكون 10 أرقام
+    if (!/^07[789]\d{7}$/.test(p)) return null;
+    return p;
   }
 
   /**
