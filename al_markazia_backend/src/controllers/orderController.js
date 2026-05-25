@@ -169,6 +169,27 @@ exports.createOrder = async (req, res) => {
     if (error.message.includes('SYSTEM_BUSY')) {
       return response.error(res, 'طلب مماثل قيد المعالجة', 'SYSTEM_BUSY', 429);
     }
+    if (error.message.startsWith('AUTH_REQUIRED')) {
+      return response.error(res, 'يجب تسجيل الدخول لإتمام الطلب', 'AUTH_REQUIRED', 401);
+    }
+    if (error.message.startsWith('ITEM_NOT_FOUND')) {
+      return response.error(res, 'بعض الأصناف غير موجودة', 'ITEM_NOT_FOUND', 400);
+    }
+    if (error.message.startsWith('ITEM_UNAVAILABLE') || error.message.startsWith('ITEM_NOT_IN_BRANCH')) {
+      return response.error(res, 'بعض الأصناف غير متوفرة حالياً في هذا الفرع', 'ITEM_UNAVAILABLE', 400);
+    }
+    if (error.message.startsWith('INSUFFICIENT_STOCK')) {
+      return response.error(res, 'المخزون لا يكفي لبعض الأصناف', 'INSUFFICIENT_STOCK', 400);
+    }
+    if (error.message.startsWith('INVALID_QUANTITY')) {
+      return response.error(res, 'كمية غير صالحة لبعض الأصناف', 'INVALID_QUANTITY', 400);
+    }
+    if (error.message.startsWith('INVALID_DELIVERY_ZONE')) {
+      return response.error(res, 'منطقة التوصيل غير صالحة', 'INVALID_DELIVERY_ZONE', 400);
+    }
+    if (error.message.startsWith('MIN_ORDER_NOT_MET')) {
+      return response.error(res, 'لم يتم تجاوز الحد الأدنى للطلب', 'MIN_ORDER_NOT_MET', 400);
+    }
     
     return response.error(res, 'فشل إنشاء الطلب', 'CREATE_FAILED', 500);
   }
