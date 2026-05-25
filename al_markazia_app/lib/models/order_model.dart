@@ -182,15 +182,18 @@ class OrderModel {
     'usePoints': usePoints,
   };
 
-  Map<String, dynamic> toCreatePayloadJson() => {
-    'customerName': customerName,
-    'customerPhone': customerPhone,
-    'orderType': orderType,
-    'address': address,
-    'notes': notes,
-    'cartItems': cartItems.map((e) => e.toJson()).toList(),
-    'branchId': branchId, // UUID الحقيقي
-    'deliveryZoneId': deliveryZoneId,
-    'usePoints': usePoints,
-  };
+  Map<String, dynamic> toCreatePayloadJson() {
+    final payload = <String, dynamic>{
+      'orderType': orderType,
+      'address': address,
+      'notes': notes,
+      'cartItems': cartItems.map((e) => e.toJson()).toList(),
+      'branchId': branchId, // UUID الحقيقي
+      'deliveryZoneId': deliveryZoneId,
+      'usePoints': usePoints,
+    };
+    if (customerName.isNotEmpty) payload['customerName'] = customerName;
+    if (customerPhone.isNotEmpty) payload['phone'] = customerPhone;
+    return payload;
+  }
 }
