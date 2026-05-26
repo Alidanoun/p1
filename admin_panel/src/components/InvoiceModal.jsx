@@ -10,7 +10,7 @@ const InvoiceModal = ({ order, isOpen, onClose }) => {
   const componentRef = useRef(null);
 
   const handlePrint = useReactToPrint({
-    contentRef: () => componentRef.current,
+    contentRef: componentRef,
     documentTitle: `Invoice-${order?.id || 'order'}`,
     pageStyle: `@page { size: 80mm auto; margin: 0; } body { margin: 0; padding: 0; }`,
     onAfterPrint: () => console.log('Print success'),
@@ -99,10 +99,7 @@ const InvoiceModal = ({ order, isOpen, onClose }) => {
             </div>
 
             <button
-              onClick={() => {
-                // Fallback to window.print if handlePrint is somehow failing
-                setTimeout(() => window.print(), 100);
-              }}
+              onClick={() => handlePrint()}
               className="mt-8 w-full bg-slate-900 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-slate-800 transition-all shadow-lg"
             >
               <Printer className="w-5 h-5" />
