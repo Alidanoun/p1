@@ -6,7 +6,7 @@
 const logger = require('../utils/logger');
 
 // وضع التشغيل: LOG_ONLY (تسجيل فقط) أو ENFORCE (رفض صارم)
-const OPERATIONAL_MODE = process.env.ORDER_STATE_MODE || 'LOG_ONLY';
+const OPERATIONAL_MODE = process.env.ORDER_STATE_MODE || 'ENFORCE';
 
 const ALLOWED_TRANSITIONS = {
   'pending': ['confirmed', 'preparing', 'cancelled'],

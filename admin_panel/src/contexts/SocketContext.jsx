@@ -16,7 +16,6 @@ const SOCKET_URL = import.meta.env.VITE_API_URL
   : (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5010');
 
 const printThermal = (order) => {
-  let printWindow = null;
   try {
     const branchName = order.branch?.name || order.restaurantName || "المركزية";
     const branchAddress = order.branch?.address || "الأردن";
@@ -27,9 +26,6 @@ const printThermal = (order) => {
     
     const items = order.cartItems || order.orderItems || order.items || [];
     
-    printWindow = window.open('', '_blank', 'width=300,height=600');
-    if (!printWindow) return;
-
     const itemsHtml = items.map(item => {
       const qty = item.qty || item.quantity || 1;
       const price = Number(item.price || item.unitPrice || 0);
@@ -43,7 +39,7 @@ const printThermal = (order) => {
       `;
     }).join('');
 
-    printWindow.document.write(`
+    const htmlContent = `
       <!DOCTYPE html>
       <html dir="rtl">
       <head>
@@ -77,18 +73,27 @@ const printThermal = (order) => {
         <div class="center" style="margin-top:8px; font-weight: bold;">شكراً لزيارتكم (طباعة تلقائية)</div>
       </body>
       </html>
-    `);
-    printWindow.document.close();
-    printWindow.focus();
-    setTimeout(() => {
-      if (printWindow) {
-        printWindow.print();
-        printWindow.close();
-      }
-    }, 500);
+    `;
+    
+    const iframe = document.createElement('iframe');
+    iframe.style.display = 'none';
+    document.body.appendChild(iframe);
+    
+    iframe.contentWindow.document.open();
+    iframe.contentWindow.document.write(htmlContent);
+    iframe.contentWindow.document.close();
+    
+    iframe.onload = () => {
+      setTimeout(() => {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+        setTimeout(() => {
+          document.body.removeChild(iframe);
+        }, 1000);
+      }, 500);
+    };
   } catch (error) {
     console.error("Auto print error:", error);
-    if (printWindow) printWindow.close();
   }
 };
 
