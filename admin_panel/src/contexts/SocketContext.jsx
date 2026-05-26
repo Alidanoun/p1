@@ -15,6 +15,83 @@ const SOCKET_URL = import.meta.env.VITE_API_URL
   ? new URL(import.meta.env.VITE_API_URL).origin 
   : (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5010');
 
+const printThermal = (order) => {
+  let printWindow = null;
+  try {
+    const branchName = order.branch?.name || order.restaurantName || "المركزية";
+    const branchAddress = order.branch?.address || "الأردن";
+    const taxNumber = order.branch?.taxNumber || order.taxNumber || "";
+    const orderId = order.id || order.orderId || "";
+    const orderNumber = order.orderNumber || String(orderId).substring(0, 8);
+    const customerName = order.customerName || order.customer?.name || "عميل سفري";
+    
+    const items = order.cartItems || order.orderItems || order.items || [];
+    
+    printWindow = window.open('', '_blank', 'width=300,height=600');
+    if (!printWindow) return;
+
+    const itemsHtml = items.map(item => {
+      const qty = item.qty || item.quantity || 1;
+      const price = Number(item.price || item.unitPrice || 0);
+      const lineTotal = item.lineTotal !== undefined ? Number(item.lineTotal) : (price * qty);
+      const title = item.title || item.name || item.itemName || "صنف";
+      return `
+        <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+          <span>${qty}x ${title}</span>
+          <span>${lineTotal.toFixed(2)} JOD</span>
+        </div>
+      `;
+    }).join('');
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html dir="rtl">
+      <head>
+        <meta charset="utf-8">
+        <style>
+          @page { size: 80mm auto; margin: 4mm; }
+          body { font-family: 'Arial', 'Tahoma', sans-serif; font-size: 11px; width: 72mm; margin: 0; padding: 0; color: #000; }
+          .center { text-align: center; }
+          .bold { font-weight: bold; }
+          .line { border-top: 1px dashed #000; margin: 6px 0; }
+          .row { display: flex; justify-content: space-between; }
+          .total { font-size: 13px; font-weight: bold; }
+        </style>
+      </head>
+      <body>
+        <div class="center bold" style="font-size:16px">${branchName}</div>
+        <div class="center">${branchAddress}</div>
+        ${taxNumber ? `<div class="center">الرقم الضريبي: ${taxNumber}</div>` : ''}
+        <div class="line"></div>
+        <div class="row"><span>رقم الطلب:</span><span>${orderNumber}</span></div>
+        <div class="row"><span>التاريخ:</span><span>${new Date(order.createdAt || Date.now()).toLocaleString('ar-EG')}</span></div>
+        <div class="row"><span>النوع:</span><span>${order.orderType === 'delivery' ? 'توصيل' : 'استلام'}</span></div>
+        <div class="row"><span>العميل:</span><span>${customerName}</span></div>
+        <div class="line"></div>
+        ${itemsHtml}
+        <div class="line"></div>
+        <div class="row"><span>المجموع الفرعي</span><span>${Number(order.subtotal || 0).toFixed(2)} JOD</span></div>
+        ${order.deliveryFee > 0 ? `<div class="row"><span>رسوم التوصيل</span><span>${Number(order.deliveryFee).toFixed(2)} JOD</span></div>` : ''}
+        <div class="row total"><span>الإجمالي (شامل الضريبة)</span><span>${Number(order.total || order.totalPrice || 0).toFixed(2)} JOD</span></div>
+        <div class="line"></div>
+        <div class="center" style="margin-top:8px; font-weight: bold;">شكراً لزيارتكم (طباعة تلقائية)</div>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => {
+      if (printWindow) {
+        printWindow.print();
+        printWindow.close();
+      }
+    }, 500);
+  } catch (error) {
+    console.error("Auto print error:", error);
+    if (printWindow) printWindow.close();
+  }
+};
+
 export const SocketProvider = ({ children }) => {
   const { user, selectedBranchId, setSelectedBranchId } = useAuth();
   const queryClient = useQueryClient();
@@ -93,7 +170,6 @@ export const SocketProvider = ({ children }) => {
   const handleSync = useCallback((socketInstance) => {
     if (!socketInstance) return;
     console.log('📡 [Socket] Syncing state...');
-    socketInstance.emit('join:admin'); 
     socketInstance.emit('branch:switch', { branchId: activeBranchIdRef.current }, (res) => {
       if (res?.success) {
         // Fetch via HTTP directly using the latest branch ref
@@ -202,43 +278,38 @@ export const SocketProvider = ({ children }) => {
     };
 
     // 📡 Standardized System Notifications (Semantic Events)
-    newSocket.on(SOCKET_EVENTS.EXEC_ORDER_CREATED, (payload) => {
+    const handleOrderEvent = (payload) => {
       const order = payload?.data || payload;
-      if (isDuplicate(payload.eventId)) return;
+      const eventId = payload?.eventId || payload?.data?._syncMetadata?.eventId;
+      if (isDuplicate(eventId)) return;
 
-      console.log('🔔 [Socket] New Order. Queuing invalidation...');
+      console.log('🔄 [Socket] Order Event. Queuing invalidation...');
       const branchId = order.branchId || activeBranchIdRef.current;
       if (branchId) {
         triggerDebouncedInvalidation(branchId, ['orders', 'branchStats']);
       }
 
-      toast.success('طلب جديد 🔔', {
-        description: `طلب جديد رقم (${order.orderNumber}) بانتظار القبول.`,
-        duration: 10000,
-        position: 'top-center'
-      });
-      _playBeep();
-      fetchNotifications();
-    });
+      if (order.status === 'pending') {
+        // 🖨️ طباعة تلقائية فورية للطلبات الجديدة
+        printThermal(order);
 
-    newSocket.on(SOCKET_EVENTS.EXEC_ORDER_UPDATED, (payload) => {
-      const order = payload?.data || payload;
-      if (isDuplicate(payload.eventId)) return;
-
-      console.log('🔄 [Socket] Order Updated. Queuing invalidation...');
-      const branchId = order.branchId || activeBranchIdRef.current;
-      if (branchId) {
-        triggerDebouncedInvalidation(branchId, ['orders', 'branchStats']);
-      }
-
-      if (['ready', 'in_route', 'cancelled'].includes(order.status)) {
-        toast.info(`تحديث: ${order.orderNumber}`, {
+        toast.success('طلب جديد 🔔', {
+          description: `طلب جديد رقم (${order.orderNumber || String(order.id).substring(0, 8)}) بانتظار القبول.`,
+          duration: 10000,
+          position: 'top-center'
+        });
+        _playBeep();
+      } else if (['ready', 'in_route', 'cancelled'].includes(order.status)) {
+        toast.info(`تحديث: ${order.orderNumber || String(order.id).substring(0, 8)}`, {
           description: `الحالة الجديدة: ${order.status}`,
           duration: 4000,
         });
       }
       fetchNotifications();
-    });
+    };
+
+    newSocket.on(SOCKET_EVENTS.EXEC_ORDER_CREATED, handleOrderEvent);
+    newSocket.on(SOCKET_EVENTS.EXEC_ORDER_UPDATED, handleOrderEvent);
 
     newSocket.on(SOCKET_EVENTS.NOTIFICATION_NEW, (payload) => {
       const { eventId, data: notification } = payload;

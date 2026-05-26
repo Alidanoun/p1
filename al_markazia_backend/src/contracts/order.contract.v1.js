@@ -24,8 +24,8 @@ const CreateOrderSchema = z.object({
 
 // 2. Status Transition Contract (Command)
 const TransitionStatusSchema = z.object({
-  orderId: z.string().uuid(),
-  targetStatus: z.string(),
+  orderId: z.number().int(),
+  status: z.string(),
   reason: z.string().optional(),
   idempotencyKey: z.string().min(8),
   version: z.number().int() // Optimistic locking version
@@ -33,7 +33,7 @@ const TransitionStatusSchema = z.object({
 
 // 3. Refund/Cancellation Request Contract
 const CancellationRequestSchema = z.object({
-  orderId: z.string().uuid(),
+  orderId: z.number().int(),
   reason: z.string().min(5),
   managerPassword: z.string().optional(),
   idempotencyKey: z.string().min(8)

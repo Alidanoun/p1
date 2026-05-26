@@ -6,6 +6,26 @@
 
 const { toNumber, toMoney } = require('../utils/number');
 const { decrypt } = require('../utils/crypto');
+const crypto = require('crypto');
+
+const generateSignedQr = (order) => {
+  const secret = process.env.JWT_SECRET || 'secret-key';
+  const totalVal = toMoney(order.total).toFixed(2);
+  const invoiceVal = order.orderNumber || order.id.toString();
+  const branchVal = order.branchId || 'default';
+  
+  const dataString = `${invoiceVal}|${branchVal}|${totalVal}`;
+  const hmac = crypto.createHmac('sha256', secret);
+  hmac.update(dataString);
+  const sig = hmac.digest('hex').substring(0, 16); // 16-char short signature to keep QR code clean
+
+  return JSON.stringify({
+    invoice: invoiceVal,
+    branch: branchVal,
+    total: totalVal,
+    sig
+  });
+};
 
 /**
  * Maps a raw Prisma Order (with Decimal fields) to a safe API response.
@@ -22,6 +42,7 @@ const mapOrderResponse = (order) => {
   const tax         = toMoney(order.tax);
   const deliveryFee = toMoney(order.deliveryFee);
   const total       = toMoney(order.total);
+  const signedQr    = generateSignedQr(order);
 
   return {
     // --- Identity ---
@@ -63,6 +84,7 @@ const mapOrderResponse = (order) => {
     version:          order.version,
     createdAt:        order.createdAt,
     updatedAt:        order.updatedAt,
+    signedQr,
 
     // --- Relations (safe-mapped) ---
     cartItems: mapOrderItems(order.orderItems),

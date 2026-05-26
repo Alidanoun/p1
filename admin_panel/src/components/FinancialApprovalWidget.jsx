@@ -44,12 +44,12 @@ const FinancialApprovalWidget = () => {
     };
 
     socket.on('financial:approval_resolved', handleApprovalUpdate);
-    socket.on('order:updated', handleApprovalUpdate);
+    socket.on('exec:order:updated', handleApprovalUpdate);
     socket.on('dashboard:metrics:update', handleApprovalUpdate);
 
     return () => {
       socket.off('financial:approval_resolved', handleApprovalUpdate);
-      socket.off('order:updated', handleApprovalUpdate);
+      socket.off('exec:order:updated', handleApprovalUpdate);
       socket.off('dashboard:metrics:update', handleApprovalUpdate);
     };
   }, [socket]);

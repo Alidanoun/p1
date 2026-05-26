@@ -15,6 +15,14 @@ const ORDER_INCLUDE_FULL = {
       isBlacklisted: true
     }
   },
+  branch: {
+    select: {
+      id: true,
+      name: true,
+      address: true,
+      phone: true
+    }
+  },
   orderItems: {
     orderBy: { id: 'asc' },
     include: {

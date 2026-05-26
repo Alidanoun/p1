@@ -65,6 +65,7 @@ const handleOrderEvent = async (event) => {
 
   // 1. 🏢 Broadcast to Execution Context (Branch)
   if (branchId) {
+    io.to(SOCKET_ROOMS.EXEC_BRANCH(branchId)).emit(socketEvent, wrappedPayload);
     io.to(SOCKET_ROOMS.MONITOR_BRANCH(branchId)).emit(socketEvent, wrappedPayload);
   }
 
@@ -74,6 +75,12 @@ const handleOrderEvent = async (event) => {
   // 3. 👤 Direct to Customer Context
   if (customerUuid) {
     io.to(SOCKET_ROOMS.CUSTOMER(customerUuid)).emit(SOCKET_EVENTS.CUSTOMER_ORDER_UPDATED, wrappedPayload);
+    // Legacy support for mobile app
+    if (type === eventTypes.ORDER_CREATED) {
+      io.to(SOCKET_ROOMS.CUSTOMER(customerUuid)).emit('order:created', wrappedPayload);
+    } else {
+      io.to(SOCKET_ROOMS.CUSTOMER(customerUuid)).emit('order:updated', wrappedPayload);
+    }
   }
 
   // 4. 🔔 Notification Bell Context (UI Alert)
@@ -85,6 +92,7 @@ const handleOrderEvent = async (event) => {
   };
   io.to(SOCKET_ROOMS.MONITOR_GLOBAL).emit(SOCKET_EVENTS.NOTIFICATION_NEW, securityPolicyService.wrapPayload(notificationPayload));
   if (branchId) {
+    io.to(SOCKET_ROOMS.EXEC_BRANCH(branchId)).emit(SOCKET_EVENTS.NOTIFICATION_NEW, securityPolicyService.wrapPayload(notificationPayload));
     io.to(SOCKET_ROOMS.MONITOR_BRANCH(branchId)).emit(SOCKET_EVENTS.NOTIFICATION_NEW, securityPolicyService.wrapPayload(notificationPayload));
   }
 

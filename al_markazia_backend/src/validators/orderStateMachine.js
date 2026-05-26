@@ -12,7 +12,7 @@ const ALLOWED_TRANSITIONS = {
   'pending': ['confirmed', 'preparing', 'cancelled'],
   'confirmed': ['preparing', 'cancelled'],
   'preparing': ['ready', 'cancelled'],
-  'ready': ['in_route', 'cancelled'],
+  'ready': ['in_route', 'delivered', 'cancelled'],
   'in_route': ['delivered', 'failed', 'cancelled'],
   'delivered': [],
   'cancelled': [],

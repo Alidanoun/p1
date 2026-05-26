@@ -11,230 +11,257 @@ const InvoiceModal = ({ order, isOpen, onClose }) => {
   const handlePrint = () => {
     if (!order) return;
 
-    const branchName = order.branch?.name || order.restaurantName || "المركزية";
-    const branchAddress = order.branch?.address || order.restaurantName ? "" : "الاردن";
-    const taxNumber = order.branch?.taxNumber || order.taxNumber || "312345678900003";
-    const phone = order.branch?.phone || order.phone || "";
-    
-    const orderId = order.id || order.orderId || "";
-    const createdAt = order.createdAt ? new Date(order.createdAt) : new Date();
-    const formattedDate = format(createdAt, 'yyyy/MM/dd HH:mm');
-    const orderTypeLabel = order.orderType === 'delivery' ? 'توصيل' : 'استلام';
-    const customerName = order.customerName || order.customer?.name || '';
-    const customerPhone = order.customerPhone || order.customer?.phone || '';
-    
-    const items = order.cartItems || order.orderItems || order.items || [];
-    const subtotal = order.subtotal || 0;
-    const deliveryFee = order.deliveryFee || 0;
-    const total = order.total || order.totalPrice || 0;
+    let printWindow = null;
+    try {
+      const branchName = order.branch?.name || order.restaurantName || "المركزية";
+      const branchAddress = order.branch?.address || (order.restaurantName ? "" : "الاردن");
+      const taxNumber = order.branch?.taxNumber || order.taxNumber || "312345678900003";
+      const phone = order.branch?.phone || order.phone || "";
+      
+      const orderId = order.id || order.orderId || "";
+      
+      let formattedDate = '';
+      try {
+        const createdAt = order.createdAt ? new Date(order.createdAt) : new Date();
+        if (isNaN(createdAt.getTime())) {
+          formattedDate = new Date().toLocaleString('en-US');
+        } else {
+          formattedDate = format(createdAt, 'yyyy/MM/dd HH:mm');
+        }
+      } catch (e) {
+        formattedDate = new Date().toLocaleString('en-US');
+      }
 
-    // Get QR Code SVG HTML from the DOM
-    const qrSvg = qrRef.current ? qrRef.current.innerHTML : '';
+      const orderTypeLabel = order.orderType === 'delivery' ? 'توصيل' : 'استلام';
+      const customerName = order.customerName || order.customer?.name || '';
+      const customerPhone = order.customerPhone || order.customer?.phone || '';
+      
+      const items = order.cartItems || order.orderItems || order.items || [];
+      const subtotal = order.subtotal || 0;
+      const deliveryFee = order.deliveryFee || 0;
+      const total = order.total || order.totalPrice || 0;
 
-    const printWindow = window.open('', '_blank', 'width=600,height=800');
-    if (!printWindow) return;
+      // Get QR Code SVG HTML from the DOM
+      const qrSvg = qrRef.current ? qrRef.current.innerHTML : '';
 
-    const itemsHtml = items.map(item => {
-      const qty = item.qty || item.quantity || 1;
-      const price = Number(item.price || 0);
-      const lineTotal = item.lineTotal !== undefined ? Number(item.lineTotal) : (price * qty);
-      const options = item.optionsText || (item.modifiers && item.modifiers.length > 0 ? item.modifiers.join('، ') : '');
-      return `
-        <tr>
-          <td style="padding-top: 6px; font-size: 14px; font-weight: bold; text-align: right;">
-            ${item.title || item.name}
-            ${options ? `<div style="font-size: 11px; font-weight: normal; color: #555; margin-top: 2px;">+ ${options}</div>` : ''}
-          </td>
-          <td style="padding-top: 6px; text-align: center; font-size: 14px;">${qty}</td>
-          <td style="padding-top: 6px; text-align: left; font-size: 14px; font-weight: bold;">${formatCurrencyArabic(lineTotal)}</td>
-        </tr>
+      printWindow = window.open('', '_blank', 'width=600,height=800');
+      if (!printWindow) {
+        alert("يرجى السماح بالنوافذ المنبثقة (Popups) لتمكين طباعة الفواتير");
+        return;
+      }
+
+      const itemsHtml = items.map(item => {
+        const qty = item.qty || item.quantity || 1;
+        const price = Number(item.price || item.unitPrice || 0);
+        const lineTotal = item.lineTotal !== undefined ? Number(item.lineTotal) : (price * qty);
+        const options = item.optionsText || item.selectedOptions || (item.modifiers && item.modifiers.length > 0 ? item.modifiers.join('، ') : '');
+        return `
+          <tr>
+            <td style="padding-top: 6px; font-size: 14px; font-weight: bold; text-align: right;">
+              ${item.title || item.name || item.itemName || 'صنف'}
+              ${options ? `<div style="font-size: 11px; font-weight: normal; color: #555; margin-top: 2px;">+ ${options}</div>` : ''}
+            </td>
+            <td style="padding-top: 6px; text-align: center; font-size: 14px;">${qty}</td>
+            <td style="padding-top: 6px; text-align: left; font-size: 14px; font-weight: bold;">${formatCurrencyArabic(lineTotal)}</td>
+          </tr>
+        `;
+      }).join('');
+
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html dir="rtl">
+          <head>
+            <meta charset="utf-8">
+            <title>Invoice-${orderId}</title>
+            <style>
+              @page {
+                size: 80mm auto;
+                margin: 0;
+              }
+              html, body {
+                margin: 0;
+                padding: 0;
+                background-color: #fff;
+                color: #000;
+              }
+              body {
+                width: 80mm;
+                box-sizing: border-box;
+                font-family: 'Arial', 'Tahoma', sans-serif;
+                padding: 4mm 6mm;
+                font-size: 13px;
+                line-height: 1.4;
+              }
+              .text-center { text-align: center; }
+              .text-left { text-align: left; }
+              .text-right { text-align: right; }
+              .font-bold { font-weight: bold; }
+              
+              .header h2 {
+                font-size: 22px;
+                margin: 0 0 6px 0;
+                font-weight: 900;
+              }
+              .header p {
+                margin: 2px 0;
+                font-size: 13px;
+              }
+              
+              hr {
+                border: none;
+                border-top: 1px dashed #000;
+                margin: 10px 0;
+              }
+              
+              .info-table {
+                width: 100%;
+                margin-bottom: 8px;
+              }
+              .info-table td {
+                padding: 2px 0;
+                font-size: 13px;
+              }
+              
+              .items-table {
+                width: 100%;
+                border-collapse: collapse;
+              }
+              .items-table th {
+                border-bottom: 1px solid #000;
+                padding-bottom: 6px;
+                font-size: 13px;
+              }
+              .items-table td {
+                vertical-align: top;
+              }
+              
+              .totals {
+                width: 100%;
+                margin-top: 8px;
+              }
+              .totals td {
+                padding: 3px 0;
+                font-size: 13px;
+              }
+              .totals .grand-total {
+                font-size: 15px;
+                font-weight: 900;
+                border-top: 1px solid #000;
+                padding-top: 6px;
+              }
+              
+              .qr-container {
+                display: flex;
+                justify-content: center;
+                margin: 15px 0 10px 0;
+              }
+              .qr-container svg {
+                width: 40mm;
+                height: 40mm;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="header text-center">
+              <h2>${branchName}</h2>
+              ${branchAddress ? `<p>${branchAddress}</p>` : ''}
+              ${phone ? `<p>الهاتف: ${phone}</p>` : ''}
+              <p>الرقم الضريبي: ${taxNumber}</p>
+            </div>
+            
+            <hr />
+            
+            <table class="info-table">
+              <tr>
+                <td class="font-bold">رقم الطلب:</td>
+                <td class="text-left">${String(orderId).substring(0, 8)}</td>
+              </tr>
+              <tr>
+                <td class="font-bold">التاريخ:</td>
+                <td class="text-left">${formattedDate}</td>
+              </tr>
+              <tr>
+                <td class="font-bold">نوع الطلب:</td>
+                <td class="text-left">${orderTypeLabel}</td>
+              </tr>
+              ${customerName ? `
+                <tr>
+                  <td class="font-bold">العميل:</td>
+                  <td class="text-left">${customerName}</td>
+                </tr>
+              ` : ''}
+              ${customerPhone ? `
+                <tr>
+                  <td class="font-bold">الهاتف:</td>
+                  <td class="text-left">${customerPhone}</td>
+                </tr>
+              ` : ''}
+            </table>
+            
+            <hr />
+            
+            <table class="items-table">
+              <thead>
+                <tr>
+                  <th class="text-right">الصنف</th>
+                  <th class="text-center" style="width: 15%;">الكمية</th>
+                  <th class="text-left" style="width: 25%;">السعر</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${itemsHtml}
+              </tbody>
+            </table>
+            
+            <hr />
+            
+            <table class="totals">
+              <tr>
+                <td>المجموع الفرعي</td>
+                <td class="text-left font-bold">${formatCurrencyArabic(subtotal)}</td>
+              </tr>
+              ${deliveryFee > 0 ? `
+                <tr>
+                  <td>رسوم التوصيل</td>
+                  <td class="text-left font-bold">${formatCurrencyArabic(deliveryFee)}</td>
+                </tr>
+              ` : ''}
+              <tr class="grand-total">
+                <td>الإجمالي الكلي (شامل الضريبة)</td>
+                <td class="text-left">${formatCurrencyArabic(total)}</td>
+              </tr>
+            </table>
+            
+            <hr />
+            
+            <div class="qr-container text-center">
+              ${qrSvg}
+            </div>
+            
+            <p class="text-center" style="font-size: 13px; margin: 10px 0 0 0; font-weight: bold;">شكراً لزيارتكم</p>
+          </body>
+        </html>
       `;
-    }).join('');
 
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html dir="rtl">
-        <head>
-          <meta charset="utf-8">
-          <title>Invoice-${orderId}</title>
-          <style>
-            @page {
-              size: 80mm auto;
-              margin: 0;
-            }
-            html, body {
-              margin: 0;
-              padding: 0;
-              background-color: #fff;
-              color: #000;
-            }
-            body {
-              width: 80mm;
-              box-sizing: border-box;
-              font-family: 'Arial', 'Tahoma', sans-serif;
-              padding: 4mm 6mm;
-              font-size: 13px;
-              line-height: 1.4;
-            }
-            .text-center { text-align: center; }
-            .text-left { text-align: left; }
-            .text-right { text-align: right; }
-            .font-bold { font-weight: bold; }
-            
-            .header h2 {
-              font-size: 22px;
-              margin: 0 0 6px 0;
-              font-weight: 900;
-            }
-            .header p {
-              margin: 2px 0;
-              font-size: 13px;
-            }
-            
-            hr {
-              border: none;
-              border-top: 1px dashed #000;
-              margin: 10px 0;
-            }
-            
-            .info-table {
-              width: 100%;
-              margin-bottom: 8px;
-            }
-            .info-table td {
-              padding: 2px 0;
-              font-size: 13px;
-            }
-            
-            .items-table {
-              width: 100%;
-              border-collapse: collapse;
-            }
-            .items-table th {
-              border-bottom: 1px solid #000;
-              padding-bottom: 6px;
-              font-size: 13px;
-            }
-            .items-table td {
-              vertical-align: top;
-            }
-            
-            .totals {
-              width: 100%;
-              margin-top: 8px;
-            }
-            .totals td {
-              padding: 3px 0;
-              font-size: 13px;
-            }
-            .totals .grand-total {
-              font-size: 15px;
-              font-weight: 900;
-              border-top: 1px solid #000;
-              padding-top: 6px;
-            }
-            
-            .qr-container {
-              display: flex;
-              justify-content: center;
-              margin: 15px 0 10px 0;
-            }
-            .qr-container svg {
-              width: 40mm;
-              height: 40mm;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="header text-center">
-            <h2>${branchName}</h2>
-            ${branchAddress ? `<p>${branchAddress}</p>` : ''}
-            ${phone ? `<p>الهاتف: ${phone}</p>` : ''}
-            <p>الرقم الضريبي: ${taxNumber}</p>
-          </div>
-          
-          <hr />
-          
-          <table class="info-table">
-            <tr>
-              <td class="font-bold">رقم الطلب:</td>
-              <td class="text-left">${String(orderId).substring(0, 8)}</td>
-            </tr>
-            <tr>
-              <td class="font-bold">التاريخ:</td>
-              <td class="text-left">${formattedDate}</td>
-            </tr>
-            <tr>
-              <td class="font-bold">نوع الطلب:</td>
-              <td class="text-left">${orderTypeLabel}</td>
-            </tr>
-            ${customerName ? `
-              <tr>
-                <td class="font-bold">العميل:</td>
-                <td class="text-left">${customerName}</td>
-              </tr>
-            ` : ''}
-            ${customerPhone ? `
-              <tr>
-                <td class="font-bold">الهاتف:</td>
-                <td class="text-left">${customerPhone}</td>
-              </tr>
-            ` : ''}
-          </table>
-          
-          <hr />
-          
-          <table class="items-table">
-            <thead>
-              <tr>
-                <th class="text-right">الصنف</th>
-                <th class="text-center" style="width: 15%;">الكمية</th>
-                <th class="text-left" style="width: 25%;">السعر</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${itemsHtml}
-            </tbody>
-          </table>
-          
-          <hr />
-          
-          <table class="totals">
-            <tr>
-              <td>المجموع الفرعي</td>
-              <td class="text-left font-bold">${formatCurrencyArabic(subtotal)}</td>
-            </tr>
-            ${deliveryFee > 0 ? `
-              <tr>
-                <td>رسوم التوصيل</td>
-                <td class="text-left font-bold">${formatCurrencyArabic(deliveryFee)}</td>
-              </tr>
-            ` : ''}
-            <tr class="grand-total">
-              <td>الإجمالي الكلي (شامل الضريبة)</td>
-              <td class="text-left">${formatCurrencyArabic(total)}</td>
-            </tr>
-          </table>
-          
-          <hr />
-          
-          <div class="qr-container text-center">
-            ${qrSvg}
-          </div>
-          
-          <p class="text-center" style="font-size: 13px; margin: 10px 0 0 0; font-weight: bold;">شكراً لزيارتكم</p>
-        </body>
-      </html>
-    `;
-
-    printWindow.document.write(htmlContent);
-    printWindow.document.close();
-    printWindow.focus();
-    
-    setTimeout(() => {
-      printWindow.print();
-      printWindow.close();
-    }, 250);
+      printWindow.document.write(htmlContent);
+      printWindow.document.close();
+      printWindow.focus();
+      
+      setTimeout(() => {
+        if (printWindow) {
+          printWindow.print();
+          printWindow.close();
+        }
+      }, 250);
+    } catch (error) {
+      console.error("Print failed:", error);
+      if (printWindow) {
+        try {
+          printWindow.close();
+        } catch (err) {}
+      }
+      alert("حدث خطأ أثناء محاولة الطباعة: " + error.message);
+    }
   };
 
   if (!order) return null;
@@ -311,7 +338,7 @@ const InvoiceModal = ({ order, isOpen, onClose }) => {
             <div className="flex flex-col items-center gap-4">
               <div ref={qrRef} className="p-3 bg-slate-50 rounded-2xl border border-slate-100 shadow-inner">
                 <QRCodeSVG
-                  value={`https://almarkazia.app/order/${order.id}`}
+                  value={order.signedQr || `https://almarkazia.app/order/${order.id}`}
                   size={100}
                   fgColor="#0f172a"
                 />

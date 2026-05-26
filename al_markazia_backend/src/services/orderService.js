@@ -1862,6 +1862,18 @@ class OrderService {
    * 🔢 Generate Unique Atomic Order Number (ORD-YYYYMMDD-XXXX)
    */
   async _generateOrderNumber() {
+    try {
+      const result = await this.prisma.$queryRawUnsafe(`SELECT nextval('order_number_seq') as next_val`);
+      if (result && result[0] && result[0].next_val) {
+        const seqNum = result[0].next_val.toString();
+        const year = new Date().getFullYear();
+        return `AMM-${year}-${seqNum}`;
+      }
+    } catch (err) {
+      this.logger.error('[OrderNumber] Sequence query failed, falling back to Redis', { error: err.message });
+    }
+
+    // Fallback: Daily Redis increment
     const { DEFAULT_TIMEZONE } = require('../config/constants');
     const { DateTime } = require('luxon');
     const dateStr = DateTime.now().setZone(DEFAULT_TIMEZONE).toFormat('yyyyMMdd');
@@ -1871,8 +1883,7 @@ class OrderService {
     if (serialNumber === 1) await this.redis.expire(counterKey, 172800);
 
     const serial = serialNumber.toString().padStart(4, '0');
-    const randomSuffix = Math.random().toString(36).substring(2, 5).toUpperCase();
-    return `ORD-${dateStr}-${serial}-${randomSuffix}`;
+    return `AMM-${dateStr}-${serial}-FB`;
   }
 
   /**
