@@ -173,7 +173,7 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onC
               <div className="grid grid-cols-2 gap-2 mt-2">
                 {order.status === 'pending' && can('MANAGE_ORDERS') && (
                   <button
-                    onClick={() => onUpdateStatus(order.id, 'preparing', order.version, order.eventSequence)}
+                    onClick={() => onUpdateStatus(order.id, 'confirmed', order.version, order.eventSequence)}
                     className="col-span-2 py-2.5 bg-emerald-500 hover:bg-emerald-600 rounded-xl text-white font-black text-xs shadow-lg shadow-emerald-500/20 transition-all active:scale-95 flex items-center justify-center gap-2"
                   >
                     <CheckCircle className="w-4 h-4" />
