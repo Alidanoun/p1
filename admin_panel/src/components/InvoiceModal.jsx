@@ -44,17 +44,11 @@ const InvoiceModal = ({ order, isOpen, onClose }) => {
       // Get QR Code SVG HTML from the DOM
       const qrSvg = qrRef.current ? qrRef.current.innerHTML : '';
 
-      printWindow = window.open('', '_blank', 'width=600,height=800');
-      if (!printWindow) {
-        alert("يرجى السماح بالنوافذ المنبثقة (Popups) لتمكين طباعة الفواتير");
-        return;
-      }
-
       const itemsHtml = items.map(item => {
         const qty = item.qty || item.quantity || 1;
         const price = Number(item.price || item.unitPrice || 0);
         const lineTotal = item.lineTotal !== undefined ? Number(item.lineTotal) : (price * qty);
-        const options = item.optionsText || item.selectedOptions || (item.modifiers && item.modifiers.length > 0 ? item.modifiers.join('، ') : '');
+        const options = item.optionsText || item.selectedOptions || (Array.isArray(item.modifiers) && item.modifiers.length > 0 ? item.modifiers.join('، ') : '');
         return `
           <tr>
             <td style="padding-top: 6px; font-size: 14px; font-weight: bold; text-align: right;">
@@ -243,23 +237,28 @@ const InvoiceModal = ({ order, isOpen, onClose }) => {
         </html>
       `;
 
-      printWindow.document.write(htmlContent);
-      printWindow.document.close();
-      printWindow.focus();
+      const iframe = document.createElement('iframe');
+      iframe.style.display = 'none';
+      document.body.appendChild(iframe);
       
-      setTimeout(() => {
-        if (printWindow) {
-          printWindow.print();
-          printWindow.close();
-        }
-      }, 250);
+      iframe.contentWindow.document.open();
+      iframe.contentWindow.document.write(htmlContent);
+      iframe.contentWindow.document.close();
+      
+      iframe.onload = () => {
+        setTimeout(() => {
+          iframe.contentWindow.focus();
+          iframe.contentWindow.print();
+          setTimeout(() => {
+            if (document.body.contains(iframe)) {
+              document.body.removeChild(iframe);
+            }
+          }, 1000);
+        }, 500);
+      };
+
     } catch (error) {
       console.error("Print failed:", error);
-      if (printWindow) {
-        try {
-          printWindow.close();
-        } catch (err) {}
-      }
       alert("حدث خطأ أثناء محاولة الطباعة: " + error.message);
     }
   };
