@@ -60,6 +60,7 @@ model User {
   pinHash         String?
 
   @@index([branchId])
+  @@index([fcmToken])
 }
 
 model UserNotificationPreference {
@@ -452,6 +453,7 @@ model Customer {
   systemAuditLogs SystemAuditLog[] @relation("CustomerLogs")
 
   @@index([isBlacklisted])
+  @@index([fcmToken])
 }
 
 model CustomerNotificationPreference {

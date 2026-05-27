@@ -181,14 +181,20 @@ class NotificationService extends ChangeNotifier {
   }
 
   /// 🧠 Central Event Router (Authority-Based + Backpressure)
-  void _processIncomingEvent(dynamic data, {bool fromSocket = false, bool fromFCM = false}) {
+  void _processIncomingEvent(dynamic rawData, {bool fromSocket = false, bool fromFCM = false}) {
+    var resolvedData = rawData;
+    if (resolvedData is Map && resolvedData.containsKey('data') && 
+        resolvedData['data'] is Map<String, dynamic>) {
+      resolvedData = resolvedData['data'] as Map<String, dynamic>;
+    }
+
     // 🛡️ [V5 Security] Content Validation
-    if (!_isValidNotificationContent(data)) {
+    if (!_isValidNotificationContent(resolvedData)) {
       print('🚫 [Security] Malformed notification rejected');
       return;
     }
 
-    final id = _normalizeId(data);
+    final id = _normalizeId(resolvedData);
     if (id == null) return;
 
     // 🛡️ Clear any active watchdog for this ID
@@ -216,27 +222,27 @@ class NotificationService extends ChangeNotifier {
     final lastUiUpdate = _uiBackpressureMap[id] ?? 0;
     final uiElapsed = now - lastUiUpdate;
 
-    if (data is Map<String, dynamic>) {
+    if (resolvedData is Map<String, dynamic>) {
        if (uiElapsed > _uiThrottleMs) {
          _uiBackpressureMap[id] = now;
-         _orderUpdateController.add(data);
+         _orderUpdateController.add(resolvedData);
        }
     }
 
     // 3. 🔔 Local Notification Display
     // FCM messages: always show local notification for foreground visibility
     // Socket messages: show local notification too (for real-time order alerts)
-    if (data is Map && data['notification'] != null) {
+    if (resolvedData is Map && resolvedData['notification'] != null) {
       print('🔔 [NotificationService] Triggering Local Alert for: $id (FCM: $fromFCM, Socket: $fromSocket)');
-      _showLocalNotification(data, normalizedId: id);
-    } else if (fromSocket && data is Map<String, dynamic>) {
+      _showLocalNotification(resolvedData, normalizedId: id);
+    } else if (fromSocket && resolvedData is Map<String, dynamic>) {
       // Socket data-only events: generate notification content from order data
-      final status = data['status']?.toString() ?? '';
-      final orderNumber = data['orderNumber']?.toString() ?? '';
+      final status = resolvedData['status']?.toString() ?? '';
+      final orderNumber = resolvedData['orderNumber']?.toString() ?? '';
       if (status.isNotEmpty && orderNumber.isNotEmpty) {
         final content = _generateStatusContent(status, orderNumber);
         final enriched = {
-          ...data,
+          ...resolvedData,
           'notification': content,
         };
         print('🔔 [Socket] Generating local alert for order $orderNumber status: $status');
@@ -248,7 +254,7 @@ class NotificationService extends ChangeNotifier {
     fetchNotifications();
     
     // 5. 🎁 Loyalty/Profile Sync: Refresh profile if order was delivered
-    if (data is Map && data['status'] == 'delivered') {
+    if (resolvedData is Map && resolvedData['status'] == 'delivered') {
       print('🎁 [NotificationService] Order delivered. Triggering profile sync...');
       AppEvents.emit(IdentityRefreshEvent());
     }

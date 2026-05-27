@@ -316,6 +316,28 @@ export const SocketProvider = ({ children }) => {
     newSocket.on(SOCKET_EVENTS.EXEC_ORDER_CREATED, handleOrderEvent);
     newSocket.on(SOCKET_EVENTS.EXEC_ORDER_UPDATED, handleOrderEvent);
 
+    newSocket.on('exec:order:cancelled', (payload) => {
+      const { eventId, data: order } = payload;
+      if (isDuplicate(eventId)) return;
+      toast.warning('تم إلغاء الطلب', {
+        description: `الطلب رقم ${order?.orderNumber} تم إلغاؤه.`,
+        duration: 6000,
+      });
+      fetchNotifications();
+    });
+
+    newSocket.on('order:cancellation_requested', (payload) => {
+      const order = payload?.data || payload;
+      if (!order) return;
+      toast.error('طلب إلغاء من العميل! 🛑', {
+        description: `الطلب #${order.orderNumber} يحتاج موافقتك.`,
+        duration: 10000,
+        position: 'top-center',
+      });
+      _playBeep();
+      fetchNotifications();
+    });
+
     newSocket.on(SOCKET_EVENTS.NOTIFICATION_NEW, (payload) => {
       const { eventId, data: notification } = payload;
       if (isDuplicate(eventId)) return;

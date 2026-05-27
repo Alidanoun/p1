@@ -10,7 +10,7 @@ const OPERATIONAL_MODE = process.env.ORDER_STATE_MODE || 'ENFORCE';
 
 const ALLOWED_TRANSITIONS = {
   'pending': ['confirmed', 'preparing', 'cancelled'],
-  'confirmed': ['preparing', 'cancelled'],
+  'confirmed': ['preparing', 'ready', 'cancelled'],
   'preparing': ['ready', 'cancelled'],
   'ready': ['in_route', 'delivered', 'cancelled'],
   'in_route': ['delivered', 'failed', 'cancelled'],

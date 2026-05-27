@@ -468,6 +468,7 @@ module.exports = {
           // 👁️ 5. Join New Branch Context (Global or Specific)
           const targetRoom = branchId ? SOCKET_ROOMS.MONITOR_BRANCH(branchId) : SOCKET_ROOMS.MONITOR_GLOBAL;
           await socket.join(targetRoom);
+          if (branchId) await socket.join(SOCKET_ROOMS.EXEC_BRANCH(branchId));
           socket.data.activeBranchId = branchId || 'GLOBAL';
           logger.info(`[Socket] User ${userId} switched context to branch ${branchId}`);
 
