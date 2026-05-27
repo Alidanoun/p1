@@ -41,6 +41,7 @@ const COLUMNS = [
   { id: 'issues', title: 'مشاكل', icon: AlertCircle, color: 'bg-red-600', statuses: ['waiting_cancellation'] },
   { id: 'ready', title: 'جاهز', icon: Package, color: 'bg-purple-500', statuses: ['ready'] },
   { id: 'completed', title: 'مكتمل', icon: CheckCircle, color: 'bg-emerald-500', statuses: ['in_route', 'delivered'] },
+  { id: 'failed', title: 'فشل التوصيل', icon: XCircle, color: 'bg-rose-700', statuses: ['failed'] },
 ];
 
 const COLUMN_TO_STATUS = {
@@ -48,7 +49,8 @@ const COLUMN_TO_STATUS = {
   in_progress: 'preparing',
   issues: 'waiting_cancellation',
   ready: 'ready',
-  completed: 'delivered'
+  completed: 'delivered',
+  failed: 'failed'
 };
 
 const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onCancelOrder, onHandleRequest, can }) => {
@@ -270,9 +272,10 @@ const LiveOrders = () => {
     'confirmed': ['preparing', 'ready', 'cancelled'],
     'preparing': ['ready', 'cancelled'],
     'ready': ['in_route', 'delivered', 'cancelled'],
-    'in_route': ['delivered', 'cancelled'],
+    'in_route': ['delivered', 'failed', 'cancelled'],
     'delivered': [],
-    'cancelled': []
+    'cancelled': [],
+    'failed': ['in_route', 'cancelled']
   };
 
   const onUpdateStatus = async (id, status, version) => {
@@ -367,8 +370,19 @@ const LiveOrders = () => {
 
     const orderToUpdate = orders.find(o => o.id === draggableId);
     if (!orderToUpdate) return;
+    const currentStatus = orderToUpdate.status;
 
-    if (!VALID_TRANSITIONS[orderToUpdate.status]?.includes(newStatus)) {
+    // 🚚 [FIX] طلبات التوصيل: إجبار المرور بـ in_route قبل delivered
+    if (
+      newStatus === 'delivered' &&
+      orderToUpdate.orderType === 'delivery' &&
+      currentStatus === 'ready'
+    ) {
+      toast.error('🚚 طلبات التوصيل يجب أن تمر بحالة "في الطريق" أولاً قبل الاكتمال');
+      return;
+    }
+
+    if (!VALID_TRANSITIONS[currentStatus]?.includes(newStatus)) {
       toast.error('انتقال غير مسموح لهذه الحالة');
       return;
     }
