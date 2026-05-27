@@ -41,14 +41,17 @@ const InvoiceModal = ({ order, isOpen, onClose }) => {
       const deliveryFee = order.deliveryFee || 0;
       const total = order.total || order.totalPrice || 0;
 
-      // Get QR Code SVG HTML from the DOM
-      const qrSvg = qrRef.current ? qrRef.current.innerHTML : '';
+      // Get QR Code SVG HTML from the DOM, with a fallback if not rendered yet
+      const qrValue = order.signedQr || `https://almarkazia.app/order/${orderId}`;
+      const qrSvg = (qrRef.current && qrRef.current.innerHTML) 
+        ? qrRef.current.innerHTML 
+        : `<img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(qrValue)}" width="150" height="150" alt="QR Code" />`;
 
       const itemsHtml = items.map(item => {
         const qty = item.qty || item.quantity || 1;
         const price = Number(item.price || item.unitPrice || 0);
         const lineTotal = item.lineTotal !== undefined ? Number(item.lineTotal) : (price * qty);
-        const options = item.optionsText || item.selectedOptions || (Array.isArray(item.modifiers) && item.modifiers.length > 0 ? item.modifiers.join('، ') : '');
+        const options = item.optionsText || item.selectedOptions || (Array.isArray(item.modifiers) && item.modifiers.length > 0 ? item.modifiers.map(m => m.name || m.title || String(m)).join('، ') : '');
         return `
           <tr>
             <td style="padding-top: 6px; font-size: 14px; font-weight: bold; text-align: right;">
@@ -245,17 +248,15 @@ const InvoiceModal = ({ order, isOpen, onClose }) => {
       iframe.contentWindow.document.write(htmlContent);
       iframe.contentWindow.document.close();
       
-      iframe.onload = () => {
+      setTimeout(() => {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
         setTimeout(() => {
-          iframe.contentWindow.focus();
-          iframe.contentWindow.print();
-          setTimeout(() => {
-            if (document.body.contains(iframe)) {
-              document.body.removeChild(iframe);
-            }
-          }, 1000);
-        }, 500);
-      };
+          if (document.body.contains(iframe)) {
+            document.body.removeChild(iframe);
+          }
+        }, 1000);
+      }, 500);
 
     } catch (error) {
       console.error("Print failed:", error);
