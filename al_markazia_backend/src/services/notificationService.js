@@ -188,14 +188,44 @@ class NotificationService {
     const now = new Date();
     const where = forceAll ? { notified: false } : { notified: false, targetTime: { lte: now } };
     const subs = await this.prisma.restaurantSubscription.findMany({ where, take: 100 });
-
-    for (const sub of subs) {
-      try {
-        await firebaseService.sendToToken(sub.fcmToken, "🎉 نـحـن بـانـتـظـاركـم!", "تم فتح المطعم الآن...", { type: 'RESTAURANT_OPENED' });
-        await this.prisma.restaurantSubscription.update({ where: { id: sub.id }, data: { notified: true } });
-      } catch (e) {
-        this.logger.error('NotificationService.notifySubscribersOfReopening', { error: e.message, subId: sub.id });
+    if (subs.length === 0) return;
+    
+    // ✅ [FIX] تصفية الرموز الصالحة مرة واحدة
+    const validSubs = subs.filter(s => s.fcmToken && s.fcmToken.trim().length > 0);
+    const tokens = validSubs.map(s => s.fcmToken);
+    if (tokens.length === 0) return;
+    
+    // ✅ إرسال واحد لـ Firebase بدلاً من N طلبات
+    const { getMessaging } = require('firebase-admin/messaging');
+    const batchResponse = await getMessaging().sendEachForMulticast({
+      tokens,
+      notification: {
+        title: '🎉 نـحـن بـانـتـظـاركـم!',
+        body: 'تم فتح المطعم الآن، اطلب الآن!'
+      },
+      data: { type: 'RESTAURANT_OPENED' },
+      android: { priority: 'high' },
+      apns: { payload: { aps: { sound: 'default' } } }
+    });
+    
+    // ✅ تحديد من نجح ومن فشل
+    const successfulIds = [];
+    const failedTokens = [];
+    batchResponse.responses.forEach((resp, idx) => {
+      if (resp.success) {
+        successfulIds.push(validSubs[idx].id);
+      } else {
+        failedTokens.push(validSubs[idx].id);
+        this.logger.warn('FCM token failed during reopening notify', { subId: validSubs[idx].id, error: resp.error?.code });
       }
+    });
+    
+    // ✅ تحديث DB دفعة واحدة بدلاً من N استعلامات
+    if (successfulIds.length > 0) {
+      await this.prisma.restaurantSubscription.updateMany({
+        where: { id: { in: successfulIds } },
+        data: { notified: true }
+      });
     }
   }
 
