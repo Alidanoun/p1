@@ -85,14 +85,24 @@ module.exports = {
                                     socket.handshake.auth?.xsrfToken || 
                                     socket.handshake.query?.xsrfToken;
 
-        // 🛡️ [SEC-FIX] Double Cookie Submit Validation
-        // Note: Only enforce if cookies are present (Browser context). 
-        // Mobile apps don't use cookies and aren't vulnerable to browser CSRF.
-        if (cookieHeader && csrfTokenFromCookie) {
-          if (csrfTokenFromCookie !== csrfTokenFromHeader) {
-            logger.security('🔌 [SocketCSRF] Connection rejected: CSRF token mismatch or missing header', {
+        // 🔒 [SEC-FIX] Double Cookie Submit Validation
+        const userAgent = socket.handshake.headers['user-agent'] || '';
+        const isBrowserClient = userAgent.includes('Mozilla') || userAgent.includes('Chrome') || userAgent.includes('Safari');
+        
+        // 📱 تطبيقات الموبايل (Flutter/Dart) لا ترسل cookies ولا تحتاج CSRF
+        // 🌐 المتصفحات يجب أن ترسل cookie + header معاً
+        if (isBrowserClient) {
+          if (!csrfTokenFromCookie || !csrfTokenFromHeader) {
+            logger.security('🔌 [SocketCSRF] Browser connection rejected: missing CSRF cookie or header', {
               ip: socket.handshake.address,
-              userAgent: socket.handshake.headers['user-agent']
+              userAgent
+            });
+            return next(new Error('CSRF_VALIDATION_FAILED'));
+          }
+          if (csrfTokenFromCookie !== csrfTokenFromHeader) {
+            logger.security('🔌 [SocketCSRF] Browser connection rejected: CSRF token mismatch', {
+              ip: socket.handshake.address,
+              userAgent
             });
             return next(new Error('CSRF_VALIDATION_FAILED'));
           }
