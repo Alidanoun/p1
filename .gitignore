@@ -27,3 +27,6 @@ al_markazia_backend/src/config/keys/
 **/.env.keys
 **/.env.local
 **/.env.*.local
+
+*.tar.gz
+*.apk
