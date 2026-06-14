@@ -14,9 +14,9 @@ services:
       - "-c"
       - "max_connections=200"
       - "-c"
-      - "shared_buffers=256MB"
+      - "shared_buffers=128MB"
       - "-c"
-      - "effective_cache_size=768MB"
+      - "effective_cache_size=384MB"
       - "-c"
       - "work_mem=16MB"
       - "-c"
@@ -35,7 +35,7 @@ services:
     image: redis:7-alpine
     container_name: al-markazia-prod-redis
     restart: always
-    command: /bin/sh -c "cp /usr/local/etc/redis/redis-prod.conf /tmp/redis.conf && echo \"user app_main on >$$REDIS_PASSWORD ~* &* +@all\" >> /tmp/redis.conf && echo \"user app_worker on >$$REDIS_WORKER_PASSWORD ~bull:* ~stream:* ~idempotency:* ~cache:* ~audit:* ~health:* &* +@all\" >> /tmp/redis.conf && redis-server /tmp/redis.conf"
+    command: /bin/sh -c "cp /usr/local/etc/redis/redis-prod.conf /tmp/redis.conf && echo \"user default on >$$REDIS_PASSWORD ~* &* +@all\" >> /tmp/redis.conf && echo \"user app_main on >$$REDIS_PASSWORD ~* &* +@all\" >> /tmp/redis.conf && echo \"user app_worker on >$$REDIS_WORKER_PASSWORD ~bull:* ~stream:* ~idempotency:* ~cache:* ~audit:* ~health:* &* +@all\" >> /tmp/redis.conf && redis-server /tmp/redis.conf"
     environment:
       - REDIS_PASSWORD=${REDIS_PASSWORD}
       - REDIS_WORKER_PASSWORD=${REDIS_WORKER_PASSWORD}
@@ -56,6 +56,11 @@ services:
       dockerfile: Dockerfile.prod
     container_name: al-markazia-prod-app
     restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
     environment:
       - NODE_ENV=production
       - PORT=5000

@@ -11,7 +11,7 @@ const { validateRating } = require('../middleware/ratingValidation');
 
 // Public: View reviews and stats
 router.get('/item/:itemId', (req, res) => ratingController.getItemReviews(req, res));
-router.get('/stats/:type/:id', (req, res) => ratingController.getStats(req, res));
+router.get('/stats/:type/:id', authenticateToken, (req, res) => ratingController.getStats(req, res));
 
 // Protected: Submit reviews
 router.post(

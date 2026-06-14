@@ -18,6 +18,8 @@ al_markazia_backend/*.json
 firebase-service-account.json
 **/firebase-service-account.json
 **/google-services.json
+al_markazia_backend/create_dotenv.sh
+*.pem
 scratch/
 *.log
 test_security.js

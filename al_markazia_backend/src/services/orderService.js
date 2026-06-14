@@ -1863,7 +1863,7 @@ class OrderService {
    */
   async _generateOrderNumber() {
     try {
-      const result = await this.prisma.$queryRawUnsafe(`SELECT nextval('order_number_seq') as next_val`);
+      const result = await this.prisma.$queryRaw`SELECT nextval('order_number_seq') as next_val`;
       if (result && result[0] && result[0].next_val) {
         const seqNum = result[0].next_val.toString();
         const year = new Date().getFullYear();

@@ -23,6 +23,19 @@ const Login = () => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
+
+    // 🛡️ Client-side validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      setError('يرجى إدخال بريد إلكتروني صالح');
+      setIsLoading(false);
+      return;
+    }
+    if (password.length < 6) {
+      setError('كلمة المرور يجب أن تكون 6 أحرف على الأقل');
+      setIsLoading(false);
+      return;
+    }
     
     const result = await login(email, password);
     if (!result.success) {

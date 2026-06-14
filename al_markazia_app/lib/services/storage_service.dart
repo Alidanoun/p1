@@ -15,8 +15,28 @@ class StorageService extends ChangeNotifier {
   late SharedPreferences _prefs;
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
 
+  // 🔒 In-memory cache for PII stored in SecureStorage (for sync access)
+  String? _cachedEmail;
+  String? _cachedPhone;
+
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
+    
+    // 🔒 Migration: Move PII from SharedPreferences to SecureStorage (one-time)
+    final legacyEmail = _prefs.getString('user_email');
+    final legacyPhone = _prefs.getString('user_phone');
+    if (legacyEmail != null) {
+      await _secureStorage.write(key: 'user_email', value: legacyEmail);
+      await _prefs.remove('user_email');
+    }
+    if (legacyPhone != null) {
+      await _secureStorage.write(key: 'user_phone', value: legacyPhone);
+      await _prefs.remove('user_phone');
+    }
+    
+    // Load PII into memory cache for sync access
+    _cachedEmail = await _secureStorage.read(key: 'user_email');
+    _cachedPhone = await _secureStorage.read(key: 'user_phone');
   }
 
   // 🛡️ Data Isolation Layer (Rooms per user)
@@ -28,10 +48,10 @@ class StorageService extends ChangeNotifier {
   // ── 👤 IDENTITY (Persists after Logout) ───────────────────────
   
   String? get userId => _prefs.getString('user_id');
-  String? get userEmail => _prefs.getString('user_email');
+  String? get userEmail => _cachedEmail;
   String? get userName => _prefs.getString('user_name');
   String? get userRole => _prefs.getString('user_role');
-  String? get userPhone => _prefs.getString('user_phone');
+  String? get userPhone => _cachedPhone;
   int get userPoints => _prefs.getInt('user_points') ?? 0;
   String get userTier => _prefs.getString('user_tier') ?? 'SILVER';
 
@@ -45,10 +65,16 @@ class StorageService extends ChangeNotifier {
     String? tier,
   }) async {
     await _prefs.setString('user_id', id);
-    if (email != null) await _prefs.setString('user_email', email);
+    if (email != null) {
+      await _secureStorage.write(key: 'user_email', value: email);
+      _cachedEmail = email;
+    }
     if (name != null) await _prefs.setString('user_name', name);
     if (role != null) await _prefs.setString('user_role', role);
-    if (phone != null) await _prefs.setString('user_phone', phone);
+    if (phone != null) {
+      await _secureStorage.write(key: 'user_phone', value: phone);
+      _cachedPhone = phone;
+    }
     if (points != null) await _prefs.setInt('user_points', points);
     if (tier != null) await _prefs.setString('user_tier', tier);
     notifyListeners();
@@ -57,11 +83,12 @@ class StorageService extends ChangeNotifier {
   /// 🚪 Logout Clear: Clears identity and user-specific data,
   /// but KEEPS the Email and Biometric settings for the next login.
   Future<void> clearIdentityOnLogout() async {
-    // We keep 'user_email' for the login screen identity/biometrics
+    // We keep 'user_email' in secure storage for the login screen identity/biometrics
     await _prefs.remove('user_id');
     await _prefs.remove('user_name');
     await _prefs.remove('user_role');
-    await _prefs.remove('user_phone');
+    await _secureStorage.delete(key: 'user_phone');
+    _cachedPhone = null;
     await _prefs.remove('user_points');
     await _prefs.remove('user_tier');
     // Note: 'currentUser' JSON string is legacy, we use individual keys now

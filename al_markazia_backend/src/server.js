@@ -155,14 +155,14 @@ async function startServer() {
       origin: (origin, callback) => {
         if (!origin) return callback(null, true);
         // Only allow localhost origins in development — production uses allowedOriginRegexes
-        const isLocal = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+        const isLocal = process.env.NODE_ENV !== 'production' && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
         const isAllowed = allowedOriginRegexes.some(regex => regex.test(origin));
         if (isLocal || isAllowed) callback(null, true);
         else callback(new Error('Not allowed by CORS'), false);
       },
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Correlation-ID', 'X-Request-Id', 'idempotency-key']
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Correlation-ID', 'X-Request-Id', 'idempotency-key', 'X-XSRF-TOKEN']
     }));
 
     app.use(express.json({ limit: '10mb' }));
@@ -284,7 +284,7 @@ async function startServer() {
 
           try {
             logger.info('[BackgroundSync] Starting system rehydration...');
-            console.time('🚀 [Rehydration] Total');
+            const rehydrationStart = Date.now();
             
             await orderProjection.replay();
             await new Promise(resolve => setTimeout(resolve, 500));
@@ -292,7 +292,7 @@ async function startServer() {
             await new Promise(resolve => setTimeout(resolve, 500));
             await SecurityPolicyService.warmupSecurityCache();
             
-            console.timeEnd('🚀 [Rehydration] Total');
+            logger.info(`🚀 [Rehydration] Total: ${Date.now() - rehydrationStart}ms`);
             logger.info('✅ Background rehydration complete — system fully primed.');
           } catch (e) {
             logger.error('Rehydration Failed', { error: e.message });
