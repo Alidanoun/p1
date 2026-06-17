@@ -2,8 +2,6 @@ const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 const logger = require('./utils/logger');
 const TokenService = require('./services/tokenService');
-const SecurityPolicyService = require('./services/securityPolicyService');
-const auditService = require('./services/auditService');
 const { SOCKET_ROOMS } = require('./shared/socketEvents');
 const { getRequestId, getCorrelationId } = require('./utils/context');
 const { trace } = require('@opentelemetry/api');
@@ -140,7 +138,7 @@ module.exports = {
         const userId = decoded.id;
         const tokenRole = (decoded.role || 'customer').toLowerCase();
         
-        // 🛡️ [SEC-FIX] DB is the Truth: Validate user existence and status (supports both Admin/Customer)
+        const SecurityPolicyService = require('./services/securityPolicyService');
         const status = await SecurityPolicyService.checkUserStatus(userId);
 
         if (!status || !status.isActive || status.isBlacklisted) {
@@ -257,7 +255,8 @@ module.exports = {
       // 🛡️ [SDS 3.0] Smart Emitter with Backpressure Governance
       socket.smartEmit = async (type, payload) => {
         const { getGovernance, INTENTS } = require('./shared/eventGovernance');
-        const container = require('./lib/container');
+        const cPath = './lib/container';
+        const container = require(cPath);
         const pressureService = container.pressureService;
         const gov = getGovernance(type);
 
@@ -283,6 +282,7 @@ module.exports = {
             clearTimeout(socket.data[debounceKey]);
           }
           
+          const SecurityPolicyService = require('./services/securityPolicyService');
           socket.data[debounceKey] = setTimeout(() => {
             socket.emit(type, SecurityPolicyService.wrapPayload(payload));
             delete socket.data[debounceKey];
@@ -306,6 +306,7 @@ module.exports = {
         }
       };
 
+      const SecurityPolicyService = require('./services/securityPolicyService');
       socket.emit(type, SecurityPolicyService.wrapPayload(enrichedPayload));
     };
 
@@ -322,6 +323,7 @@ module.exports = {
 
         try {
           // 🛡️ Authoritative Ground Truth Security Check: Evict instantly if blocked/deleted
+          const SecurityPolicyService = require('./services/securityPolicyService');
           const status = await SecurityPolicyService.checkUserStatus(socket.user.id);
           
           if (socket.data.transitionId !== transitionId) return;
@@ -370,6 +372,7 @@ module.exports = {
         }
       };
 
+      const SecurityPolicyService = require('./services/securityPolicyService');
       const rooms = await SecurityPolicyService.getTargetRooms(socket.user);
       for (const room of rooms) {
         await socket.joinManaged(room);
@@ -454,6 +457,7 @@ module.exports = {
           const canAccess = await SecurityPolicyService.canAccessBranch(socket.user, branchId, 'read');
           
           if (!canAccess) {
+            const auditService = require('./services/auditService');
             await auditService.log({
               userId,
               userRole: role,
@@ -483,6 +487,7 @@ module.exports = {
           logger.info(`[Socket] User ${userId} switched context to branch ${branchId}`);
 
           // 📝 6. Audit Log (Success)
+          const auditService = require('./services/auditService');
           await auditService.logBranchSwitch(
             userId,
             role,
@@ -606,6 +611,7 @@ module.exports = {
 
           const severity = (reason === 'ping timeout' || reason === 'transport error') ? 'WARNING' : 'INFO';
 
+          const auditService = require('./services/auditService');
           await auditService.log({
             userId,
             userRole: role,

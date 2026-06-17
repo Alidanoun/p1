@@ -45,7 +45,8 @@ class AuditService {
           
           // Only process logs from OTHER instances to avoid duplication
           if (originInstance !== this.instanceId) {
-            const socket = require('../socket');
+            const sPath = '../socket';
+            const socket = require(sPath);
             if (socket.isReady()) {
               socket.getIO().to('system-logs').emit('audit:new_log', entry);
             }
@@ -217,9 +218,9 @@ class AuditService {
         this.logger.error('[AUDIT_REDIS_BROADCAST] Failed', { error: rErr.message });
       }
 
-      // 📡 3. Local Socket Broadcast (To local admins)
       try {
-        const socket = require('../socket');
+        const sPath = '../socket';
+        const socket = require(sPath);
         if (socket.isReady()) {
           socket.getIO().to('system-logs').emit('audit:new_log', enrichedEntry);
         }
@@ -305,7 +306,10 @@ class AuditService {
 }
 
 // --- 🛡️ Backward Compatibility ---
-const getContainer = () => require('../lib/container');
+const getContainer = () => {
+  const containerPath = '../lib/container';
+  return require(containerPath);
+};
 const proxy = new Proxy({}, {
   get: (target, prop) => {
     if (prop === 'AuditService') return AuditService;

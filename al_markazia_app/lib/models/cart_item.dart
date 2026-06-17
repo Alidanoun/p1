@@ -55,17 +55,17 @@ class CartItem {
   factory CartItem.fromJson(Map<String, dynamic> json) {
     return CartItem(
       id: json['id'] ?? '',
-      productId: json['productId'] ?? 0,
-      title: json['title'] ?? '',
-      titleEn: json['titleEn'],
+      productId: json['productId'] ?? json['itemId'] ?? 0,
+      title: json['title'] ?? json['itemName'] ?? '',
+      titleEn: json['titleEn'] ?? json['itemNameEn'],
       image: json['image'] ?? '',
       unitPrice: double.tryParse(json['unitPrice']?.toString() ?? '0') ?? 0.0,
-      quantity: json['quantity'] ?? 1,
+      quantity: json['quantity'] ?? json['qty'] ?? 1,
       lineTotal: json['lineTotal'] != null ? double.tryParse(json['lineTotal'].toString()) : null,
-      optionsText: json['optionsText'] ?? '',
-      optionsTextEn: json['optionsTextEn'],
+      optionsText: json['optionsText'] ?? json['selectedOptions'] ?? '',
+      optionsTextEn: json['optionsTextEn'] ?? json['selectedOptionsEn'],
       optionIds: (json['optionIds'] as List?)?.map((e) => e as int).toList() ?? [],
-      note: json['note'] ?? '',
+      note: json['note'] ?? json['notes'] ?? '',
     );
   }
 

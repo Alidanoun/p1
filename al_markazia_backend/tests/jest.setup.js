@@ -53,6 +53,10 @@ if (process.env.NODE_ENV === 'test') {
   process.env.JWT_SECRET = process.env.JWT_SECRET || 'test_secret_for_ci_only_long_enough_32_chars';
   process.env.REFRESH_TOKEN_SECRET = process.env.REFRESH_TOKEN_SECRET || 'test_refresh_secret_long_enough_32_chars';
   process.env.SENTRY_DSN = ''; // تعطيل Sentry في الاختبارات
+  process.env.ENCRYPTION_KEY = 'a'.repeat(64); // مفتاح تشفير وهمي للاختبارات
+  process.env.FIREBASE_PROJECT_ID = 'test-project';
+  process.env.FIREBASE_PRIVATE_KEY = 'test-key';
+  process.env.FIREBASE_CLIENT_EMAIL = 'test@example.com';
 }
 
 // دالة مساعدة للتأخير (مفيدة في اختبارات التزامن)

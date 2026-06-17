@@ -530,7 +530,7 @@ model Review {
   isFlagged          Boolean          @default(false)
   isVerifiedPurchase Boolean          @default(false)
 
-  customer           Customer         @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  customer           Customer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
   item               Item             @relation(fields: [itemId], references: [id], onDelete: Cascade)
   order              Order?           @relation(fields: [orderId], references: [id])
   branch             Branch?          @relation(fields: [branchId], references: [id])

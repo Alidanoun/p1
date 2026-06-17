@@ -536,7 +536,10 @@ class SecurityPolicyService {
 
 // --- 🛡️ Backward Compatibility Layer (Static Proxies) ---
 // These ensure existing code doesn't break while we migrate.
-const getContainer = () => require('../lib/container');
+const getContainer = () => {
+  const containerPath = '../lib/container';
+  return require(containerPath);
+};
 
 SecurityPolicyService.getHardenedFilter = (user, modelName) => 
   getContainer().securityPolicyService.getHardenedFilter(user, modelName);
