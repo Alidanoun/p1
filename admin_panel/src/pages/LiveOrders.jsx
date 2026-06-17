@@ -65,10 +65,23 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onC
   useEffect(() => {
     const updateTimer = () => {
       const created = new Date(order.createdAt || order.id);
-      setElapsed(formatDistanceToNow(created, { addSuffix: false, locale: ar }));
+      const now = new Date();
+      const diffMs = Math.max(0, now - created);
+      const diffMinutes = Math.floor(diffMs / 60000);
+      const diffSeconds = Math.floor((diffMs % 60000) / 1000);
+      
+      let timeString = '';
+      if (diffMinutes >= 60) {
+        const diffHours = Math.floor(diffMinutes / 60);
+        const remMins = diffMinutes % 60;
+        timeString = `${diffHours.toString().padStart(2, '0')}:${remMins.toString().padStart(2, '0')}:${diffSeconds.toString().padStart(2, '0')}`;
+      } else {
+        timeString = `${diffMinutes.toString().padStart(2, '0')}:${diffSeconds.toString().padStart(2, '0')}`;
+      }
+      
+      setElapsed(timeString);
 
-      const diffMinutes = (new Date() - created) / 60000;
-      setIsDelayed(diffMinutes > 20 && order.status !== 'delivered');
+      setIsDelayed(diffMinutes > (order.preparationTimeMinutes || 20) && order.status !== 'delivered');
     };
 
     updateTimer();

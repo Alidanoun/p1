@@ -8,14 +8,28 @@ const transitions = {
   // 🟢 Initial State
   'pending': {
     to: {
-      'preparing': {
+      'confirmed': {
         permissions: ['admin', 'manager', 'branch_manager'],
-        sideEffects: ['notify_customer', 'update_metrics']
+        sideEffects: ['notify_customer']
       },
       'cancelled': {
         permissions: ['customer', 'admin', 'manager', 'branch_manager'],
         financialPolicy: 'REFUND_IF_WALLET',
         sideEffects: ['release_stock', 'emit_cancelled_event']
+      }
+    }
+  },
+  // 🔵 Confirmed
+  'confirmed': {
+    to: {
+      'preparing': {
+        permissions: ['admin', 'manager', 'branch_manager'],
+        sideEffects: ['update_metrics']
+      },
+      'cancelled': {
+        permissions: ['admin', 'manager', 'branch_manager'],
+        requiresApproval: true,
+        financialPolicy: 'MANUAL_REFUND_CHECK'
       }
     }
   },
@@ -36,9 +50,43 @@ const transitions = {
   // 🟠 Ready for Pickup/Delivery
   'ready': {
     to: {
+      'in_route': {
+        permissions: ['admin', 'manager', 'branch_manager', 'driver'],
+        sideEffects: ['notify_out_for_delivery']
+      },
       'delivered': {
         permissions: ['admin', 'manager', 'branch_manager', 'driver'],
         sideEffects: ['capture_revenue', 'award_loyalty_points']
+      },
+      'cancelled': {
+        permissions: ['admin'],
+        requiresApproval: true
+      }
+    }
+  },
+  // 🚚 In Route (Delivery)
+  'in_route': {
+    to: {
+      'delivered': {
+        permissions: ['admin', 'manager', 'branch_manager', 'driver'],
+        sideEffects: ['capture_revenue', 'award_loyalty_points']
+      },
+      'failed': {
+        permissions: ['admin', 'manager', 'branch_manager', 'driver'],
+        sideEffects: ['notify_delivery_failed']
+      },
+      'cancelled': {
+        permissions: ['admin'],
+        requiresApproval: true
+      }
+    }
+  },
+  // ❌ Failed Delivery
+  'failed': {
+    to: {
+      'in_route': {
+        permissions: ['admin', 'manager', 'branch_manager', 'driver'],
+        sideEffects: ['retry_delivery']
       },
       'cancelled': {
         permissions: ['admin'],

@@ -138,7 +138,9 @@ class OrderService {
 
     const where = { isDeleted: false };
     if (active_only === 'true') {
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
       where.status = { notIn: ['delivered', 'cancelled'] };
+      where.createdAt = { gte: twentyFourHoursAgo };
     } else if (status) {
       where.status = status;
     }
@@ -210,10 +212,12 @@ class OrderService {
       return { upToDate: true, version: serverVersion };
     }
     
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const syncWhere = { 
       branchId, 
       status: { notIn: ['delivered', 'cancelled'] },
-      isDeleted: false 
+      isDeleted: false,
+      createdAt: { gte: twentyFourHoursAgo }
     };
 
     // 🚀 [PERF-FIX] Use QueryOptimizer for sync (can be up to 200 orders)

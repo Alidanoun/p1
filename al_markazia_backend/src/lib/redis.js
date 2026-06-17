@@ -8,7 +8,7 @@ const baseConfig = {
   username: process.env.REDIS_USERNAME || undefined,
   password: process.env.REDIS_PASSWORD || undefined,
   maxRetriesPerRequest: null,
-  connectTimeout: 3000,
+  connectTimeout: 15000,
 };
 
 // 🛡️ Decorrelated Retry Strategy with Jitter to prevent Thundering Herd
