@@ -239,7 +239,8 @@ exports.syncOrders = async (req, res) => {
 exports.updateOrderStatus = async (req, res) => {
   try {
     const orderId = parseInt(req.params.id);
-    const { status, version } = req.body;
+    const { status } = req.body;
+    const version = parseInt(req.body.version, 10);
     const idempotencyKey = req.headers['idempotency-key'];
 
     if (isNaN(orderId)) {
@@ -261,7 +262,7 @@ exports.updateOrderStatus = async (req, res) => {
   } catch (error) {
     logger.error('updateOrderStatus error', { error: error.message });
     
-    if (error.message.includes('Invalid status transition')) {
+    if (error.message.includes('Invalid status transition') || error.message.includes('ILLEGAL_TRANSITION') || error.message.includes('INVALID_STATE')) {
       return response.error(res, 'انتقال غير صالح لحالة الطلب', 'INVALID_TRANSITION', 400);
     }
     

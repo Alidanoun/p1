@@ -12,6 +12,10 @@ const transitions = {
         permissions: ['admin', 'manager', 'branch_manager'],
         sideEffects: ['notify_customer']
       },
+      'preparing': {
+        permissions: ['admin', 'manager', 'branch_manager'],
+        sideEffects: ['update_metrics']
+      },
       'cancelled': {
         permissions: ['customer', 'admin', 'manager', 'branch_manager'],
         financialPolicy: 'REFUND_IF_WALLET',
@@ -25,6 +29,10 @@ const transitions = {
       'preparing': {
         permissions: ['admin', 'manager', 'branch_manager'],
         sideEffects: ['update_metrics']
+      },
+      'ready': {
+        permissions: ['admin', 'manager', 'branch_manager'],
+        sideEffects: []
       },
       'cancelled': {
         permissions: ['admin', 'manager', 'branch_manager'],
