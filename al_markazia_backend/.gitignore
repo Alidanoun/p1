@@ -17,3 +17,7 @@ src/config/keys/
 .env.local
 .env.*.local
 *.pem
+.env.docker
+.env.docker2
+b64.txt
+al-markazia-server_key.pem
