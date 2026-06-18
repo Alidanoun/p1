@@ -351,7 +351,11 @@ const LiveOrders = () => {
     const newPrep = Math.max(5, currentPrep + delta); 
 
     try {
-      await api.patch(`/orders/${id}/prep-time`, { minutes: newPrep });
+      const idempotencyKey = generateUUID();
+      await api.patch(`/orders/${id}/prep-time`, 
+        { minutes: newPrep },
+        { headers: { 'idempotency-key': idempotencyKey } }
+      );
       queryClient.invalidateQueries({ queryKey: ['orders', selectedBranchId] });
       toast.success(`تم تحديث وقت التجهيز إلى ${newPrep} دقيقة`);
     } catch (err) {
