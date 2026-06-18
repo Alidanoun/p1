@@ -3,6 +3,7 @@ const { DateTime } = require('luxon');
 const Decimal = require('decimal.js');
 const financialConfig = require('../config/financial');
 const { trackLoyaltyCalculation, trackNegativeBalancePrevented } = require('../utils/metrics');
+const { toNumber, toDecimal } = require('../utils/number');
 /**
  * 🎁 Loyalty Service
  * Handles point accrual, tier management, and rewards.

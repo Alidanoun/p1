@@ -19,6 +19,7 @@ import { useBranchStatus } from '../hooks/queries/useBranchStatus';
 import { usePermissions } from '../hooks/usePermissions';
 import InvoiceModal from '../components/InvoiceModal';
 import BranchStats from '../components/BranchStats';
+import { useUpdateOrderStatus } from '../hooks/mutations/useUpdateOrderStatus';
 
 // Use a public notification sound or provide a placeholder
 const NEW_ORDER_SOUND = 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3';
@@ -85,7 +86,7 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onC
         } else {
           setElapsed(`يقبل تلقائياً (${30 - secondsPassed}) ثانية`);
         }
-      } else if (order.status === 'preparing') {
+      } else if (order.status === 'preparing' || order.status === 'confirmed') {
         // Show remaining prep time
         const prepTimeMs = (order.preparationTimeMinutes || 20) * 60000;
         const remainingMs = prepTimeMs - diffMs;
@@ -118,7 +119,8 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onC
             className={cn(
               "bg-background/80 backdrop-blur-md p-4 rounded-xl border border-white/5 mb-3 shadow-md transition-all group",
               snapshot.isDragging ? "shadow-2xl ring-2 ring-primary border-primary/50" : "hover:border-white/10",
-              isDelayed && order.status !== 'delivered' && "border-red-500/30 bg-red-500/5"
+              isDelayed && order.status !== 'delivered' && "border-red-500/30 bg-red-500/5",
+              order._optimistic && "opacity-60 pointer-events-none ring-1 ring-primary/30 animate-pulse"
             )}
           >
             <div className="flex justify-between items-start mb-3">
@@ -213,7 +215,7 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onC
                   </button>
                 )}
                 
-                {order.status === 'preparing' && can('MANAGE_ORDERS') && (
+                {(order.status === 'preparing' || order.status === 'confirmed') && can('MANAGE_ORDERS') && (
                   <>
                     <button
                       onClick={() => onUpdateStatus(order.id, 'ready', order.version, order.eventSequence)}
@@ -318,30 +320,27 @@ const LiveOrders = () => {
     'pending': ['confirmed', 'preparing', 'cancelled'],
     'confirmed': ['preparing', 'ready', 'cancelled'],
     'preparing': ['ready', 'cancelled'],
-    'ready': ['in_route', 'delivered', 'cancelled'],
-    'in_route': ['delivered', 'cancelled'],
+    'ready': ['delivered', 'cancelled'],
     'delivered': [],
     'cancelled': []
   };
 
-  const onUpdateStatus = async (id, status, version) => {
-    try {
-      const idempotencyKey = generateUUID();
-      await api.patch(`/orders/${id}/status`, 
-        { status, version },
-        { headers: { 'idempotency-key': idempotencyKey } }
-      );
-      
-      queryClient.invalidateQueries({ queryKey: ['orders', selectedBranchId] });
-      toast.success('تم تحديث الحالة');
-    } catch (err) {
-      if (err.response?.status === 409) {
-        toast.error('⚠️ تضارب: تم تغيير حالة الطلب بالفعل. جاري إعادة المزامنة...');
-        queryClient.invalidateQueries({ queryKey: ['orders', selectedBranchId] });
-      } else {
-        toast.error('فشل في تحديث حالة الطلب');
+  const { mutate: updateStatus, isPending: isStatusUpdating } = useUpdateOrderStatus(selectedBranchId);
+
+  const onUpdateStatus = (id, status, version) => {
+    updateStatus(
+      { orderId: id, newStatus: status, version },
+      {
+        onSuccess: () => toast.success('تم تحديث الحالة'),
+        onError: (err) => {
+          if (err.response?.status === 409) {
+            toast.error('⚠️ تضارب: الطلب تغيّر من مستخدم آخر. تم المزامنة.');
+          } else {
+            toast.error('فشل في تحديث حالة الطلب');
+          }
+        },
       }
-    }
+    );
   };
 
   const onAdjustTimer = async (id, delta) => {
@@ -401,47 +400,55 @@ const LiveOrders = () => {
     // 🛡️ Component entry sync
   }, [selectedBranchId]);
 
-  const onDragEnd = async (result) => {
+  const onDragEnd = (result) => {
     const { destination, source, draggableId } = result;
 
     if (!destination) return;
+    
     if (!can('MANAGE_ORDERS')) {
       toast.error('غير مصرح لك بتغيير حالة الطلب');
       return;
     }
-    if (destination.droppableId === source.droppableId && destination.index === source.index) return;
+
+    if (
+      destination.droppableId === source.droppableId &&
+      destination.index === source.index
+    ) return;
 
     const newStatus = COLUMN_TO_STATUS[destination.droppableId];
     if (!newStatus) return;
 
     const orderToUpdate = orders.find(o => o.id === draggableId);
     if (!orderToUpdate) return;
+
     const currentStatus = orderToUpdate.status;
-
-
 
     if (!VALID_TRANSITIONS[currentStatus]?.includes(newStatus)) {
       toast.error('انتقال غير مسموح لهذه الحالة');
       return;
     }
 
-    try {
-      const idempotencyKey = generateUUID();
-      await api.patch(`/orders/${draggableId}/status`, 
-        { status: newStatus, version: orderToUpdate.version },
-        { headers: { 'idempotency-key': idempotencyKey } }
-      );
-      
-      queryClient.invalidateQueries({ queryKey: ['orders', selectedBranchId] });
-      toast.info(`تم تحديث حالة الطلب إلى: ${COLUMNS.find(c => c.id === destination.droppableId).title}`);
-    } catch (err) {
-      queryClient.invalidateQueries({ queryKey: ['orders', selectedBranchId] });
-      if (err.response?.status === 409) {
-        toast.error('⚠️ تضارب: تم تغيير حالة الطلب بالفعل. جاري إعادة المزامنة...');
-      } else {
-        toast.error('فشل في تحديث حالة الطلب');
+    updateStatus(
+      {
+        orderId: draggableId,
+        newStatus,
+        version: orderToUpdate.version,
+      },
+      {
+        onSuccess: () => {
+          toast.success(
+            `تم نقل الطلب إلى: ${COLUMNS.find((c) => c.id === destination.droppableId)?.title}`
+          );
+        },
+        onError: (err) => {
+          if (err.response?.status === 409) {
+            toast.error('⚠️ تضارب: الطلب تغيّر منذ آخر تحميل. تم التراجع والمزامنة.');
+          } else {
+            toast.error('فشل في تحديث حالة الطلب');
+          }
+        },
       }
-    }
+    );
   };
 
   const getOrdersByColumn = (column) => {

@@ -8,7 +8,6 @@ const ORDER_STATUS_MAP = {
   'confirmed': ['preparing', 'cancelled', 'waiting_cancellation'],
   'preparing': ['ready', 'cancelled', 'waiting_cancellation'],
   'ready': ['delivered', 'cancelled'],
-  'in_route': ['delivered', 'cancelled'],
   'waiting_cancellation': ['cancelled', 'preparing', 'ready', 'confirmed'],
   'delivered': [], // Final State
   'cancelled': []  // Final State
