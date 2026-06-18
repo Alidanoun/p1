@@ -46,7 +46,7 @@ const Sidebar = () => {
       show: isAdmin,
       items: [
         { name: 'الإحصائيات', icon: TrendingUp, path: '/analytics', show: isAdmin },
-        { name: 'التقارير المالية', icon: BarChart2, path: '/reports', show: isAdmin },
+        { name: 'التقارير المالية', icon: BarChart2, path: '/reports-dashboard', show: isAdmin },
       ]
     },
     {

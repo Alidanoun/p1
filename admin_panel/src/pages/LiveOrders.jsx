@@ -37,20 +37,16 @@ const generateUUID = () => {
 
 const COLUMNS = [
   { id: 'new', title: 'طلبات جديدة', color: 'bg-amber-500', icon: Clock, statuses: ['pending'] },
-  { id: 'in_progress', title: 'قيد التنفيذ', icon: Play, color: 'bg-indigo-500', statuses: ['confirmed', 'preparing'] },
-  { id: 'issues', title: 'مشاكل', icon: AlertCircle, color: 'bg-red-600', statuses: ['waiting_cancellation'] },
-  { id: 'ready', title: 'جاهز', icon: Package, color: 'bg-purple-500', statuses: ['ready'] },
-  { id: 'completed', title: 'مكتمل', icon: CheckCircle, color: 'bg-emerald-500', statuses: ['in_route', 'delivered'] },
-  { id: 'failed', title: 'فشل التوصيل', icon: XCircle, color: 'bg-rose-700', statuses: ['failed'] },
+  { id: 'preparing', title: 'قيد التحضير', icon: Play, color: 'bg-indigo-500', statuses: ['preparing'] },
+  { id: 'ready', title: 'جاهز للاستلام', icon: Package, color: 'bg-purple-500', statuses: ['ready'] },
+  { id: 'completed', title: 'مكتمل', icon: CheckCircle, color: 'bg-emerald-500', statuses: ['delivered'] },
 ];
 
 const COLUMN_TO_STATUS = {
   new: 'pending',
-  in_progress: 'preparing',
-  issues: 'waiting_cancellation',
+  preparing: 'preparing',
   ready: 'ready',
-  completed: 'delivered',
-  failed: 'failed'
+  completed: 'delivered'
 };
 
 const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onCancelOrder, onHandleRequest, can }) => {
@@ -81,11 +77,32 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onC
       
       setElapsed(timeString);
 
+      // ⏱️ Auto-accept logic (30 seconds)
+      if (order.status === 'pending') {
+        const secondsPassed = Math.floor(diffMs / 1000);
+        if (secondsPassed >= 30) {
+          onUpdateStatus(order.id, 'preparing', order.version, order.eventSequence);
+        } else {
+          setElapsed(`يقبل تلقائياً (${30 - secondsPassed}) ثانية`);
+        }
+      } else if (order.status === 'preparing') {
+        // Show remaining prep time
+        const prepTimeMs = (order.preparationTimeMinutes || 20) * 60000;
+        const remainingMs = prepTimeMs - diffMs;
+        if (remainingMs > 0) {
+          const rMins = Math.floor(remainingMs / 60000);
+          const rSecs = Math.floor((remainingMs % 60000) / 1000);
+          setElapsed(`${rMins}:${rSecs.toString().padStart(2, '0')}`);
+        } else {
+          setElapsed('تأخير!');
+        }
+      }
+
       setIsDelayed(diffMinutes > (order.preparationTimeMinutes || 20) && order.status !== 'delivered');
     };
 
     updateTimer();
-    const interval = setInterval(updateTimer, 60000);
+    const interval = setInterval(updateTimer, 1000); // Check every second for smooth countdowns
     return () => clearInterval(interval);
   }, [order]);
 
@@ -188,7 +205,7 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onC
               <div className="grid grid-cols-2 gap-2 mt-2">
                 {order.status === 'pending' && can('MANAGE_ORDERS') && (
                   <button
-                    onClick={() => onUpdateStatus(order.id, 'confirmed', order.version, order.eventSequence)}
+                    onClick={() => onUpdateStatus(order.id, 'preparing', order.version, order.eventSequence)}
                     className="col-span-2 py-2.5 bg-emerald-500 hover:bg-emerald-600 rounded-xl text-white font-black text-xs shadow-lg shadow-emerald-500/20 transition-all active:scale-95 flex items-center justify-center gap-2"
                   >
                     <CheckCircle className="w-4 h-4" />
@@ -285,10 +302,9 @@ const LiveOrders = () => {
     'confirmed': ['preparing', 'ready', 'cancelled'],
     'preparing': ['ready', 'cancelled'],
     'ready': ['in_route', 'delivered', 'cancelled'],
-    'in_route': ['delivered', 'failed', 'cancelled'],
+    'in_route': ['delivered', 'cancelled'],
     'delivered': [],
-    'cancelled': [],
-    'failed': ['in_route', 'cancelled']
+    'cancelled': []
   };
 
   const onUpdateStatus = async (id, status, version) => {

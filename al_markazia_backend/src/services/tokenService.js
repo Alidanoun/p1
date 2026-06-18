@@ -130,11 +130,7 @@ class TokenService {
         expiresAt: new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS)
       };
 
-      if (role === 'customer') {
-        tokenData.customerId = user.id;
-      } else {
-        tokenData.userId = user.id;
-      }
+      tokenData.userId = user.uuid;
 
       await prisma.refreshToken.create({
         data: tokenData

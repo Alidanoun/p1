@@ -9,16 +9,11 @@ const logger = require('../utils/logger');
 const OPERATIONAL_MODE = process.env.ORDER_STATE_MODE || 'ENFORCE';
 
 const ALLOWED_TRANSITIONS = {
-  'pending': ['confirmed', 'preparing', 'cancelled'],
-  'confirmed': ['preparing', 'ready', 'cancelled'],
+  'pending': ['preparing', 'cancelled'],
   'preparing': ['ready', 'cancelled'],
-  'ready': ['in_route', 'delivered', 'cancelled'],
-  'in_route': ['delivered', 'failed', 'cancelled'],
+  'ready': ['delivered', 'cancelled'],
   'delivered': [],
-  'cancelled': [],
-  'failed': ['in_route', 'cancelled'],
-  'waiting_cancellation': ['cancelled', 'pending', 'preparing', 'ready', 'in_route', 'delivered'],
-  'waiting_cancellation_admin': ['cancelled', 'pending', 'preparing', 'ready', 'in_route', 'delivered']
+  'cancelled': []
 };
 
 /**

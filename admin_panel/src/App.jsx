@@ -10,6 +10,7 @@ import LiveOrders from './pages/LiveOrders';
 import MenuManager from './pages/MenuManager';
 import Analytics from './pages/Analytics';
 import Reports from './pages/Reports';
+import ReportsDashboard from './pages/ReportsDashboard';
 import Settings from './pages/Settings';
 import BroadcastNotifications from './pages/BroadcastNotifications';
 import ReviewsManager from './pages/ReviewsManager';
@@ -113,6 +114,12 @@ function App() {
             <Route path="/reports" element={
               <ProtectedRoute requiredRole="admin">
                 <Reports />
+              </ProtectedRoute>
+            } />
+
+            <Route path="/reports-dashboard" element={
+              <ProtectedRoute requiredRole="admin">
+                <ReportsDashboard />
               </ProtectedRoute>
             } />
             

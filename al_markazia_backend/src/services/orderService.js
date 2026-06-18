@@ -136,7 +136,7 @@ class OrderService {
     const { status, search, active_only } = query;
     const { page, limit, skip } = require('../utils/pagination').parsePagination(query);
 
-    const where = { isDeleted: false };
+    const where = { isDeleted: false, isArchived: false };
     if (active_only === 'true') {
       const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
       where.status = { notIn: ['delivered', 'cancelled'] };
@@ -217,6 +217,7 @@ class OrderService {
       branchId, 
       status: { notIn: ['delivered', 'cancelled'] },
       isDeleted: false,
+      isArchived: false,
       createdAt: { gte: twentyFourHoursAgo }
     };
 

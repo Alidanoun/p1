@@ -48,8 +48,8 @@ const Login = () => {
     <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-dark)' }}>
       <div className="glass-panel slide-up" style={{ width: '100%', maxWidth: '400px', padding: '2.5rem' }}>
         <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-          <div style={{ width: '64px', height: '64px', borderRadius: '16px', background: 'rgba(245, 158, 11, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem' }}>
-            <Utensils color="var(--primary)" size={32} />
+          <div style={{ display: 'flex', justifyContent: 'center', margin: '0 auto 1.5rem' }}>
+            <img src="/logo.png" alt="المركزية" style={{ width: '140px', height: 'auto', objectFit: 'contain' }} />
           </div>
           <h2 style={{ fontSize: '1.5rem', fontWeight: 800 }}>المركزية - لوحة التحكم</h2>
           <p style={{ color: 'var(--text-muted)' }}>تسجيل الدخول للمدراء فقط</p>
@@ -59,7 +59,7 @@ const Login = () => {
 
         <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
           <div style={{ position: 'relative' }}>
-            <Mail style={{ position: 'absolute', right: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} size={20} />
+            <Mail style={{ position: 'absolute', right: '16px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} size={20} />
             <input 
               type="email" 
               className="glass-input" 
@@ -72,7 +72,7 @@ const Login = () => {
           </div>
 
           <div style={{ position: 'relative' }}>
-            <Lock style={{ position: 'absolute', right: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} size={20} />
+            <Lock style={{ position: 'absolute', right: '16px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} size={20} />
             <input 
               type="password" 
               className="glass-input" 

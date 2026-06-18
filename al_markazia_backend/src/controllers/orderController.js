@@ -240,7 +240,8 @@ exports.updateOrderStatus = async (req, res) => {
   try {
     const orderId = parseInt(req.params.id);
     const { status } = req.body;
-    const version = parseInt(req.body.version, 10);
+    let version = parseInt(req.body.version, 10);
+    if (isNaN(version)) version = 1; // Default to 1 to trigger 409 concurrency error instead of 500/400 validation error
     const idempotencyKey = req.headers['idempotency-key'];
 
     if (isNaN(orderId)) {
@@ -264,6 +265,10 @@ exports.updateOrderStatus = async (req, res) => {
     
     if (error.message.includes('Invalid status transition') || error.message.includes('ILLEGAL_TRANSITION') || error.message.includes('INVALID_STATE')) {
       return response.error(res, 'انتقال غير صالح لحالة الطلب', 'INVALID_TRANSITION', 400);
+    }
+
+    if (error.message.includes('CONTRACT_VIOLATION')) {
+      return response.error(res, error.message.replace('CONTRACT_VIOLATION: ', ''), 'VALIDATION_ERROR', 400);
     }
     
     if (error.message === 'CONCURRENCY_CONFLICT') {

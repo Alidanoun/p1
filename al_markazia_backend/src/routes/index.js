@@ -61,6 +61,8 @@ router.use('/branch', branchRoutes);
 router.use('/restaurant', restaurantRoutes);
 
 // Financial & Analytics
+const reportsRoutes = require('./reports');
+router.use('/reports', reportsRoutes);
 router.use('/analytics', analyticsRoutes);
 router.use('/financial', financialRoutes);
 router.use('/loyalty', loyaltyRoutes);

@@ -8,36 +8,14 @@ const transitions = {
   // 🟢 Initial State
   'pending': {
     to: {
-      'confirmed': {
-        permissions: ['admin', 'manager', 'branch_manager'],
-        sideEffects: ['notify_customer']
-      },
       'preparing': {
-        permissions: ['admin', 'manager', 'branch_manager'],
+        permissions: ['admin', 'manager', 'branch_manager', 'cashier', 'supervisor', 'superadmin', 'super_admin'],
         sideEffects: ['update_metrics']
       },
       'cancelled': {
-        permissions: ['customer', 'admin', 'manager', 'branch_manager'],
+        permissions: ['customer', 'admin', 'manager', 'branch_manager', 'superadmin', 'super_admin'],
         financialPolicy: 'REFUND_IF_WALLET',
         sideEffects: ['release_stock', 'emit_cancelled_event']
-      }
-    }
-  },
-  // 🔵 Confirmed
-  'confirmed': {
-    to: {
-      'preparing': {
-        permissions: ['admin', 'manager', 'branch_manager'],
-        sideEffects: ['update_metrics']
-      },
-      'ready': {
-        permissions: ['admin', 'manager', 'branch_manager'],
-        sideEffects: []
-      },
-      'cancelled': {
-        permissions: ['admin', 'manager', 'branch_manager'],
-        requiresApproval: true,
-        financialPolicy: 'MANUAL_REFUND_CHECK'
       }
     }
   },
@@ -45,12 +23,12 @@ const transitions = {
   'preparing': {
     to: {
       'ready': {
-        permissions: ['admin', 'manager', 'branch_manager'],
+        permissions: ['admin', 'manager', 'branch_manager', 'cashier', 'supervisor', 'superadmin', 'super_admin'],
         sideEffects: ['notify_ready_socket']
       },
       'cancelled': {
-        permissions: ['admin', 'manager', 'branch_manager'],
-        requiresApproval: true,
+        permissions: ['admin', 'manager', 'branch_manager', 'superadmin', 'super_admin'],
+        requiresApproval: false,
         financialPolicy: 'MANUAL_REFUND_CHECK'
       }
     }
@@ -58,47 +36,13 @@ const transitions = {
   // 🟠 Ready for Pickup/Delivery
   'ready': {
     to: {
-      'in_route': {
-        permissions: ['admin', 'manager', 'branch_manager', 'driver'],
-        sideEffects: ['notify_out_for_delivery']
-      },
       'delivered': {
-        permissions: ['admin', 'manager', 'branch_manager', 'driver'],
+        permissions: ['admin', 'manager', 'branch_manager', 'driver', 'cashier', 'supervisor', 'superadmin', 'super_admin'],
         sideEffects: ['capture_revenue', 'award_loyalty_points']
       },
       'cancelled': {
-        permissions: ['admin'],
-        requiresApproval: true
-      }
-    }
-  },
-  // 🚚 In Route (Delivery)
-  'in_route': {
-    to: {
-      'delivered': {
-        permissions: ['admin', 'manager', 'branch_manager', 'driver'],
-        sideEffects: ['capture_revenue', 'award_loyalty_points']
-      },
-      'failed': {
-        permissions: ['admin', 'manager', 'branch_manager', 'driver'],
-        sideEffects: ['notify_delivery_failed']
-      },
-      'cancelled': {
-        permissions: ['admin'],
-        requiresApproval: true
-      }
-    }
-  },
-  // ❌ Failed Delivery
-  'failed': {
-    to: {
-      'in_route': {
-        permissions: ['admin', 'manager', 'branch_manager', 'driver'],
-        sideEffects: ['retry_delivery']
-      },
-      'cancelled': {
-        permissions: ['admin'],
-        requiresApproval: true
+        permissions: ['admin', 'manager', 'branch_manager', 'superadmin', 'super_admin'],
+        requiresApproval: false
       }
     }
   },
@@ -135,7 +79,9 @@ class OrderStateMachine {
 
     // Check Permissions
     const actorRole = (actor?.role || 'guest').toLowerCase();
-    if (!transition.permissions.includes(actorRole)) {
+    // Allow super_admin by default, and common branch roles
+    const allowedRoles = [...transition.permissions, 'super_admin', 'superadmin', 'cashier', 'supervisor'];
+    if (!allowedRoles.includes(actorRole)) {
       throw new Error(`FORBIDDEN_TRANSITION: Role "${actorRole}" is not authorized for this transition.`);
     }
 

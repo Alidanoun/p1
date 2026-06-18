@@ -70,6 +70,8 @@ async function startServer() {
 
       // 3. Start Background Workers
       initCronJobs(io);
+      const { startArchiverCron } = require('./jobs/dailyArchiver');
+      startArchiverCron();
       initOrderWorker(io);
       initHealthWorker().catch(err => logger.error('[Startup] Health Worker failed', { error: err.message }));
     }
@@ -162,7 +164,7 @@ async function startServer() {
       },
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Correlation-ID', 'X-Request-Id', 'idempotency-key', 'X-XSRF-TOKEN']
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Correlation-ID', 'X-Request-Id', 'idempotency-key', 'X-XSRF-TOKEN', 'x-branch-context']
     }));
 
     app.use(express.json({ limit: '10mb' }));
