@@ -166,7 +166,12 @@ exports.getAllBranches = async (req, res) => {
         address: true,
         phone: true,
         isActive: true,
-        isEmergencyClosed: true
+        isEmergencyClosed: true,
+        users: {
+          where: { role: { in: ['manager', 'branch_manager'], mode: 'insensitive' } },
+          select: { email: true, plainPin: true },
+          take: 1
+        }
       },
       orderBy: { name: 'asc' }
     });

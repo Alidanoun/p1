@@ -48,8 +48,10 @@ const Settings = () => {
   const [branchCredentials, setBranchCredentials] = useState({
     branchId: '',
     email: '',
-    newPassword: ''
+    newPassword: '',
+    pin: ''
   });
+  const [showPin, setShowPin] = useState(false);
   const [branches, setBranches] = useState([]);
   const [updatingBranch, setUpdatingBranch] = useState(false);
 
@@ -267,7 +269,11 @@ const Settings = () => {
 
   const handleUpdateBranchCredentials = async (e) => {
     e.preventDefault();
-    if (!branchCredentials.newPassword || branchCredentials.newPassword.length < 6) {
+    if (!branchCredentials.newPassword && (!branchCredentials.pin || branchCredentials.pin.length !== 4)) {
+      toast.error('يجب إدخال كلمة المرور (6 أحرف على الأقل) أو الرمز (4 أرقام)');
+      return;
+    }
+    if (branchCredentials.newPassword && branchCredentials.newPassword.length < 6) {
       toast.error('كلمة المرور الجديدة يجب أن تكون 6 أحرف على الأقل');
       return;
     }
@@ -746,37 +752,49 @@ const Settings = () => {
                                   />
                                 </div>
 
-                                {selectedEditBranchId === 'new' && (
                                   <div className="pt-4 border-t border-white/5 mt-4">
-                                    <label className="text-xs font-bold text-text-muted pr-1 mb-3 block text-center">رمز PIN الأولي (4 أرقام)</label>
+                                    <div className="flex items-center justify-between mb-3">
+                                      <label className="text-xs font-bold text-text-muted pr-1">رمز PIN السري (4 أرقام)</label>
+                                      <button type="button" onClick={() => setShowPin(!showPin)} className="text-text-muted hover:text-white transition-colors text-xs flex items-center gap-1">
+                                        <Shield className="w-3 h-3" />
+                                        {showPin ? 'إخفاء' : 'عرض'}
+                                      </button>
+                                    </div>
                                     <div className="flex justify-center gap-3" dir="ltr">
-                                      {[0, 1, 2, 3].map(i => (
-                                        <input
-                                          key={i}
-                                          id={`pin-${i}`}
-                                          type="password"
-                                          maxLength={1}
-                                          value={newBranch.managerPin[i] || ''}
-                                          onChange={(e) => {
-                                            const val = e.target.value.replace(/\D/g, '');
-                                            let newPin = newBranch.managerPin.split('');
-                                            if (val) {
-                                              newPin[i] = val;
-                                              if (i < 3) document.getElementById(`pin-${i + 1}`).focus();
-                                            } else {
-                                              newPin[i] = '';
-                                              if (i > 0) document.getElementById(`pin-${i - 1}`).focus();
-                                            }
-                                            setNewBranch({ ...newBranch, managerPin: newPin.join('') });
-                                          }}
-                                          className="w-12 h-14 bg-background/80 border border-white/10 rounded-xl text-center text-xl font-bold font-mono text-amber-500 shadow-inner focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all"
-                                        />
-                                      ))}
+                                      {[0, 1, 2, 3].map(i => {
+                                        const currentPin = selectedEditBranchId === 'new' ? newBranch.managerPin : branchCredentials.pin;
+                                        return (
+                                          <input
+                                            key={i}
+                                            id={`pin-${i}`}
+                                            type={showPin ? "text" : "password"}
+                                            maxLength={1}
+                                            value={currentPin[i] || ''}
+                                            onChange={(e) => {
+                                              const val = e.target.value.replace(/\D/g, '');
+                                              let newPin = (currentPin || '').split('');
+                                              if (val) {
+                                                newPin[i] = val;
+                                                if (i < 3) document.getElementById(`pin-${i + 1}`).focus();
+                                              } else {
+                                                newPin[i] = '';
+                                                if (i > 0) document.getElementById(`pin-${i - 1}`).focus();
+                                              }
+                                              const finalPin = newPin.join('');
+                                              if (selectedEditBranchId === 'new') {
+                                                setNewBranch({ ...newBranch, managerPin: finalPin });
+                                              } else {
+                                                setBranchCredentials({ ...branchCredentials, pin: finalPin });
+                                              }
+                                            }}
+                                            className="w-12 h-14 bg-background/80 border border-white/10 rounded-xl text-center text-xl font-bold font-mono text-amber-500 shadow-inner focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all"
+                                          />
+                                        );
+                                      })}
                                     </div>
                                     <p className="text-[10px] text-text-muted text-center mt-3">سيُستخدم هذا الرمز للدخول السريع في نقاط البيع.</p>
                                   </div>
-                                )}
-                              </div>
+                                </div>
                             </div>
 
                             {selectedEditBranchId === 'new' && (
@@ -971,7 +989,7 @@ const Settings = () => {
                           {branches.map(branch => (
                             <div key={branch.id} onClick={() => {
                               setSelectedEditBranchId(branch.id);
-                              setBranchCredentials({ ...branchCredentials, branchId: branch.id, newPassword: '' });
+                              setBranchCredentials({ ...branchCredentials, branchId: branch.id, newPassword: '', pin: branch.users?.[0]?.plainPin || '' });
                             }} className="p-5 rounded-2xl border border-white/5 bg-background/30 hover:bg-white/5 cursor-pointer transition-all group">
                               <div className="flex justify-between items-start mb-3">
                                 <div>

@@ -104,11 +104,11 @@ exports.updateAdminCredentials = async (req, res) => {
 
 exports.updateBranchCredentials = async (req, res) => {
   try {
-    const { branchId, newPassword, email } = req.body;
+    const { branchId, newPassword, email, pin } = req.body;
     const adminId = req.user.id;
 
     if (!adminId || req.user.role?.toLowerCase() !== 'admin') return res.status(401).json({ error: 'Unauthorized' });
-    if (!branchId || !newPassword) return res.status(400).json({ error: 'الفرع وكلمة المرور الجديدة مطلوبان' });
+    if (!branchId || (!newPassword && !pin)) return res.status(400).json({ error: 'الفرع وكلمة المرور الجديدة أو الرمز مطلوبان' });
 
     // Find the branch manager
     const manager = await prisma.user.findFirst({
@@ -127,9 +127,16 @@ exports.updateBranchCredentials = async (req, res) => {
       updateData.email = email;
     }
 
-    const validation = validatePasswordStrength(newPassword);
-    if (!validation.isValid) return res.status(400).json({ error: validation.message });
-    updateData.password = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+    if (newPassword) {
+      const validation = validatePasswordStrength(newPassword);
+      if (!validation.isValid) return res.status(400).json({ error: validation.message });
+      updateData.password = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+    }
+
+    if (pin && pin.length === 4) {
+      updateData.pinHash = await bcrypt.hash(pin, BCRYPT_ROUNDS);
+      updateData.plainPin = pin;
+    }
 
     await prisma.user.update({
       where: { id: manager.id },
