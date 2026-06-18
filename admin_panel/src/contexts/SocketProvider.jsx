@@ -1,15 +1,14 @@
-import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { SocketContext } from './SocketContext';
 import { io } from 'socket.io-client';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import { getCookie } from '../lib/utils';
 import api, { unwrap } from '../api/client';
 import { tokenStore } from '../api/tokenStore';
-import { useAuth } from './AuthContext';
+import { useAuth } from '../hooks/useAuth';
 import { useDebounce } from '../hooks/useDebounce';
 import { SOCKET_EVENTS } from '../constants/socketEvents';
-
-const SocketContext = createContext();
 
 const SOCKET_URL = import.meta.env.VITE_API_URL 
   ? new URL(import.meta.env.VITE_API_URL).origin 
@@ -98,7 +97,7 @@ const printThermal = (order) => {
 };
 
 export const SocketProvider = ({ children }) => {
-  const { user, selectedBranchId, setSelectedBranchId } = useAuth();
+  const { selectedBranchId, setSelectedBranchId } = useAuth();
   const queryClient = useQueryClient();
   const [socket, setSocket] = useState(null);
   const [notifications, setNotifications] = useState([]);
@@ -394,7 +393,7 @@ export const SocketProvider = ({ children }) => {
 
     socketRef.current = newSocket;
     setSocket(newSocket);
-  }, [fetchNotifications, cleanupSocket]);
+  }, [fetchNotifications, cleanupSocket, handleSync, queryClient, _playBeep, selectedBranchId, setSelectedBranchId]);
 
   const debouncedBranchId = useDebounce(selectedBranchId, 150);
 
@@ -462,7 +461,7 @@ export const SocketProvider = ({ children }) => {
       if (abortControllerRef.current) abortControllerRef.current.abort();
       if (switchTimeoutRef.current) clearTimeout(switchTimeoutRef.current);
     };
-  }, [debouncedBranchId]); // 🎯 [FIX] Only depend on debounced ID to prevent redundant/stale triggers
+  }, [debouncedBranchId, fetchNotifications]); // 🎯 [FIX] Only depend on debounced ID to prevent redundant/stale triggers
 
   useEffect(() => {
     // 🛡️ Initialization: Try to connect with whatever is in store
@@ -487,7 +486,7 @@ export const SocketProvider = ({ children }) => {
       unsubscribe();
       cleanupSocket();
     };
-  }, [connectSocket, cleanupSocket]);
+  }, [connectSocket, cleanupSocket, fetchLiveMetrics]);
 
   // 🏥 Socket Health Check: Passive monitoring (Let engine handle reconnection)
   useEffect(() => {
@@ -525,5 +524,3 @@ export const SocketProvider = ({ children }) => {
     </SocketContext.Provider>
   );
 };
-
-export const useSocket = () => useContext(SocketContext);

@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Download, FileText, Table as TableIcon, Calendar, TrendingUp, DollarSign, RefreshCw, Lock, Archive } from 'lucide-react';
 import { toast } from 'sonner';
 import Header from '../components/Header';
-import api, { unwrap } from '../api/client';
+import api from '../api/client';
 import { cn } from '../lib/utils';
 import { formatCurrencyArabic } from '../lib/formatters';
 import * as XLSX from 'xlsx';
@@ -20,7 +20,7 @@ const Reports = () => {
   });
   const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
 
-  const fetchReportData = async () => {
+  const fetchReportData = useCallback(async () => {
     setLoading(true);
     try {
       const response = await api.get(`/orders/report?startDate=${startDate}&endDate=${endDate}`);
@@ -35,11 +35,11 @@ const Reports = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [startDate, endDate]);
 
   useEffect(() => {
     fetchReportData();
-  }, [startDate, endDate]);
+  }, [fetchReportData]);
 
   const getTopItemsForPeriod = () => {
     const itemCounts = {};

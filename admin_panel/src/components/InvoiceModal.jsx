@@ -11,7 +11,6 @@ const InvoiceModal = ({ order, isOpen, onClose }) => {
   const handlePrint = () => {
     if (!order) return;
 
-    let printWindow = null;
     try {
       const branchName = order.branch?.name || order.restaurantName || "المركزية";
       const branchAddress = order.branch?.address || (order.restaurantName ? "" : "الاردن");

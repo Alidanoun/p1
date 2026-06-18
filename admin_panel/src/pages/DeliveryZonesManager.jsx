@@ -35,7 +35,7 @@ const DeliveryZonesManager = () => {
     try {
       const data = unwrap(await api.get('/delivery-zones')) || [];
       setZones(Array.isArray(data) ? data : []);
-    } catch (error) {
+    } catch {
       toast.error('حدث خطأ أثناء تحميل مناطق التوصيل');
     } finally {
       setLoading(false);
@@ -92,7 +92,7 @@ const DeliveryZonesManager = () => {
 
       toast.promise(promise, {
         loading: 'جاري الحفظ...',
-        success: (res) => {
+        success: () => {
           fetchZones();
           setIsModalOpen(false);
           return editingId ? 'تم تحديث المنطقة بنجاح' : 'تم إضافة المنطقة بنجاح';
@@ -133,7 +133,7 @@ const DeliveryZonesManager = () => {
     try {
       await api.put(`/delivery-zones/${zoneId}`, { isActive: newState });
       toast.success(newState ? `تم تفعيل منطقة ${zone.nameAr}` : `تم إيقاف منطقة ${zone.nameAr}`);
-    } catch (error) {
+    } catch {
       // Revert on failure
       setZones(prev => prev.map(z => z.id === zoneId ? { ...z, isActive: !newState } : z));
       toast.error('فشل تحديث حالة المنطقة');

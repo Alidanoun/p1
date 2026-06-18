@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { 
   XCircle, User, Calendar, Clock, AlertTriangle, Hash, ShieldCheck, 
   ShieldAlert, Search, ShieldOff, Loader2, X, RefreshCw, Info,

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   TrendingUp, 
   Users, 
@@ -27,7 +27,7 @@ const Analytics = () => {
   const [period, setPeriod] = useState('week'); // today, week, month
   const [source, setSource] = useState('all'); // all, app, manual
 
-  const fetchStats = async () => {
+  const fetchStats = useCallback(async () => {
     setLoading(true);
     try {
       const stats = unwrap(await api.get(`analytics/dashboard?period=${period}&source=${source}`));
@@ -38,11 +38,11 @@ const Analytics = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [period, source]);
 
   useEffect(() => {
     fetchStats();
-  }, [period, source]);
+  }, [fetchStats]);
 
   const peakHourInfo = useMemo(() => {
     if (!data?.chartData || data.chartData.length === 0) return null;

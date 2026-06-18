@@ -1,20 +1,16 @@
 import { useState, useEffect, useRef } from 'react';
-import { useAuth } from '../contexts/AuthContext';
-import { useLocation } from 'react-router-dom';
+import { useAuth } from '../hooks/useAuth';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { Clock, CheckCircle, Package, Play, XCircle, Phone, DollarSign, Timer, AlertCircle, Printer, MapPin, Star, Truck, ShoppingBag, Power, Minus, Plus, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { QRCodeSVG } from 'qrcode.react';
 import Header from '../components/Header';
-import api, { unwrap } from '../api/client';
+import api from '../api/client';
 import { cn } from '../lib/utils';
-import { AnimatePresence, motion } from 'framer-motion'; // eslint-disable-line no-unused-vars
-import { formatDistanceToNow } from 'date-fns';
-import { ar } from 'date-fns/locale';
+import { AnimatePresence, motion } from 'framer-motion';
 import { formatCurrencyArabic } from '../lib/formatters';
 import { useQueryClient } from '@tanstack/react-query';
 import { useOrders } from '../hooks/queries/useOrders';
-import { useBranchStats } from '../hooks/queries/useBranchStats';
 import { useBranchStatus } from '../hooks/queries/useBranchStatus';
 import { usePermissions } from '../hooks/usePermissions';
 import InvoiceModal from '../components/InvoiceModal';
@@ -50,7 +46,7 @@ const COLUMN_TO_STATUS = {
   completed: 'delivered'
 };
 
-const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onCancelOrder, onHandleRequest, can }) => {
+const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, can }) => {
   const [elapsed, setElapsed] = useState('');
   const [isDelayed, setIsDelayed] = useState(false);
   const [showInvoice, setShowInvoice] = useState(false);
@@ -262,15 +258,13 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onC
 };
 const LiveOrders = () => {
   const queryClient = useQueryClient();
-  const { user, selectedBranchId } = useAuth();
+  const { selectedBranchId } = useAuth();
   const { can } = usePermissions();
   
   // 🚀 [SSOT-CUTOVER] React Query Hooks
   const { data: orders = [], isLoading: ordersLoading } = useOrders(selectedBranchId);
-  const { data: stats } = useBranchStats(selectedBranchId);
   const { data: restaurantStatus } = useBranchStatus(selectedBranchId);
 
-  const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [orderToCancel, setOrderToCancel] = useState(null);
   const [cancelReason, setCancelReason] = useState('');
@@ -278,10 +272,9 @@ const LiveOrders = () => {
   const [isSubmittingCancel, setIsSubmittingCancel] = useState(false);
 
   const [showHandleModal, setShowHandleModal] = useState(false);
-  const [handleAction, setHandleAction] = useState('approve'); 
+  const [handleAction, _setHandleAction] = useState('approve'); 
   const [rejectionReason, setRejectionReason] = useState('');
   const [isHandlingRequest, setIsHandlingRequest] = useState(false);
-  const location = useLocation();
   const audioRef = useRef(null);
   const cancelAudioRef = useRef(null);
 
@@ -303,7 +296,7 @@ const LiveOrders = () => {
     'cancelled': []
   };
 
-  const { mutate: updateStatus, isPending: isStatusUpdating } = useUpdateOrderStatus(selectedBranchId);
+  const { mutate: updateStatus } = useUpdateOrderStatus(selectedBranchId);
 
   const onUpdateStatus = (id, status, version) => {
     updateStatus(
@@ -336,12 +329,12 @@ const LiveOrders = () => {
       );
       queryClient.invalidateQueries({ queryKey: ['orders', selectedBranchId] });
       toast.success(`تم تحديث وقت التجهيز إلى ${newPrep} دقيقة`);
-    } catch (err) {
+    } catch {
       toast.error('فشل تحديث الوقت');
     }
   };
 
-  const handleCancelClick = (order) => {
+  const _handleCancelClick = (order) => {
     setOrderToCancel(order);
     setCancelReason('');
     setManagerPassword('');
@@ -519,19 +512,9 @@ const LiveOrders = () => {
                               key={order.id}
                               order={order}
                               index={index}
-                              forceOpen={selectedOrderId === order.id || selectedOrderId === String(order.id) || selectedOrderId === parseInt(order.id)}
+                              forceOpen={false}
                               onAdjustTimer={onAdjustTimer}
                               onUpdateStatus={onUpdateStatus}
-                              onCancelOrder={handleCancelClick}
-                              onHandleRequest={(order, action) => {
-                                setOrderToCancel(order);
-                                setHandleAction(action);
-                                setRejectionReason('');
-                                if (action === 'approve') {
-                                  setRejectionReason('CANCELLATION_APPROVED');
-                                }
-                                setShowHandleModal(true);
-                              }}
                               can={can}
                             />
                           ))}
@@ -600,7 +583,7 @@ const LiveOrders = () => {
                       queryClient.invalidateQueries({ queryKey: ['orders', selectedBranchId] });
                       
                       setShowHandleModal(false);
-                    } catch (err) {
+                    } catch {
                       toast.error('حدث خطأ أثناء معالجة الطلب');
                     } finally {
                       setIsHandlingRequest(false);

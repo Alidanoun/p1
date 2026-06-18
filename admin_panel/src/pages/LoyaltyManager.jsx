@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Stars, Settings, Save, TrendingUp, Gift, Share2, MessageSquare, UserPlus } from 'lucide-react';
 import Header from '../components/Header';
 import api, { unwrap } from '../api/client';
-import { useSocket } from '../contexts/SocketContext';
+import { useSocket } from '../hooks/useSocket';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
 

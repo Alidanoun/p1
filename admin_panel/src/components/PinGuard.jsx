@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../hooks/useAuth';
 import api from '../api/client';
 import { toast } from 'sonner';
 import { Shield, Lock } from 'lucide-react';

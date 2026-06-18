@@ -25,8 +25,8 @@ export default defineConfig([
     rules: {
       // Allow variables prefixed with _ or uppercase to be unused (common convention)
       'no-unused-vars': ['warn', { 
-        varsIgnorePattern: '^[A-Z_]|^_', 
-        argsIgnorePattern: '^_',
+        varsIgnorePattern: '^[A-Z_]|^_|^motion$', 
+        argsIgnorePattern: '^_[a-zA-Z0-9_]*|^[A-Z]',
         caughtErrorsIgnorePattern: '^_|^e$'
       }],
       // These are common React patterns that are safe - downgrade to warn

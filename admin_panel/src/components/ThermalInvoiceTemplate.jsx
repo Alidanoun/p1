@@ -107,6 +107,12 @@ export const ThermalInvoiceTemplate = React.forwardRef(({ order }, ref) => {
             <span>{formatCurrencyArabic(deliveryFee)}</span>
           </div>
         )}
+        {tax > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '14px' }}>
+            <span>الضريبة</span>
+            <span>{formatCurrencyArabic(tax)}</span>
+          </div>
+        )}
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '16px', fontWeight: 'bold' }}>
           <span>الإجمالي الكلي (شامل الضريبة)</span>
           <span>{formatCurrencyArabic(total)}</span>

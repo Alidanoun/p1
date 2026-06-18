@@ -10,7 +10,7 @@ import {
   Fingerprint,
   Settings2
 } from 'lucide-react';
-import { io } from 'socket.io-client';
+import { useSocket } from '../hooks/useSocket';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const ACTION_MAP = {
@@ -42,20 +42,23 @@ const getFriendlyCategory = (log) => {
 };
 
 const AuditLog = () => {
+  const { socket } = useSocket();
   const [logs, setLogs] = useState([]);
   const [stats, setStats] = useState({ totalToday: 0, errorsToday: 0, criticalToday: 0, topActions: [] });
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({ page: 1, limit: 20, severity: '', action: '', status: '' });
   const [selectedLog, setSelectedLog] = useState(null);
-  const [isSocketConnected, setIsSocketConnected] = useState(false);
+  const [isSocketConnected, setIsSocketConnected] = useState(() => !!socket?.connected);
 
   const fetchLogs = useCallback(async () => {
+    setLoading(true);
     try {
       const response = await api.get('/admin/audit/logs', { params: filters });
       setLogs(response.data.data.logs);
       setLoading(false);
     } catch (err) {
       console.error('Failed to fetch logs', err);
+      setLoading(false);
     }
   }, [filters]);
 
@@ -72,20 +75,27 @@ const AuditLog = () => {
     fetchLogs();
     fetchStats();
     
-    // 📡 Real-time Listener
-    const socketUrl = window.location.hostname === 'localhost' ? 'http://localhost:5000' : window.location.origin;
-    const socket = io(socketUrl, {
-      auth: { token: localStorage.getItem('token') }
-    });
+    if (!socket) return;
 
-    socket.on('connect', () => setIsSocketConnected(true));
-    socket.on('audit:new_log', (newLog) => {
+    setIsSocketConnected(socket.connected);
+
+    const onConnect = () => setIsSocketConnected(true);
+    const onDisconnect = () => setIsSocketConnected(false);
+    const handleNewLog = (newLog) => {
       setLogs(prev => [newLog, ...prev].slice(0, filters.limit));
       fetchStats(); // Update counters
-    });
+    };
 
-    return () => socket.disconnect();
-  }, [fetchLogs, filters.limit]);
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    socket.on('audit:new_log', handleNewLog);
+
+    return () => {
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+      socket.off('audit:new_log', handleNewLog);
+    };
+  }, [fetchLogs, filters.limit, socket]);
 
   const getSeverityColor = (sev) => {
     switch (sev) {
@@ -186,7 +196,15 @@ const AuditLog = () => {
             </tr>
           </thead>
           <tbody>
-            {logs.map((log) => (
+            {loading ? (
+              <tr>
+                <td colSpan="6" className="p-8 text-center text-slate-500 animate-pulse">جاري تحميل السجلات...</td>
+              </tr>
+            ) : logs.length === 0 ? (
+              <tr>
+                <td colSpan="6" className="p-8 text-center text-slate-500">لا توجد سجلات لعرضها</td>
+              </tr>
+            ) : logs.map((log) => (
               <tr 
                 key={log.id} 
                 onClick={() => setSelectedLog(log)}

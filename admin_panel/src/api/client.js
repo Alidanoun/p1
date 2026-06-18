@@ -19,7 +19,6 @@ const getBaseUrl = () => {
 };
 export const BASE_URL = getBaseUrl();
 
-let isRefreshing = false;
 let refreshPromise = null; // 🥇 Singleton Promise to coordinate all refresh requests
 let failedQueue = [];
 

@@ -5,7 +5,7 @@ import api from '../api/client';
 import { formatCurrencyArabic } from '../lib/formatters';
 import { cn } from '../lib/utils';
 import { toast } from 'sonner';
-import { useSocket } from '../contexts/SocketContext';
+import { useSocket } from '../hooks/useSocket';
 
 /**
  * 🛰️ Financial Approval Widget (Control Tower)

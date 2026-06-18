@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid } from 'recharts';
 import { Calendar, TrendingUp, Package, DollarSign } from 'lucide-react';
 import api from "../api/client";
@@ -10,11 +10,7 @@ export default function ReportsDashboard() {
   const [loading, setLoading] = useState(true);
   const [days, setDays] = useState(7);
 
-  useEffect(() => {
-    fetchReports();
-  }, [days]);
-
-  const fetchReports = async () => {
+  const fetchReports = useCallback(async () => {
     try {
       setLoading(true);
       const [reportsRes, itemsRes] = await Promise.all([
@@ -34,7 +30,11 @@ export default function ReportsDashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [days]);
+
+  useEffect(() => {
+    fetchReports();
+  }, [fetchReports]);
 
   const totalRevenue = dailyReports.reduce((sum, r) => sum + r.totalRevenue, 0);
   const totalOrders = dailyReports.reduce((sum, r) => sum + r.totalOrders, 0);

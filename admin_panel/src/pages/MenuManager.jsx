@@ -5,12 +5,13 @@ import {
   DollarSign, ChevronDown, ChevronUp, Layers, List, Settings, 
   Info, AlertCircle, FolderPlus, XCircle
 } from 'lucide-react';
-import { AnimatePresence, motion } from 'framer-motion'; // eslint-disable-line no-unused-vars
+import { AnimatePresence, motion } from 'framer-motion';
 import { toast } from 'sonner';
 import Header from '../components/Header';
 import api, { getImageUrl, unwrap } from '../api/client';
 import { cn } from '../lib/utils';
 import Switch from '../components/Switch';
+import { useDebounce } from '../hooks/useDebounce';
 
 const MenuManager = () => {
   const [items, setItems] = useState([]);
@@ -56,27 +57,13 @@ const MenuManager = () => {
   const [categoryImageFile, setCategoryImageFile] = useState(null);
   const [categoryPreviewUrl, setCategoryPreviewUrl] = useState('');
 
-  useEffect(() => {
-    fetchData();
-  }, [currentPage, selectedCategory]);
+  const debouncedSearchQuery = useDebounce(searchQuery, 500);
 
-  // Handle Search Debounce
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (currentPage !== 1) {
-        setCurrentPage(1);
-      } else {
-        fetchData();
-      }
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       let url = `/items?admin=true&page=${currentPage}&limit=${ITEMS_PER_PAGE}`;
-      if (searchQuery) url += `&query=${encodeURIComponent(searchQuery)}`;
+      if (debouncedSearchQuery) url += `&query=${encodeURIComponent(debouncedSearchQuery)}`;
       if (selectedCategory !== 'all') url += `&categoryId=${selectedCategory}`;
 
       const [itemsRes, catRes] = await Promise.all([
@@ -97,7 +84,15 @@ const MenuManager = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentPage, debouncedSearchQuery, selectedCategory]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearchQuery]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const toggleExpand = (itemId) => {
     const newExpanded = new Set(expandedItems);

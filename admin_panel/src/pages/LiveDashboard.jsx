@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../hooks/useAuth';
 import { Navigate } from 'react-router-dom';
 import { 
   DollarSign, 
@@ -39,7 +39,7 @@ import {
   CartesianGrid
 } from 'recharts';
 import Header from '../components/Header';
-import { useSocket } from '../contexts/SocketContext';
+import { useSocket } from '../hooks/useSocket';
 import FinancialApprovalWidget from '../components/FinancialApprovalWidget';
 
 import { formatCurrencyArabic, formatNumberArabic } from '../lib/formatters';
@@ -134,14 +134,6 @@ const LiveDashboard = () => {
     return { direction: 'neutral', value: '0%' };
   };
 
-  // 🛡️ Access Guard: Operations Center is for Admins only
-  const role = user?.role?.toLowerCase();
-  const isAdmin = role === 'admin';
-
-  if (user && !isAdmin) {
-    return <Navigate to="/orders" replace />;
-  }
-
   // 📊 Chart Data Normalization
   const statusChartData = useMemo(() => {
     // 🧱 Base set of statuses we ALWAYS want to show
@@ -172,6 +164,14 @@ const LiveDashboard = () => {
       color: colors[status] || '#ffffff'
     }));
   }, [liveMetrics]);
+
+  // 🛡️ Access Guard: Operations Center is for Admins only
+  const role = user?.role?.toLowerCase();
+  const isAdmin = role === 'admin';
+
+  if (user && !isAdmin) {
+    return <Navigate to="/orders" replace />;
+  }
 
 
 

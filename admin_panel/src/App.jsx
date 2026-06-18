@@ -1,7 +1,8 @@
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, Outlet } from 'react-router-dom';
-import { useAuth } from './contexts/AuthContext';
-import { SocketProvider } from './contexts/SocketContext';
-import { ThemeProvider, useTheme } from './contexts/ThemeContext';
+import { useAuth } from './hooks/useAuth';
+import { SocketProvider } from './contexts/SocketProvider';
+import { ThemeProvider } from './contexts/ThemeProvider';
+import { useTheme } from './hooks/useTheme';
 import { Toaster } from 'sonner';
 import Sidebar from './components/Sidebar';
 import Login from './pages/Login';

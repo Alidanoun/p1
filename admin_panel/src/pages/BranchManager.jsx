@@ -11,14 +11,15 @@ import {
   X,
   AlertTriangle
 } from 'lucide-react';
-import { io } from 'socket.io-client';
+import { useSocket } from '../hooks/useSocket';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 
 const BranchManager = () => {
+  const { socket } = useSocket();
   const [branches, setBranches] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [isSocketConnected, setIsSocketConnected] = useState(false);
+  const [isSocketConnected, setIsSocketConnected] = useState(() => !!socket?.connected);
 
   // Modal states
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -53,19 +54,23 @@ const BranchManager = () => {
   useEffect(() => {
     fetchBranches();
     
-    // 📡 Real-time Listener
-    const socketUrl = window.location.hostname === 'localhost' ? 'http://localhost:5000' : window.location.origin;
-    const socket = io(socketUrl, {
-      auth: { token: localStorage.getItem('token') }
-    });
+    if (!socket) return;
 
-    socket.on('connect', () => setIsSocketConnected(true));
-    socket.on('branch:updated', () => {
-      fetchBranches();
-    });
+    setIsSocketConnected(socket.connected);
 
-    return () => socket.disconnect();
-  }, [fetchBranches]);
+    const onConnect = () => setIsSocketConnected(true);
+    const onDisconnect = () => setIsSocketConnected(false);
+
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    socket.on('branch:updated', fetchBranches);
+
+    return () => {
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+      socket.off('branch:updated', fetchBranches);
+    };
+  }, [fetchBranches, socket]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;

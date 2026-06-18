@@ -1,12 +1,12 @@
-import { useEffect, useRef } from 'react';
-import { useSocket } from '../contexts/SocketContext';
+import { useEffect, useRef, useCallback } from 'react';
+import { useSocket } from './useSocket';
 
 /**
  * 🔄 useSocketSync Hook
  * Automatically triggers a refresh function when the socket reconnects.
  * Ensures the UI state remains in sync with the server after network interruptions.
  */
-export const useSocketSync = (refreshFn, dependencies = []) => {
+export const useSocketSync = (refreshFn) => {
   const { socket } = useSocket();
   const refreshRef = useRef(refreshFn);
 
@@ -35,8 +35,14 @@ export const useSocketSync = (refreshFn, dependencies = []) => {
       socket.off('connect', handleReconnect);
       socket.off('reconnect', handleReconnect);
     };
-  }, [socket, ...dependencies]);
+  }, [socket]);
 
-  // Return the refresh function for manual triggering if needed
-  return refreshRef.current;
+  // ✅ Return a stable wrapper function that reads the ref when called (not during render)
+  const stableRefresh = useCallback(() => {
+    if (refreshRef.current) {
+      refreshRef.current();
+    }
+  }, []);
+
+  return stableRefresh;
 };

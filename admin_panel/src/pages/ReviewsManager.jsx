@@ -25,7 +25,7 @@ const ReviewsManager = () => {
     try {
       const data = unwrap(await api.get('/reviews')) || [];
       setReviews(Array.isArray(data) ? data : []);
-    } catch (err) {
+    } catch {
       toast.error('فشل في تحميل التقييمات');
     } finally {
       setLoading(false);

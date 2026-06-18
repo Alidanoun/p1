@@ -1,15 +1,8 @@
-import { createContext, useState, useEffect, useContext, useRef } from 'react';
-import api, { executeRefresh } from '../api/client';
+import { useState, useEffect, useRef } from 'react';
+import { AuthContext } from './AuthContext';
+import api, { executeRefresh, isValidBranchId } from '../api/client';
 import { tokenStore } from '../api/tokenStore';
 import { toast } from 'sonner';
-
-const AuthContext = createContext();
-
-export const isValidBranchId = (id) => {
-  return id && typeof id === 'string' && !['null', 'undefined', ''].includes(id.trim());
-};
-
-export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -45,10 +38,12 @@ export const AuthProvider = ({ children }) => {
 
     // 🛡️ Safety Guard: Force loading to false after 5s to prevent infinite hang
     const safetyTimer = setTimeout(() => {
-      if (loading) {
-        console.warn('🧪 [AuthBootstrap] Safety timeout triggered. Forcing UI release.');
-        setLoading(false);
-      }
+      setLoading(currentLoading => {
+        if (currentLoading) {
+          console.warn('🧪 [AuthBootstrap] Safety timeout triggered. Forcing UI release.');
+        }
+        return false;
+      });
     }, 5000);
 
     const bootstrap = async () => {

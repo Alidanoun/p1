@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useAuth } from '../contexts/AuthContext';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useAuth } from '../hooks/useAuth';
 import { Search, Filter, CheckCircle2, XCircle, Info, Loader2, UtensilsCrossed, RefreshCw, Building2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
@@ -15,7 +15,7 @@ const BranchMenu = () => {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all'); // all, available, unavailable
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const branchId = selectedBranchId || user?.branchId;
@@ -38,11 +38,11 @@ const BranchMenu = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedBranchId, user?.branchId]);
 
   useEffect(() => {
     fetchData();
-  }, [user?.branchId, selectedBranchId]);
+  }, [fetchData]);
 
   const toggleAvailability = async (itemId, currentStatus) => {
     const newStatus = !currentStatus;
