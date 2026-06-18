@@ -6,9 +6,7 @@
 export const ROLES = {
   ADMIN: 'ADMIN',
   BRANCH_MANAGER: 'BRANCH_MANAGER',
-  STAFF: 'STAFF',
-  KITCHEN: 'KITCHEN',
-  DRIVER: 'DRIVER'
+  STAFF: 'STAFF'
 };
 
 export const PERMISSIONS = {

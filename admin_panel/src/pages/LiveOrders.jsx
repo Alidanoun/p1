@@ -214,13 +214,30 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onC
                 )}
                 
                 {order.status === 'preparing' && can('MANAGE_ORDERS') && (
-                  <button
-                    onClick={() => onUpdateStatus(order.id, 'ready', order.version, order.eventSequence)}
-                    className="col-span-2 py-2.5 bg-indigo-500 hover:bg-indigo-600 rounded-xl text-white font-black text-xs shadow-lg shadow-indigo-500/20 transition-all active:scale-95 flex items-center justify-center gap-2"
-                  >
-                    <Package className="w-4 h-4" />
-                    تجهيز الطلب
-                  </button>
+                  <>
+                    <button
+                      onClick={() => onUpdateStatus(order.id, 'ready', order.version, order.eventSequence)}
+                      className="col-span-2 py-2.5 bg-indigo-500 hover:bg-indigo-600 rounded-xl text-white font-black text-xs shadow-lg shadow-indigo-500/20 transition-all active:scale-95 flex items-center justify-center gap-2"
+                    >
+                      <Package className="w-4 h-4" />
+                      الطلب جاهز
+                    </button>
+                    <div className="col-span-2 flex items-center justify-between bg-white/5 rounded-xl p-1 border border-white/5">
+                      <button 
+                        onClick={() => onAdjustTimer(order.id, -5)} 
+                        className="px-3 py-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-white font-bold text-[10px] transition-colors"
+                      >
+                        -5 دقيقة
+                      </button>
+                      <span className="text-[10px] font-bold text-text-muted">وقت التحضير: {order.preparationTimeMinutes || 20}د</span>
+                      <button 
+                        onClick={() => onAdjustTimer(order.id, 5)} 
+                        className="px-3 py-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-white font-bold text-[10px] transition-colors"
+                      >
+                        +5 دقيقة
+                      </button>
+                    </div>
+                  </>
                 )}
 
                 {order.status === 'ready' && can('MANAGE_ORDERS') && (
@@ -401,15 +418,7 @@ const LiveOrders = () => {
     if (!orderToUpdate) return;
     const currentStatus = orderToUpdate.status;
 
-    // 🚚 [FIX] طلبات التوصيل: إجبار المرور بـ in_route قبل delivered
-    if (
-      newStatus === 'delivered' &&
-      orderToUpdate.orderType === 'delivery' &&
-      currentStatus === 'ready'
-    ) {
-      toast.error('🚚 طلبات التوصيل يجب أن تمر بحالة "في الطريق" أولاً قبل الاكتمال');
-      return;
-    }
+
 
     if (!VALID_TRANSITIONS[currentStatus]?.includes(newStatus)) {
       toast.error('انتقال غير مسموح لهذه الحالة');

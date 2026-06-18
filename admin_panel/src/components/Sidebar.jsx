@@ -6,56 +6,57 @@ import { cn } from '../lib/utils';
 import { motion } from 'framer-motion';
 
 const Sidebar = () => {
-  const { user, logout } = useAuth();
+  const { user, logout, isAuthorized } = useAuth();
   const { theme, toggleTheme } = useTheme();
 
   const role = user?.role?.toLowerCase();
   const isAdmin = role === 'admin';
   const isBranchManager = role === 'manager' || role === 'branch_manager';
+  const isStaff = role === 'staff';
 
   const navGroups = [
     {
       label: 'العمليات اليومية',
       items: [
-        { name: 'مركز العمليات', icon: LayoutDashboard, path: '/', isLive: true, show: isAdmin || isBranchManager },
-        { name: 'الطلبات الحية', icon: ListOrdered, path: '/orders', show: true },
-        { name: 'الطلبات الملغاة', icon: XCircle, path: '/cancelled-orders', show: isAdmin },
+        { name: 'مركز العمليات', icon: LayoutDashboard, path: '/', isLive: true, show: isAdmin || isBranchManager || isStaff },
+        { name: 'الطلبات الحية', icon: ListOrdered, path: '/orders', show: isAdmin || isAuthorized('manageOrders') || isStaff },
+        { name: 'الطلبات الملغاة', icon: XCircle, path: '/cancelled-orders', show: isAdmin || isAuthorized('manageOrders') },
       ]
     },
     {
       label: 'إدارة المحتوى',
       show: isAdmin || isBranchManager,
       items: [
-        { name: 'إدارة القائمة', icon: MenuSquare, path: '/menu', show: isAdmin },
-        { name: 'منيو الفرع', icon: Utensils, path: '/branch-menu', show: isBranchManager },
-        { name: 'مناطق التوصيل', icon: MapPin, path: '/delivery-zones', show: isAdmin },
+        { name: 'إدارة القائمة', icon: MenuSquare, path: '/menu', show: isAdmin || isAuthorized('menu') },
+        { name: 'منيو الفرع', icon: Utensils, path: '/branch-menu', show: isAuthorized('menu') },
+        { name: 'مناطق التوصيل', icon: MapPin, path: '/delivery-zones', show: isAdmin || isAuthorized('deliveryZones') },
       ]
     },
     {
       label: 'العملاء والتسويق',
-      show: isAdmin,
+      show: isAdmin || isBranchManager,
       items: [
-        { name: 'التقييمات', icon: Star, path: '/reviews', show: isAdmin },
-        { name: 'برنامج الولاء', icon: Stars, path: '/loyalty', show: isAdmin },
-        { name: 'متجر المكافآت', icon: Gift, path: '/rewards-store', show: isAdmin },
-        { name: 'إشعارات وعروض', icon: Send, path: '/broadcast', show: isAdmin },
+        { name: 'التقييمات', icon: Star, path: '/reviews', show: isAdmin || isAuthorized('reviews') },
+        { name: 'برنامج الولاء', icon: Stars, path: '/loyalty', show: isAdmin || isAuthorized('loyalty') },
+        { name: 'متجر المكافآت', icon: Gift, path: '/rewards-store', show: isAdmin || isAuthorized('rewardsStore') },
+        { name: 'إشعارات وعروض', icon: Send, path: '/broadcast', show: isAdmin || isAuthorized('notifications') },
       ]
     },
     {
       label: 'التحليل والمالية',
-      show: isAdmin,
+      show: isAdmin || isBranchManager,
       items: [
-        { name: 'الإحصائيات', icon: TrendingUp, path: '/analytics', show: isAdmin },
-        { name: 'التقارير المالية', icon: BarChart2, path: '/reports-dashboard', show: isAdmin },
+        { name: 'الإحصائيات', icon: TrendingUp, path: '/analytics', show: isAdmin || isAuthorized('advancedAnalytics') },
+        { name: 'التقارير المالية', icon: BarChart2, path: '/reports-dashboard', show: isAdmin || isAuthorized('financials') },
       ]
     },
     {
       label: 'الإدارة والنظام',
-      show: isAdmin,
+      show: isAdmin || isBranchManager,
       items: [
         { name: 'إدارة الفروع', icon: Building2, path: '/branches', show: isAdmin },
-        { name: 'الإعدادات', icon: Settings, path: '/settings', show: isAdmin },
-        { name: 'سجل التدقيق', icon: ShieldCheck, path: '/audit', show: isAdmin },
+        { name: 'الإعدادات', icon: Settings, path: '/settings', show: isAdmin || isAuthorized('settings') },
+        { name: 'سجل التدقيق', icon: ShieldCheck, path: '/audit', show: isAdmin || isAuthorized('auditLog') },
       ]
     },
   ].filter(group => group.show !== false);

@@ -92,6 +92,7 @@ const sendHybridTokens = (req, res, account, accessToken, refreshTokenStr, extra
     role: account.role || 'customer',
     branchId: account.branchId || null,
     branchName: account.branch?.name || null,
+    permissions: account.branch?.permissions || {},
     ...extraData
   };
 
@@ -231,7 +232,7 @@ const login = async (req, res) => {
 
     let user = await prisma.user.findUnique({
       where: { emailHash: blindedEmail },
-      include: { branch: true }
+      include: { branch: { include: { permissions: true } } }
     });
 
     let customer = null;
@@ -355,7 +356,7 @@ const getMe = async (req, res) => {
     if (isAdminRole) {
       user = await prisma.user.findUnique({ 
         where: { uuid: req.user.id },
-        include: { branch: true }
+        include: { branch: { include: { permissions: true } } }
       });
     } else {
       user = await prisma.customer.findUnique({ where: { uuid: req.user.id } });
@@ -375,6 +376,7 @@ const getMe = async (req, res) => {
         role: user.role || 'customer',
         branchId: user.branchId || null,
         branchName: user.branch?.name || null,
+        permissions: user.branch?.permissions || {},
         points: user.points ?? 0,
         tier: user.tier || 'SILVER'
       } 

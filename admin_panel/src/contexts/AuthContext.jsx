@@ -219,11 +219,18 @@ export const AuthProvider = ({ children }) => {
     return role === requiredRole;
   };
 
-  const isAuthorized = (permission) => {
+  const isAuthorized = (permission, requiredLevel = 'VIEW') => {
     if (!user) return false;
     const role = user.role?.toLowerCase();
     if (role === 'admin') return true;
-    return user.permissions?.[permission] === true;
+    
+    const p = user.permissions?.[permission];
+    if (!p || p === 'NONE') return false;
+    
+    if (requiredLevel === 'EDIT_PIN' && !['EDIT_PIN', 'EDIT_PIN_READ', 'FULL'].includes(p)) return false;
+    if (requiredLevel === 'FULL' && p !== 'FULL') return false;
+    
+    return true;
   };
 
   return (

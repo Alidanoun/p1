@@ -22,6 +22,7 @@ import AuditLog from './pages/AuditLog';
 import BranchMenu from './pages/BranchMenu';
 import BranchManager from './pages/BranchManager';
 import ProtectedRoute from './components/ProtectedRoute';
+import PinGuard from './components/PinGuard';
 import ErrorBoundary from './components/ErrorBoundary';
 
 /**
@@ -83,54 +84,88 @@ function App() {
           
           {/* Internal Protected Routes (Nested under Layout) */}
           <Route element={<ProtectedLayout />}>
-            <Route path="/" element={<LiveDashboard />} />
-            <Route path="/orders" element={<LiveOrders />} />
-            <Route path="/menu" element={<MenuManager />} />
-            <Route path="/branch-menu" element={<BranchMenu />} />
-            <Route path="/reviews" element={<ReviewsManager />} />
-            <Route path="/loyalty" element={<LoyaltyManager />} />
-            <Route path="/rewards-store" element={<RewardStoreManager />} />
-            <Route path="/delivery-zones" element={<DeliveryZonesManager />} />
+            <Route path="/" element={
+              <ProtectedRoute requiredRole={['admin', 'manager', 'branch_manager', 'staff']}>
+                <PinGuard>
+                  <LiveDashboard />
+                </PinGuard>
+              </ProtectedRoute>
+            } />
+            <Route path="/orders" element={
+              <ProtectedRoute requiredRole={['admin', 'manager', 'branch_manager', 'staff']} permission="manageOrders">
+                <LiveOrders />
+              </ProtectedRoute>
+            } />
+            <Route path="/menu" element={
+              <ProtectedRoute requiredRole={['admin', 'manager', 'branch_manager']} permission="menu">
+                <MenuManager />
+              </ProtectedRoute>
+            } />
+            <Route path="/branch-menu" element={
+              <ProtectedRoute requiredRole={['admin', 'manager', 'branch_manager']} permission="menu">
+                <BranchMenu />
+              </ProtectedRoute>
+            } />
+            <Route path="/reviews" element={
+              <ProtectedRoute requiredRole={['admin', 'manager', 'branch_manager']} permission="reviews">
+                <ReviewsManager />
+              </ProtectedRoute>
+            } />
+            <Route path="/loyalty" element={
+              <ProtectedRoute requiredRole={['admin', 'manager', 'branch_manager']} permission="loyalty">
+                <LoyaltyManager />
+              </ProtectedRoute>
+            } />
+            <Route path="/rewards-store" element={
+              <ProtectedRoute requiredRole={['admin', 'manager', 'branch_manager']} permission="rewardsStore">
+                <RewardStoreManager />
+              </ProtectedRoute>
+            } />
+            <Route path="/delivery-zones" element={
+              <ProtectedRoute requiredRole={['admin', 'manager', 'branch_manager']} permission="deliveryZones">
+                <DeliveryZonesManager />
+              </ProtectedRoute>
+            } />
             
             {/* RBAC Protected Sub-routes */}
             <Route path="/broadcast" element={
-              <ProtectedRoute requiredRole="admin">
+              <ProtectedRoute requiredRole={['admin', 'manager', 'branch_manager']} permission="notifications">
                 <BroadcastNotifications />
               </ProtectedRoute>
             } />
             
             <Route path="/cancelled-orders" element={
-              <ProtectedRoute requiredRole="admin">
+              <ProtectedRoute requiredRole={['admin', 'manager', 'branch_manager']} permission="manageOrders">
                 <CancelledOrders />
               </ProtectedRoute>
             } />
             
             <Route path="/analytics" element={
-              <ProtectedRoute requiredRole="admin">
+              <ProtectedRoute requiredRole={['admin', 'manager', 'branch_manager']} permission="advancedAnalytics">
                 <Analytics />
               </ProtectedRoute>
             } />
             
             <Route path="/reports" element={
-              <ProtectedRoute requiredRole="admin">
+              <ProtectedRoute requiredRole={['admin', 'manager', 'branch_manager']} permission="financials">
                 <Reports />
               </ProtectedRoute>
             } />
 
             <Route path="/reports-dashboard" element={
-              <ProtectedRoute requiredRole="admin">
+              <ProtectedRoute requiredRole={['admin', 'manager', 'branch_manager']} permission="financials">
                 <ReportsDashboard />
               </ProtectedRoute>
             } />
             
             <Route path="/settings" element={
-              <ProtectedRoute requiredRole="admin">
+              <ProtectedRoute requiredRole={['admin', 'manager', 'branch_manager']} permission="settings">
                 <Settings />
               </ProtectedRoute>
             } />
             
             <Route path="/audit" element={
-              <ProtectedRoute requiredRole="admin">
+              <ProtectedRoute requiredRole={['admin', 'manager', 'branch_manager']} permission="auditLog">
                 <AuditLog />
               </ProtectedRoute>
             } />
