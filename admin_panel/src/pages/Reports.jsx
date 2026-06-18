@@ -126,8 +126,7 @@ const Reports = () => {
       'preparing': { text: 'قيد التجهيز', style: 'bg-purple-500/10 text-purple-500 border-purple-500/20' },
       'ready': { text: 'جاهز', style: 'bg-cyan-500/10 text-cyan-500 border-cyan-500/20' },
       'in_route': { text: 'في الطريق', style: 'bg-indigo-500/10 text-indigo-500 border-indigo-500/20' },
-      'waiting_cancellation': { text: 'طلب إلغاء', style: 'bg-rose-500/10 text-rose-500 border-rose-500/20' },
-      'waiting_cancellation_admin': { text: 'إلغاء (إدارة)', style: 'bg-orange-500/10 text-orange-500 border-orange-500/20' },
+
     };
     return map[status] || { text: status, style: 'bg-white/5 text-text-muted border-white/10' };
   };

@@ -177,12 +177,7 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onC
                   <span>في الطريق</span>
                 </div>
               )}
-              {order.status === 'waiting_cancellation' && (
-                <div className="px-2 py-0.5 rounded-md bg-red-500/20 text-red-500 border border-red-500/30 text-[9px] font-black flex items-center gap-1">
-                  <AlertCircle className="w-3 h-3" />
-                  <span>طلب إلغاء</span>
-                </div>
-              )}
+
             </div>
 
             <div className="flex flex-col gap-2 border-t border-white/5 pt-4">
@@ -250,23 +245,6 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, onC
                     <Truck className="w-4 h-4" />
                     تسليم الطلب
                   </button>
-                )}
-
-                {(order.status === 'waiting_cancellation' || order.status === 'waiting_cancellation_admin') && can('CANCEL_ORDER') && (
-                  <>
-                    <button
-                      onClick={() => onHandleRequest(order, 'approve')}
-                      className="py-2 bg-red-500 hover:bg-red-600 rounded-xl text-white font-black text-[10px] transition-all flex items-center justify-center gap-1"
-                    >
-                      موافقة الإلغاء
-                    </button>
-                    <button
-                      onClick={() => onHandleRequest(order, 'reject')}
-                      className="py-2 bg-white/10 hover:bg-white/20 rounded-xl text-white font-black text-[10px] transition-all flex items-center justify-center gap-1"
-                    >
-                      رفض الإلغاء
-                    </button>
-                  </>
                 )}
               </div>
             </div>
@@ -365,7 +343,7 @@ const LiveOrders = () => {
 
   const handleCancelClick = (order) => {
     setOrderToCancel(order);
-    setCancelReason(order.status === 'waiting_cancellation' ? (order.cancellation?.reason || '') : '');
+    setCancelReason('');
     setManagerPassword('');
     setShowCancelModal(true);
   };

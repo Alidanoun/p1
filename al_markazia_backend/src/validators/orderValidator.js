@@ -4,11 +4,10 @@
  */
 
 const ORDER_STATUS_MAP = {
-  'pending': ['confirmed', 'preparing', 'cancelled', 'waiting_cancellation'],
-  'confirmed': ['preparing', 'cancelled', 'waiting_cancellation'],
-  'preparing': ['ready', 'cancelled', 'waiting_cancellation'],
+  'pending': ['confirmed', 'preparing', 'cancelled'],
+  'confirmed': ['preparing', 'cancelled'],
+  'preparing': ['ready', 'cancelled'],
   'ready': ['delivered', 'cancelled'],
-  'waiting_cancellation': ['cancelled', 'preparing', 'ready', 'confirmed'],
   'delivered': [], // Final State
   'cancelled': []  // Final State
 };

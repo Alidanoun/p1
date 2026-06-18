@@ -249,38 +249,9 @@ class CancellationOrchestrator {
     });
   }
 
-  /**
-   * 🧠 Evaluate cancellation policy
-   */
   async _evaluatePolicy(order, actor, source) {
-    if (source === 'SYSTEM_TIMEOUT' || source === 'SYSTEM_CANCEL' || source === 'ADMIN_APPROVAL') {
-      return { action: 'EXECUTE', level: 'LOW' };
-    }
-
-    const isAdmin = actor?.role === 'admin';
-    const isManager = actor?.role?.toUpperCase() === 'BRANCH_MANAGER';
-    
-    if (isAdmin) return { action: 'EXECUTE', level: 'HIGH' };
-
-    const config = await this.container.configService.getFullConfig();
-    const timeDiff = (Date.now() - new Date(order.createdAt).getTime()) / 60000;
-    const freeCancelWindow = config.business.freeCancelWindowMinutes;
-
-    let level = 'LOW';
-    if (order.status === 'pending' && timeDiff < freeCancelWindow) {
-      level = 'LOW';
-    } else if (order.status === 'preparing' || (order.status === 'pending' && timeDiff >= freeCancelWindow)) {
-      level = 'MEDIUM';
-    } else {
-      level = 'HIGH';
-    }
-
-    if (toNumber(order.total) > 50) level = 'HIGH';
-
-    if (isManager && (level === 'LOW' || level === 'MEDIUM')) return { action: 'EXECUTE', level };
-    if (actor?.role === 'customer' && level === 'LOW') return { action: 'EXECUTE', level };
-
-    return { action: 'REQUEST_APPROVAL', level };
+    // 🧠 Removed request approval workflow as requested by user
+    return { action: 'EXECUTE', level: 'LOW' };
   }
 
   async _executeCancellationRequest(order, user, reason, level) {

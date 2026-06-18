@@ -145,15 +145,14 @@ const LiveDashboard = () => {
   // 📊 Chart Data Normalization
   const statusChartData = useMemo(() => {
     // 🧱 Base set of statuses we ALWAYS want to show
-    const coreStatuses = ['pending', 'preparing', 'ready', 'delivered', 'cancelled', 'waiting_cancellation'];
+    const coreStatuses = ['pending', 'preparing', 'ready', 'delivered', 'cancelled'];
     
     const labels = {
       pending: 'قيد الانتظار',
       preparing: 'تجهيز',
       ready: 'جاهز',
       delivered: 'تم التسليم',
-      cancelled: 'ملغي',
-      waiting_cancellation: 'طلب إلغاء'
+      cancelled: 'ملغى'
     };
 
     const colors = {
@@ -161,8 +160,7 @@ const LiveDashboard = () => {
       preparing: '#8b5cf6',
       ready: '#10b981',
       delivered: '#64748b',
-      cancelled: '#ef4444',
-      waiting_cancellation: '#f87171'
+      cancelled: '#ef4444'
     };
 
     // Use liveMetrics or default to empty object
