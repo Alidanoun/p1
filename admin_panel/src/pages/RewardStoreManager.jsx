@@ -4,12 +4,14 @@ import Header from '../components/Header';
 import api, { unwrap } from '../api/client';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
+import ConfirmationModal from '../components/ConfirmationModal';
 
 const RewardStoreManager = () => {
   const [rewards, setRewards] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingReward, setEditingReward] = useState(null);
+  const [confirmConfig, setConfirmConfig] = useState(null);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -92,15 +94,22 @@ const RewardStoreManager = () => {
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('هل أنت متأكد من حذف هذه المكافأة نهائياً؟')) return;
-    try {
-      await api.delete(`/loyalty/rewards/${id}`);
-      toast.success('تم الحذف بنجاح');
-      fetchRewards();
-    } catch (error) {
-      toast.error('حدث خطأ أثناء الحذف');
-    }
+  const handleDelete = (id) => {
+    setConfirmConfig({
+      title: 'حذف المكافأة',
+      message: 'هل أنت متأكد من حذف هذه المكافأة نهائياً؟ لا يمكن التراجع عن هذا الإجراء.',
+      type: 'danger',
+      onConfirm: async () => {
+        setConfirmConfig(null);
+        try {
+          await api.delete(`/loyalty/rewards/${id}`);
+          toast.success('تم الحذف بنجاح');
+          fetchRewards();
+        } catch (error) {
+          toast.error('حدث خطأ أثناء الحذف');
+        }
+      }
+    });
   };
 
   const toggleActiveStatus = async (reward) => {
@@ -349,6 +358,17 @@ const RewardStoreManager = () => {
           </div>
         )}
       </AnimatePresence>
+
+      <ConfirmationModal
+        isOpen={!!confirmConfig}
+        title={confirmConfig?.title}
+        message={confirmConfig?.message}
+        type={confirmConfig?.type}
+        onConfirm={confirmConfig?.onConfirm}
+        onCancel={() => setConfirmConfig(null)}
+        confirmText="حذف"
+        cancelText="تراجع"
+      />
     </div>
   );
 };

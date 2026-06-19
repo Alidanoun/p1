@@ -9,6 +9,7 @@ import Header from '../components/Header';
 import { cn } from '../lib/utils';
 import Switch from '../components/Switch';
 import api, { unwrap } from '../api/client';
+import ConfirmationModal from '../components/ConfirmationModal';
 
 const DeliveryZonesManager = () => {
   const [zones, setZones] = useState([]);
@@ -17,6 +18,7 @@ const DeliveryZonesManager = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [updatingId, setUpdatingId] = useState(null);
+  const [confirmConfig, setConfirmConfig] = useState(null);
   const [formData, setFormData] = useState({
     nameAr: '',
     nameEn: '',
@@ -104,22 +106,28 @@ const DeliveryZonesManager = () => {
     }
   };
 
-  const handleDelete = async (id, name) => {
-    if (window.confirm(`هل أنت متأكد من حذف منطقة "${name}"؟`)) {
-      try {
-        const promise = api.delete(`/delivery-zones/${id}`);
-        toast.promise(promise, {
-          loading: 'جاري الحذف...',
-          success: () => {
-            setZones(zones.filter(z => z.id !== id));
-            return 'تم حذف المنطقة بنجاح';
-          },
-          error: (err) => err.response?.data?.error || 'فشل في حذف المنطقة'
-        });
-      } catch (error) {
-        console.error('Delete delivery zone error:', error);
+  const handleDelete = (id, name) => {
+    setConfirmConfig({
+      title: 'حذف منطقة التوصيل',
+      message: `هل أنت متأكد من حذف منطقة "${name}"؟ لا يمكن التراجع عن هذا الإجراء.`,
+      type: 'danger',
+      onConfirm: async () => {
+        setConfirmConfig(null);
+        try {
+          const promise = api.delete(`/delivery-zones/${id}`);
+          toast.promise(promise, {
+            loading: 'جاري الحذف...',
+            success: () => {
+              setZones(zones.filter(z => z.id !== id));
+              return 'تم حذف المنطقة بنجاح';
+            },
+            error: (err) => err.response?.data?.error || 'فشل في حذف المنطقة'
+          });
+        } catch (error) {
+          console.error('Delete delivery zone error:', error);
+        }
       }
-    }
+    });
   };
 
   const toggleActive = async (zone) => {
@@ -422,6 +430,17 @@ const DeliveryZonesManager = () => {
           </div>
         )}
       </AnimatePresence>
+
+      <ConfirmationModal
+        isOpen={!!confirmConfig}
+        title={confirmConfig?.title}
+        message={confirmConfig?.message}
+        type={confirmConfig?.type}
+        onConfirm={confirmConfig?.onConfirm}
+        onCancel={() => setConfirmConfig(null)}
+        confirmText="حذف"
+        cancelText="تراجع"
+      />
     </div>
   );
 };

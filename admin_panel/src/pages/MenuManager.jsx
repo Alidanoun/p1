@@ -12,6 +12,7 @@ import api, { getImageUrl, unwrap } from '../api/client';
 import { cn } from '../lib/utils';
 import Switch from '../components/Switch';
 import { useDebounce } from '../hooks/useDebounce';
+import ConfirmationModal from '../components/ConfirmationModal';
 
 const MenuManager = () => {
   const [items, setItems] = useState([]);
@@ -23,6 +24,7 @@ const MenuManager = () => {
   
   // Item Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [confirmConfig, setConfirmConfig] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [formData, setFormData] = useState({ 
     title: '', 
@@ -232,23 +234,29 @@ const MenuManager = () => {
     }
   };
 
-  const handleDeleteCategory = async (id, name) => {
-    if (confirm(`هل أنت متأكد من حذف فئة "${name}"؟ لا يمكن التراجع عن هذا الإجراء.`)) {
-      try {
-        const promise = api.delete(`/categories/${id}`);
-        toast.promise(promise, {
-          loading: 'جاري حذف الفئة...',
-          success: () => {
-             fetchData();
-             if (selectedCategory === id) setSelectedCategory('all');
-             return 'تم حذف الفئة بنجاح';
-          },
-          error: (err) => err.response?.data?.error || 'فشل في حذف الفئة'
-        });
-      } catch (error) {
-        console.error('Delete category error:', error);
+  const handleDeleteCategory = (id, name) => {
+    setConfirmConfig({
+      title: 'حذف فئة القائمة',
+      message: `هل أنت متأكد من حذف فئة "${name}"؟ لا يمكن التراجع عن هذا الإجراء وسيتم إلغاء ربط جميع الأصناف التابعة لها.`,
+      type: 'danger',
+      onConfirm: async () => {
+        setConfirmConfig(null);
+        try {
+          const promise = api.delete(`/categories/${id}`);
+          toast.promise(promise, {
+            loading: 'جاري حذف الفئة...',
+            success: () => {
+               fetchData();
+               if (selectedCategory === id) setSelectedCategory('all');
+               return 'تم حذف الفئة بنجاح';
+            },
+            error: (err) => err.response?.data?.error || 'فشل في حذف الفئة'
+          });
+        } catch (error) {
+          console.error('Delete category error:', error);
+        }
       }
-    }
+    });
   };
 
   const addGroup = () => {
@@ -386,16 +394,22 @@ const MenuManager = () => {
     }
   };
 
-  const handleDelete = async (id) => {
-    if (confirm('هل أنت متأكد من حذف هذا الصنف؟ لا يمكن التراجع عن هذا الإجراء.')) {
-      try {
-        await api.delete(`/items/${id}`);
-        setItems(items.filter(i => i.id !== id));
-        toast.success('تم حذف الصنف');
-      } catch {  
-        toast.error('فشل الحذف');
+  const handleDelete = (id) => {
+    setConfirmConfig({
+      title: 'حذف الصنف',
+      message: 'هل أنت متأكد من حذف هذا الصنف؟ لا يمكن التراجع عن هذا الإجراء.',
+      type: 'danger',
+      onConfirm: async () => {
+        setConfirmConfig(null);
+        try {
+          await api.delete(`/items/${id}`);
+          setItems(items.filter(i => i.id !== id));
+          toast.success('تم حذف الصنف');
+        } catch {  
+          toast.error('فشل الحذف');
+        }
       }
-    }
+    });
   };
 
   const toggleCategoryActive = async (category) => {
@@ -922,6 +936,17 @@ const MenuManager = () => {
           </div>
         )}
       </AnimatePresence>
+
+      <ConfirmationModal
+        isOpen={!!confirmConfig}
+        title={confirmConfig?.title}
+        message={confirmConfig?.message}
+        type={confirmConfig?.type}
+        onConfirm={confirmConfig?.onConfirm}
+        onCancel={() => setConfirmConfig(null)}
+        confirmText="حذف"
+        cancelText="تراجع"
+      />
     </div>
   );
 };

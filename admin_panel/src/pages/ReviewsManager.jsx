@@ -8,6 +8,7 @@ import { cn } from '../lib/utils';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import InvoiceModal from '../components/InvoiceModal';
+import ConfirmationModal from '../components/ConfirmationModal';
 
 const ReviewsManager = () => {
   const [reviews, setReviews] = useState([]);
@@ -15,6 +16,7 @@ const ReviewsManager = () => {
   const [filter, setFilter] = useState('all'); // all, pending, approved
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [confirmConfig, setConfirmConfig] = useState(null);
 
   useEffect(() => {
     fetchReviews();
@@ -44,23 +46,27 @@ const ReviewsManager = () => {
     }
   };
 
-  const deleteReview = async (id) => {
-    if (confirm('هل أنت متأكد من حذف هذا التقييم نهائياً؟')) {
-      try {
-        if (typeof id === 'string' && id.startsWith('order-')) {
-          // This is an order rating, we don't 'delete' the order, maybe just clear the rating?
-          // For now, let's assume we just want to remove the rating from view.
-          const realId = id.replace('order-', '');
-          await api.patch(`/orders/${realId}/rate`, { rating: null, ratingComment: null });
-        } else {
-          await api.delete(`/reviews/${id}`);
+  const deleteReview = (id) => {
+    setConfirmConfig({
+      title: 'حذف التقييم',
+      message: 'هل أنت متأكد من حذف هذا التقييم نهائياً؟ لا يمكن التراجع عن هذا الإجراء.',
+      type: 'danger',
+      onConfirm: async () => {
+        setConfirmConfig(null);
+        try {
+          if (typeof id === 'string' && id.startsWith('order-')) {
+            const realId = id.replace('order-', '');
+            await api.patch(`/orders/${realId}/rate`, { rating: null, ratingComment: null });
+          } else {
+            await api.delete(`/reviews/${id}`);
+          }
+          setReviews(reviews.filter(r => r.id !== id));
+          toast.success('تم حذف التقييم');
+        } catch {
+          toast.error('فشل في حذف التقييم');
         }
-        setReviews(reviews.filter(r => r.id !== id));
-        toast.success('تم حذف التقييم');
-      } catch {
-        toast.error('فشل في حذف التقييم');
       }
-    }
+    });
   };
 
   const filteredReviews = reviews.filter(r => {
@@ -242,6 +248,17 @@ const ReviewsManager = () => {
         isOpen={!!selectedOrder}
         onClose={() => setSelectedOrder(null)}
         order={selectedOrder}
+      />
+
+      <ConfirmationModal
+        isOpen={!!confirmConfig}
+        title={confirmConfig?.title}
+        message={confirmConfig?.message}
+        type={confirmConfig?.type}
+        onConfirm={confirmConfig?.onConfirm}
+        onCancel={() => setConfirmConfig(null)}
+        confirmText="حذف"
+        cancelText="تراجع"
       />
     </div>
   );

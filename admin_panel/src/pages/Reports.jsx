@@ -5,6 +5,7 @@ import Header from '../components/Header';
 import api from '../api/client';
 import { cn } from '../lib/utils';
 import { formatCurrencyArabic } from '../lib/formatters';
+import ConfirmationModal from '../components/ConfirmationModal';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
@@ -19,6 +20,7 @@ const Reports = () => {
     return d.toISOString().split('T')[0];
   });
   const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [confirmConfig, setConfirmConfig] = useState(null);
 
   const fetchReportData = useCallback(async () => {
     setLoading(true);
@@ -102,19 +104,25 @@ const Reports = () => {
     toast.success('تم تصدير ملف PDF بنجاح');
   };
 
-  const handleCloseDay = async () => {
-    if (!window.confirm('⚠️ هل أنت متأكد من إغلاق اليوم محاسبياً؟ سيتم تجميد الأرقام ولا يمكن تعديل مبيعات هذا اليوم لاحقاً.')) return;
-    
-    try {
-      setLoading(true);
-      await api.post('/financial/close-day', { date: new Date().toISOString().split('T')[0] });
-      toast.success('تم إغلاق اليوم بنجاح وتجميد البيانات المالية');
-      fetchReportData();
-    } catch (error) {
-      toast.error(error.response?.data?.error || 'فشل إغلاق اليوم');
-    } finally {
-      setLoading(false);
-    }
+  const handleCloseDay = () => {
+    setConfirmConfig({
+      title: 'إغلاق اليوم محاسبياً',
+      message: '⚠️ هل أنت متأكد من إغلاق اليوم محاسبياً؟ سيتم تجميد الأرقام ولا يمكن تعديل مبيعات هذا اليوم لاحقاً.',
+      type: 'warning',
+      onConfirm: async () => {
+        setConfirmConfig(null);
+        try {
+          setLoading(true);
+          await api.post('/financial/close-day', { date: new Date().toISOString().split('T')[0] });
+          toast.success('تم إغلاق اليوم بنجاح وتجميد البيانات المالية');
+          fetchReportData();
+        } catch (error) {
+          toast.error(error.response?.data?.error || 'فشل إغلاق اليوم');
+        } finally {
+          setLoading(false);
+        }
+      }
+    });
   };
 
   const statusLabel = (status) => {
@@ -300,6 +308,17 @@ const Reports = () => {
             </div>
          </div>
       </div>
+
+      <ConfirmationModal
+        isOpen={!!confirmConfig}
+        title={confirmConfig?.title}
+        message={confirmConfig?.message}
+        type={confirmConfig?.type}
+        onConfirm={confirmConfig?.onConfirm}
+        onCancel={() => setConfirmConfig(null)}
+        confirmText="تأكيد الإغلاق"
+        cancelText="تراجع"
+      />
     </div>
   );
 };

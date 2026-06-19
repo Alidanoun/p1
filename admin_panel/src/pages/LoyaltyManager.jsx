@@ -5,6 +5,7 @@ import api, { unwrap } from '../api/client';
 import { useSocket } from '../hooks/useSocket';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
+import ConfirmationModal from '../components/ConfirmationModal';
 
 const LoyaltyManager = () => {
   const { socket } = useSocket();
@@ -23,6 +24,7 @@ const LoyaltyManager = () => {
     happyHourEnd: '18:00',
   });
   const [loading, setLoading] = useState(true);
+  const [confirmConfig, setConfirmConfig] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [localRemainingSeconds, setLocalRemainingSeconds] = useState(0);
   const [targetTime, setTargetTime] = useState(null);
@@ -119,34 +121,46 @@ const LoyaltyManager = () => {
     }
   };
 
-  const handleStartNow = async () => {
-    if (!window.confirm('هل أنت متأكد؟ سيتم تفعيل ساعة السعادة فوراً وإرسال إشعار لجميع العملاء.')) return;
-    
-    setIsSaving(true);
-    try {
-      await api.post('/loyalty/start-now');
-      toast.success('🚀 بدأت ساعة السعادة! تم إرسال الإشعارات للجميع');
-      fetchSettings();
-    } catch (error) {
-      toast.error('فشل في بدء ساعة السعادة');
-    } finally {
-      setIsSaving(false);
-    }
+  const handleStartNow = () => {
+    setConfirmConfig({
+      title: 'تفعيل ساعة السعادة',
+      message: 'هل أنت متأكد؟ سيتم تفعيل ساعة السعادة فوراً وإرسال إشعار لجميع العملاء.',
+      type: 'warning',
+      onConfirm: async () => {
+        setConfirmConfig(null);
+        setIsSaving(true);
+        try {
+          await api.post('/loyalty/start-now');
+          toast.success('🚀 بدأت ساعة السعادة! تم إرسال الإشعارات للجميع');
+          fetchSettings();
+        } catch (error) {
+          toast.error('فشل في بدء ساعة السعادة');
+        } finally {
+          setIsSaving(false);
+        }
+      }
+    });
   };
 
-  const handleStopNow = async () => {
-    if (!window.confirm('هل أنت متأكد؟ سيتم إيقاف ساعة السعادة فوراً.')) return;
-    
-    setIsSaving(true);
-    try {
-      await api.post('/loyalty/stop-now');
-      toast.success('🛑 تم إيقاف ساعة السعادة بنجاح');
-      fetchSettings();
-    } catch (error) {
-      toast.error('فشل في إيقاف ساعة السعادة');
-    } finally {
-      setIsSaving(false);
-    }
+  const handleStopNow = () => {
+    setConfirmConfig({
+      title: 'إيقاف ساعة السعادة',
+      message: 'هل أنت متأكد؟ سيتم إيقاف ساعة السعادة فوراً.',
+      type: 'danger',
+      onConfirm: async () => {
+        setConfirmConfig(null);
+        setIsSaving(true);
+        try {
+          await api.post('/loyalty/stop-now');
+          toast.success('🛑 تم إيقاف ساعة السعادة بنجاح');
+          fetchSettings();
+        } catch (error) {
+          toast.error('فشل في إيقاف ساعة السعادة');
+        } finally {
+          setIsSaving(false);
+        }
+      }
+    });
   };
 
   const formatTime = (seconds) => {
@@ -494,6 +508,17 @@ const LoyaltyManager = () => {
         </div>
 
       </div>
+
+      <ConfirmationModal
+        isOpen={!!confirmConfig}
+        title={confirmConfig?.title}
+        message={confirmConfig?.message}
+        type={confirmConfig?.type}
+        onConfirm={confirmConfig?.onConfirm}
+        onCancel={() => setConfirmConfig(null)}
+        confirmText="تأكيد"
+        cancelText="تراجع"
+      />
     </div>
   );
 };

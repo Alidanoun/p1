@@ -6,6 +6,7 @@ import { formatCurrencyArabic } from '../lib/formatters';
 import { cn } from '../lib/utils';
 import { toast } from 'sonner';
 import { useSocket } from '../hooks/useSocket';
+import ConfirmationModal from './ConfirmationModal';
 
 /**
  * 🛰️ Financial Approval Widget (Control Tower)
@@ -16,6 +17,11 @@ const FinancialApprovalWidget = () => {
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState(null);
   const { socket } = useSocket();
+
+  // Modals configurations
+  const [confirmConfig, setConfirmConfig] = useState(null);
+  const [rejectReasonConfig, setRejectReasonConfig] = useState(null);
+  const [rejectReasonText, setRejectReasonText] = useState('');
 
   const fetchApprovals = async () => {
     try {
@@ -54,23 +60,34 @@ const FinancialApprovalWidget = () => {
     };
   }, [socket]);
 
-  const handleAction = async (id, action, reason = '') => {
+  const handleAction = async (id, action) => {
     const approval = approvals.find(a => a.id === id);
     const amount = formatCurrencyArabic(approval?.payload?.delta?.absoluteDifference || 0);
     
-    // 🛡️ Human Error Layer: Explicit Confirmation
-    const confirmMsg = action === 'approve' 
-      ? `⚠️ هل أنت متأكد من الموافقة؟ سيتم تنفيذ عملية ${approval.operationType} بقيمة ${amount}. لا يمكن التراجع عن هذا الإجراء.`
-      : `⚠️ هل أنت متأكد من رفض هذه العملية بقيمة ${amount}؟`;
-
-    if (!window.confirm(confirmMsg)) return;
-
-    if (action === 'reject' && !reason) {
-      const userReason = window.prompt('يرجى إدخال سبب الرفض (إلزامي):');
-      if (!userReason) return;
-      reason = userReason;
+    if (action === 'approve') {
+      setConfirmConfig({
+        title: 'اعتماد عملية مالية',
+        message: `هل أنت متأكد من الموافقة؟ سيتم تنفيذ عملية ${approval.operationType} بقيمة ${amount}. لا يمكن التراجع عن هذا الإجراء.`,
+        type: 'security',
+        onConfirm: async () => {
+          setConfirmConfig(null);
+          await executeAction(id, action, '');
+        }
+      });
+    } else if (action === 'reject') {
+      setRejectReasonConfig({
+        id,
+        amount,
+        onConfirm: async (userReason) => {
+          setRejectReasonConfig(null);
+          await executeAction(id, action, userReason);
+        }
+      });
     }
+  };
 
+  const executeAction = async (id, action, reason) => {
+    const approval = approvals.find(a => a.id === id);
     setProcessingId(id);
     try {
       await api.post(`/financial/approvals/${id}/${action}`, { 
@@ -78,10 +95,10 @@ const FinancialApprovalWidget = () => {
         version: approval.version 
       });
       toast.success(action === 'approve' ? 'تمت الموافقة المالية بنجاح' : 'تم رفض العملية المالية');
-      // Do NOT optimistically delete, wait for socket or explicit fetch
       fetchApprovals();
     } catch (error) {
-      toast.error(error.response?.data?.error || 'فشلت العملية');
+      console.error('Failed to process approval action:', error);
+      toast.error(error.response?.data?.error?.message || error.response?.data?.error || 'فشلت معالجة الطلب');
     } finally {
       setProcessingId(null);
     }
@@ -222,6 +239,81 @@ const FinancialApprovalWidget = () => {
            </button>
         </div>
       </div>
+
+      {/* Confirmation Modal for Approvals */}
+      <ConfirmationModal 
+        isOpen={!!confirmConfig}
+        title={confirmConfig?.title}
+        message={confirmConfig?.message}
+        type={confirmConfig?.type}
+        onConfirm={confirmConfig?.onConfirm}
+        onCancel={() => setConfirmConfig(null)}
+        confirmText="موافقة"
+        cancelText="تراجع"
+      />
+
+      {/* Rejection Reason Modal */}
+      <AnimatePresence>
+        {rejectReasonConfig && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              className="absolute inset-0 bg-black/70 backdrop-blur-sm" 
+              onClick={() => {
+                setRejectReasonConfig(null);
+                setRejectReasonText('');
+              }} 
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 15 }} 
+              animate={{ opacity: 1, scale: 1, y: 0 }} 
+              exit={{ opacity: 0, scale: 0.95, y: 15 }} 
+              className="bg-slate-900 border border-white/10 rounded-2xl p-6 max-w-md w-full relative z-10 shadow-2xl text-right font-sans" 
+              dir="rtl"
+            >
+              <div className="w-12 h-12 bg-red-500/10 rounded-xl flex items-center justify-center mb-4">
+                <XCircle className="w-6 h-6 text-red-500" />
+              </div>
+              <h3 className="text-lg font-bold text-white mb-2">رفض العملية المالية</h3>
+              <p className="text-slate-300 text-sm mb-4">يرجى إدخال سبب رفض العملية بقيمة {rejectReasonConfig.amount} (إلزامي):</p>
+              
+              <textarea 
+                value={rejectReasonText} 
+                onChange={(e) => setRejectReasonText(e.target.value)} 
+                className="w-full bg-background border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-red-500 mb-6 text-sm"
+                placeholder="اكتب سبب الرفض هنا..."
+                rows={3}
+              />
+              
+              <div className="flex gap-3">
+                <button 
+                  type="button" 
+                  disabled={!rejectReasonText.trim()}
+                  onClick={() => {
+                    rejectReasonConfig.onConfirm(rejectReasonText);
+                    setRejectReasonText('');
+                  }} 
+                  className="flex-1 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl font-bold transition-all text-sm disabled:opacity-50"
+                >
+                  تأكيد الرفض
+                </button>
+                <button 
+                  type="button" 
+                  onClick={() => {
+                    setRejectReasonConfig(null);
+                    setRejectReasonText('');
+                  }} 
+                  className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-bold transition-all text-sm"
+                >
+                  إلغاء
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

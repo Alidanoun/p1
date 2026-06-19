@@ -44,6 +44,136 @@ import FinancialApprovalWidget from '../components/FinancialApprovalWidget';
 
 import { formatCurrencyArabic, formatNumberArabic } from '../lib/formatters';
 import { cn } from '../lib/utils';
+import api from '../api/client';
+import { useEffect } from 'react';
+
+// ⏱️ OrderTimeline Component to fetch and display dynamic order audit logs
+const OrderTimeline = ({ orderId }) => {
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    const fetchLogs = async () => {
+      try {
+        setLoading(true);
+        const response = await api.get(`/orders/${orderId}`);
+        if (response.data?.success && response.data?.data && active) {
+          const audit = response.data.data.auditLogs || [];
+          // If no audit logs exist, build fallback events based on order creation/status
+          if (audit.length === 0) {
+            const orderData = response.data.data;
+            const fallback = [];
+            if (orderData.createdAt) {
+              fallback.push({
+                id: 'init',
+                eventType: 'ORDER_CREATED',
+                createdAt: orderData.createdAt,
+                changedByRole: 'customer'
+              });
+            }
+            if (orderData.status && orderData.status !== 'pending') {
+              fallback.push({
+                id: 'status',
+                eventType: `STATUS_${orderData.status.toUpperCase()}`,
+                createdAt: orderData.updatedAt || orderData.createdAt,
+                changedByRole: 'system'
+              });
+            }
+            setLogs(fallback);
+          } else {
+            // Sort ascending by creation time to show chronological timeline flow
+            const sorted = [...audit].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+            setLogs(sorted);
+          }
+        }
+      } catch (err) {
+        console.error('Error loading order timeline:', err);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    if (orderId) {
+      fetchLogs();
+    }
+    return () => {
+      active = false;
+    };
+  }, [orderId]);
+
+  const getEventDescription = (log) => {
+    const type = log.eventType?.toUpperCase();
+    const roleAr = log.changedByRole === 'admin' ? 'الإدارة' :
+                   log.changedByRole === 'branch_manager' ? 'مدير الفرع' :
+                   log.changedByRole === 'customer' ? 'العميل' : 'النظام';
+
+    switch (type) {
+      case 'ORDER_CREATED':
+        return `تم تقديم الطلب بواسطة ${roleAr}`;
+      case 'STATUS_CONFIRMED':
+      case 'ORDER_CONFIRMED':
+        return `تم تأكيد الطلب من قبل ${roleAr}`;
+      case 'STATUS_PREPARING':
+      case 'ORDER_PREPARING':
+        return `بدأ تحضير الطلب في المطبخ`;
+      case 'STATUS_READY':
+      case 'ORDER_READY':
+        return `الطلب جاهز للتسليم 🍕`;
+      case 'STATUS_DELIVERED':
+      case 'ORDER_DELIVERED':
+        return `تم تسليم الطلب للعميل ✅`;
+      case 'STATUS_CANCELLED':
+      case 'ORDER_CANCELLED':
+        return `تم إلغاء الطلب ❌`;
+      case 'CANCELLATION_REQUESTED':
+        return `طلب إلغاء مقدم من العميل ⚠️`;
+      case 'COUPON_REQUEST_CREATED':
+        return `تم طلب كوبون تعويض عن صنف ملغى`;
+      default:
+        return log.eventAction || type || 'تحديث على حالة الطلب';
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center py-8">
+        <RefreshCw className="w-5 h-5 text-primary animate-spin" />
+        <span className="text-xs text-text-muted mr-2">جاري تحميل سجل الطلب...</span>
+      </div>
+    );
+  }
+
+  if (logs.length === 0) {
+    return (
+      <div className="text-center py-6 text-xs text-text-muted">
+        لا يوجد سجل أحداث متاح لهذا الطلب.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 relative before:absolute before:right-6 before:top-2 before:bottom-2 before:w-0.5 before:bg-white/5 my-6 max-h-[300px] overflow-y-auto custom-scrollbar-slim pr-1">
+      {logs.map((log, i) => {
+        const isLast = i === logs.length - 1;
+        return (
+          <div key={log.id || i} className="relative pr-12 text-right">
+            <div className={cn(
+              "absolute top-1.5 -right-0.5 w-3 h-3 rounded-full border-2 border-card transition-colors duration-300",
+              isLast ? "bg-primary ring-4 ring-primary/20 scale-110" : "bg-white/10"
+            )} />
+            <h4 className={cn("text-xs font-bold mb-1", isLast ? "text-white" : "text-white/60")}>
+              {getEventDescription(log)}
+            </h4>
+            <span className="text-[9px] font-mono font-bold text-text-muted">
+              {new Date(log.createdAt || log.time).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
 
 // 🎭 Animation Variants
 const containerVariants = {
@@ -487,24 +617,7 @@ const LiveDashboard = () => {
                 <h2 className="text-2xl font-bold text-white mb-1">طلب رقم {selectedOrder.orderNumber}</h2>
                 <p className="text-text-muted text-sm">عرض التسلسل الزمني الكامل للعملية</p>
               </div>
-
-              {/* Placeholder Timeline - Real one would fetchAudit(orderId) */}
-              <div className="space-y-6 relative before:absolute before:right-6 before:top-2 before:bottom-2 before:w-0.5 before:bg-white/5">
-                {[
-                  { label: 'تم استلام الطلب', status: 'pending', time: '14:20:05' },
-                  { label: 'تأكيد الطلب يدويًا', status: 'confirmed', time: '14:21:12' },
-                  { label: 'جارِ التجهيز في المطبخ', status: 'preparing', time: '14:22:45' }
-                ].map((step, i) => (
-                  <div key={i} className="relative pr-12 text-right">
-                    <div className={cn(
-                      "absolute top-1.5 -right-0.5 w-3 h-3 rounded-full border-2 border-card",
-                      i === 0 ? "bg-primary" : "bg-white/10"
-                    )} />
-                    <h4 className="text-sm font-bold text-white mb-1">{step.label}</h4>
-                    <span className="text-[10px] font-mono font-bold text-text-muted">{step.time}</span>
-                  </div>
-                ))}
-              </div>
+              <OrderTimeline orderId={selectedOrder.id || selectedOrder.orderId} />
 
               <button 
                 onClick={() => setSelectedOrder(null)}
