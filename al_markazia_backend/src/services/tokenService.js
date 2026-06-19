@@ -268,15 +268,9 @@ class TokenService {
   // قائمة الجلسات النشطة
   // ═══════════════════════════════════════════════════════════
   static async getActiveSessions(userId) {
-    const user = await prisma.user.findUnique({ where: { uuid: userId }, select: { id: true } });
-    const customer = !user ? await prisma.customer.findUnique({ where: { uuid: userId }, select: { id: true } }) : null;
-
-    if (!user && !customer) return [];
-
     const sessions = await prisma.refreshToken.findMany({
       where: {
-        userId: user ? user.id : undefined,
-        customerId: customer ? customer.id : undefined,
+        userId: userId,
         isRevoked: false,
         isUsed: false,
         expiresAt: { gt: new Date() }
@@ -372,13 +366,13 @@ class TokenService {
         }
 
         let account = null;
-        if (tokenRecord.role === 'customer') {
+        if (tokenRecord.role?.toLowerCase() === 'customer') {
           account = await prisma.customer.findUnique({
-            where: { id: tokenRecord.customerId }
+            where: { uuid: tokenRecord.userId }
           });
         } else {
           account = await prisma.user.findUnique({
-            where: { id: tokenRecord.userId }
+            where: { uuid: tokenRecord.userId }
           });
         }
 
