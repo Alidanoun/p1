@@ -21,3 +21,11 @@ src/config/keys/
 .env.docker2
 b64.txt
 al-markazia-server_key.pem
+remote_backup/
+compare_hashes.js
+hash.ps1
+local_hashes.txt
+local_hashes_utf8.txt
+remote_hashes.txt
+remote_hashes_new.txt
+test.js
