@@ -9,7 +9,7 @@ const logger = require('../utils/logger');
  * Includes Redis caching for permissions, PIN session caching, and PIN Rate Limiting.
  */
 const checkPermission = (module, requiredLevel = 'VIEW') => {
-  return async (req, res, next) => {
+  const checkPermissionMiddleware = async (req, res, next) => {
     try {
       // 1. Admin bypass: Global Admin has absolute access
       if (req.user?.role?.toUpperCase() === 'ADMIN') return next();
@@ -84,12 +84,48 @@ const checkPermission = (module, requiredLevel = 'VIEW') => {
         });
       }
 
-      const pinCacheKey = `branch:${branchId}:user:${req.user.id}:manager_pin_verified`;
+      const crypto = require('crypto');
+      const fingerprint = crypto.createHash('sha256')
+        .update(`${req.user.id}:${req.ip || req.headers['x-forwarded-for'] || 'unknown'}:${req.headers['user-agent'] || 'no-ua'}`)
+        .digest('hex');
+      const pinCacheKey = `branch:${branchId}:user:${req.user.id}:fp:${fingerprint}:manager_pin_verified`;
+
+      // Helper to check cache validity, count uses, and audit log bypasses
+      const checkCacheAndIncrement = async () => {
+        const cachedVal = await redis.get(pinCacheKey).catch(() => null);
+        if (cachedVal) {
+          const count = parseInt(cachedVal, 10);
+          if (count < 3) {
+            await redis.incr(pinCacheKey).catch(() => {});
+            
+            // Log to SystemAuditLog
+            const auditService = require('../services/auditService');
+            await auditService.log({
+              userId: req.user.id,
+              userRole: req.user.role,
+              action: 'PIN_CACHE_BYPASS',
+              entityType: 'Branch',
+              entityId: branchId.toString(),
+              status: 'SUCCESS',
+              metadata: {
+                module,
+                requiredLevel,
+                consecutiveBypasses: count + 1,
+                ip: req.ip || req.headers['x-forwarded-for'] || 'unknown'
+              },
+              req
+            }).catch(err => logger.error('Failed to log PIN cache bypass audit', { error: err.message }));
+
+            return true;
+          }
+        }
+        return false;
+      };
 
       // 5. EDIT_PIN_READ level: Requires PIN verification even for GET (read) operations
       if (modulePermission === 'EDIT_PIN_READ' && !isWriteOperation) {
-        const isVerifiedInCache = await redis.get(pinCacheKey).catch(() => null);
-        if (isVerifiedInCache !== 'true') {
+        const isVerifiedInCache = await checkCacheAndIncrement();
+        if (!isVerifiedInCache) {
           return res.status(401).json({
             error: 'يتطلب عرض هذا القسم إدخال رقم PIN الخاص بالمدير',
             code: 'PIN_REQUIRED_TO_VIEW'
@@ -101,9 +137,9 @@ const checkPermission = (module, requiredLevel = 'VIEW') => {
       if ((modulePermission === 'EDIT_PIN' || modulePermission === 'EDIT_PIN_READ') && isWriteOperation) {
         const { managerPin } = req.body;
 
-        const isVerifiedInCache = await redis.get(pinCacheKey).catch(() => null);
+        const isVerifiedInCache = await checkCacheAndIncrement();
 
-        if (isVerifiedInCache !== 'true') {
+        if (!isVerifiedInCache) {
           if (!managerPin) {
             return res.status(401).json({
               error: 'يتطلب هذا الإجراء رقم PIN الخاص بالمدير لتأكيده',
@@ -148,8 +184,8 @@ const checkPermission = (module, requiredLevel = 'VIEW') => {
           // Reset rate limits on success
           await redis.del(rateLimitKey).catch(() => {});
 
-          // Cache success verified state for 5 minutes
-          await redis.setex(pinCacheKey, 300, 'true').catch(() => {});
+          // Cache success verified state for 90 seconds (count = 0 initially since this first action was WITH pin)
+          await redis.setex(pinCacheKey, 90, '0').catch(() => {});
         }
       }
 
@@ -159,6 +195,14 @@ const checkPermission = (module, requiredLevel = 'VIEW') => {
       res.status(500).json({ error: 'حدث خطأ داخلي أثناء التحقق من الصلاحيات' });
     }
   };
+
+  checkPermissionMiddleware.metadata = {
+    isCheckPermission: true,
+    module,
+    requiredLevel
+  };
+
+  return checkPermissionMiddleware;
 };
 
 module.exports = { checkPermission };

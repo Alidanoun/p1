@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../theme/design_system.dart';
 
-/**
- * 📢 UI Feedback Utility
- * Purpose: Provide consistent, beautiful, and user-friendly error/success messaging.
- */
+/// 📢 UI Feedback Utility
+/// Purpose: Provide consistent, beautiful, and user-friendly error/success messaging.
 class UIFeedback {
   static void showSuccess(BuildContext context, String message) {
     _showSnackBar(context, message, DesignSystem.success, Icons.check_circle_outline);

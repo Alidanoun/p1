@@ -6,7 +6,7 @@ import '../theme/design_system.dart';
 import '../widgets/feedback/ui_feedback.dart';
 
 class LoyaltyHubScreen extends StatefulWidget {
-  const LoyaltyHubScreen({Key? key}) : super(key: key);
+  const LoyaltyHubScreen({super.key});
 
   @override
   State<LoyaltyHubScreen> createState() => _LoyaltyHubScreenState();
@@ -34,7 +34,7 @@ class _LoyaltyHubScreenState extends State<LoyaltyHubScreen> {
       if (mounted) {
         setState(() {
           _profile = LoyaltyProfile.fromJson(profileData);
-          _rewards = (rewardsData as List).map((r) => RewardItem.fromJson(r)).toList();
+          _rewards = (rewardsData).map((r) => RewardItem.fromJson(r)).toList();
           _config = configData;
           _isLoading = false;
         });

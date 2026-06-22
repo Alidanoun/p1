@@ -1,9 +1,7 @@
 import 'package:flutter/foundation.dart';
 
-/**
- * 📝 Unified Application Logging Utility
- * Supports colored debugging outputs and external metrics sink integration.
- */
+/// 📝 Unified Application Logging Utility
+/// Supports colored debugging outputs and external metrics sink integration.
 class AppLogger {
   static void info(String message) {
     if (kDebugMode) {

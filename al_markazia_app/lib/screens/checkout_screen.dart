@@ -1,21 +1,18 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../models/order_model.dart';
-import '../models/cart_item.dart';
 import '../models/branch_model.dart';
 import '../features/cart/cart_controller.dart';
 import '../features/checkout/checkout_controller.dart';
 import '../features/checkout/models/delivery_zone.dart';
 import '../widgets/custom_snackbar.dart';
-import 'main_nav_screen.dart';
 import 'auth_screen.dart';
 import '../features/auth/auth_controller.dart';
 import '../l10n/generated/app_localizations.dart';
 import 'order_success_screen.dart';
 
 class CheckoutScreen extends StatefulWidget {
-  const CheckoutScreen({Key? key}) : super(key: key);
+  const CheckoutScreen({super.key});
 
   @override
   State<CheckoutScreen> createState() => _CheckoutScreenState();
@@ -401,7 +398,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                     ),
                                     Text(
                                       '${zone.fee.toStringAsFixed(2)} ${AppLocalizations.of(context)!.currency}',
-                                      style: TextStyle(
+                                      style: const TextStyle(
                                         color: Colors.orange,
                                         fontWeight: FontWeight.bold,
                                         fontSize: 14,
@@ -843,7 +840,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                 Switch(
                                   value: checkout.usePoints,
                                   onChanged: (val) => checkout.toggleUsePoints(val),
-                                  activeColor: Colors.green,
+                                  activeThumbColor: Colors.green,
                                 ),
                               ],
                             ),

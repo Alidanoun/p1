@@ -6,6 +6,7 @@
 const PERMISSIONS = {
   // إدارة الطلبات
   ORDER_VIEW: 'order:view',
+  ORDER_VIEW_OWN: 'order:view_own',
   ORDER_UPDATE_STATUS: 'order:update_status',
   ORDER_CANCEL: 'order:cancel',
   ORDER_MANAGE_TIMER: 'order:manage_timer',
@@ -65,7 +66,9 @@ const ROLE_PERMISSIONS = {
     PERMISSIONS.CATALOG_VIEW
   ],
 
-  'customer': [] // الزبائن لا يملكون صلاحيات إدارية
+  'customer': [
+    PERMISSIONS.ORDER_VIEW_OWN
+  ] // الزبائن يملكون صلاحية رؤية طلباتهم الخاصة فقط
 };
 
 module.exports = {

@@ -54,7 +54,6 @@ jest.mock('../../src/services/auditService', () => {
   return mockProxy;
 });
 
-jest.mock('../../src/services/trackingService', () => ({}));
 jest.mock('@opentelemetry/api', () => ({
   trace: {
     getActiveSpan: () => ({

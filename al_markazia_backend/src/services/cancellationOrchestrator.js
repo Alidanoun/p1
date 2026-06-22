@@ -250,6 +250,15 @@ class CancellationOrchestrator {
   }
 
   async _evaluatePolicy(order, actor, source) {
+    if (source === 'ADMIN_FORCE_CANCEL') {
+      return { action: 'EXECUTE', level: 'LOW' };
+    }
+    if (order.status === 'delivered') {
+      return { action: 'REJECT', reason: 'order_already_delivered' };
+    }
+    if (order.status === 'cancelled') {
+      return { action: 'REJECT', reason: 'order_already_cancelled' };
+    }
     // 🧠 Removed request approval workflow as requested by user
     return { action: 'EXECUTE', level: 'LOW' };
   }

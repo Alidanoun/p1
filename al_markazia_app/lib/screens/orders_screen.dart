@@ -6,15 +6,15 @@ import '../l10n/generated/app_localizations.dart';
 import '../models/order_model.dart';
 import '../services/storage_service.dart';
 import '../features/orders/order_controller.dart';
-import 'cart_screen.dart';
 import 'checkout_screen.dart';
 import '../features/cart/cart_controller.dart';
 import 'cancel_order_reason_screen.dart';
 import 'live_tracking_screen.dart';
+import '../config/features.dart';
 
 
 class OrdersScreen extends StatefulWidget {
-  const OrdersScreen({Key? key}) : super(key: key);
+  const OrdersScreen({super.key});
 
   @override
   State<OrdersScreen> createState() => _OrdersScreenState();
@@ -240,7 +240,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    if (order.status == 'in_route')
+                    if (order.status == 'in_route' && AppFeatures.enableDriverTracking)
                       Flexible(
                         child: FittedBox(
                           fit: BoxFit.scaleDown,
@@ -518,7 +518,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                             Text(item.totalPrice.toStringAsFixed(2), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                           ],
                         ),
-                      )).toList(),
+                      )),
                       
                       const SizedBox(height: 8),
                       Text(
@@ -620,7 +620,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
 
 class OrderStatusTracker extends StatelessWidget {
   final String status;
-  const OrderStatusTracker({Key? key, required this.status}) : super(key: key);
+  const OrderStatusTracker({super.key, required this.status});
 
   @override
   Widget build(BuildContext context) {
@@ -693,7 +693,7 @@ class OrderStatusTracker extends StatelessWidget {
 class DashedLine extends StatelessWidget {
   final double height;
   final Color color;
-  const DashedLine({Key? key, this.height = 1, this.color = Colors.grey}) : super(key: key);
+  const DashedLine({super.key, this.height = 1, this.color = Colors.grey});
 
   @override
   Widget build(BuildContext context) {
@@ -703,9 +703,9 @@ class DashedLine extends StatelessWidget {
         const dashWidth = 5.0;
         final dashCount = (boxWidth / (2 * dashWidth)).floor();
         return Flex(
-          children: List.generate(dashCount, (_) => SizedBox(width: dashWidth, height: height, child: DecoratedBox(decoration: BoxDecoration(color: color.withOpacity(0.2))))),
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           direction: Axis.horizontal,
+          children: List.generate(dashCount, (_) => SizedBox(width: dashWidth, height: height, child: DecoratedBox(decoration: BoxDecoration(color: color.withOpacity(0.2))))),
         );
       },
     );

@@ -61,6 +61,7 @@ class ContractGateway {
         switch (action) {
           case 'PREVIEW': return await orchestrator.preview(orderId, context.modifications, actor);
           case 'CANCEL': return await this.container.orderLifecycleOrchestrator.cancel(orderId, actor, { ...context, source: 'ADMIN_CANCEL' });
+          case 'FORCE_CANCEL': return await this.container.cancellationOrchestrator.execute(orderId, actor, { ...context, source: 'ADMIN_FORCE_CANCEL', skipPasswordCheck: true });
           case 'SYSTEM_CANCEL': return await this.container.cancellationOrchestrator.execute(orderId, actor, { ...context, source: 'SYSTEM_CANCEL', skipPasswordCheck: true });
           case 'UPDATE_STATUS': return await this.container.orderLifecycleOrchestrator.transitionStatus(orderId, context.status, actor, context);
           case 'CREATE_ORDER': return await this.container.orderService.createOrder(context.orderData, actor);
@@ -153,6 +154,9 @@ class ContractGateway {
         // A. State Check
         if (action === 'UPDATE_STATUS') {
            this.container.orderStateMachine.validate(order.status, context.status, actor);
+        }
+        if (action === 'CANCEL') {
+           this.container.orderStateMachine.validate(order.status, 'cancelled', actor);
         }
         
         // B. [PHASE 3] Branch Consistency Check (Zero Trust)

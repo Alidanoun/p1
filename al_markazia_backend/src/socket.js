@@ -211,7 +211,6 @@ module.exports = {
       }
     });
 
-    const trackingService = require('./services/trackingService');
     io.on('connection', async (socket) => {
       // 📊 [METRICS] Initialize Metadata
       socketMetadata.set(socket.id, {
@@ -388,31 +387,6 @@ module.exports = {
         if (['admin', 'branch_manager', 'manager'].includes(role)) {
           await socket.join('admin');
           logger.debug(`[Socket] User ${userId} successfully joined admin broadcast room`);
-        }
-      });
-
-      // 🛰️ Join Tracking Room
-      socket.on('tracking:join', async ({ orderId }) => {
-        try {
-          const canTrack = await trackingService.canTrackOrder(userId, orderId);
-          if (canTrack || role === 'admin') {
-            const room = SOCKET_ROOMS.ORDER_TRACKING(orderId);
-            await socket.join(room);
-            logger.info(`🛰️ User ${userId} joined tracking for order ${orderId}`);
-          } else {
-            logger.security('UNAUTHORIZED_TRACKING_JOIN', { userId, orderId, ip: socket.handshake.address });
-            socket.emit('error', { message: 'غير مصرح لك بتتبع هذا الطلب' });
-          }
-        } catch (err) {
-          logger.error('[Socket] Tracking join failed', { userId, orderId, error: err.message });
-        }
-      });
-
-      // 🚚 Driver Location Update (From Driver App or Simulation)
-      socket.on('tracking:update_location', (data) => {
-        // Only allow if role is 'driver' or 'admin'
-        if (['driver', 'admin'].includes(role)) {
-          trackingService.updateDriverLocation(io, data);
         }
       });
 
@@ -654,7 +628,7 @@ module.exports = {
         logger.debug('📡 [Socket Audit] Status', { activeClients: clientCount, activeRooms: roomCount });
       }, 5 * 60 * 1000);
 
-      // 🛡️ [SEC-FIX] Periodic Security Revalidation (Every 120s)
+      // 🛡️ [SEC-FIX] Periodic Security Revalidation (Every 60s)
       // Ensures long-lived sockets don't drift from DB security state.
       setInterval(async () => {
         const sockets = await io.fetchSockets();
@@ -671,12 +645,12 @@ module.exports = {
               logger.security('📡 [Socket] Periodic validation failed. Notifying client.', { userId: s.user.id, reason: validation.reason });
               s.emit('AUTH_REVALIDATE_REQUIRED', { reason: validation.reason });
               
-              // Give client 10s to refresh/reconnect, then force disconnect
-              setTimeout(() => s.disconnect(true), 10000);
+              // Give client 5s to refresh/reconnect, then force disconnect
+              setTimeout(() => s.disconnect(true), 5000);
             }
           }
         }
-      }, 120 * 1000);
+      }, 60 * 1000);
     }
 
     // Mark as ready and notify all waiting promises

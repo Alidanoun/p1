@@ -1,16 +1,13 @@
 import 'dart:convert';
 import 'dart:math';
-import 'package:flutter/foundation.dart';
 import '../models/offline_request.dart';
 import '../utils/conflict_resolver.dart';
 import '../utils/logger.dart';
 import 'api_service.dart';
 import 'storage_service.dart';
 
-/**
- * 🔄 High-Resilience Offline Processing Service
- * Manages reliable persistence pipelines enforcing OCC synchronization constraints.
- */
+/// 🔄 High-Resilience Offline Processing Service
+/// Manages reliable persistence pipelines enforcing OCC synchronization constraints.
 class OfflineQueueService {
   static final OfflineQueueService instance = OfflineQueueService._internal();
   OfflineQueueService._internal();
@@ -70,9 +67,7 @@ class OfflineQueueService {
     }
   }
 
-  /**
-   * 📥 Enqueue a new versioned distributed operational task
-   */
+  /// 📥 Enqueue a new versioned distributed operational task
   Future<void> enqueue({
     required String entityId,
     required String endpoint,
@@ -109,9 +104,7 @@ class OfflineQueueService {
     }
   }
 
-  /**
-   * 🔄 Perform Synchronous Bounded Retries Evaluation pipeline
-   */
+  /// 🔄 Perform Synchronous Bounded Retries Evaluation pipeline
   Future<void> syncQueue() async {
     if (_isSyncing) return;
     

@@ -132,14 +132,23 @@ const ROLE_LEVELS = {
   'customer': 0
 };
 
-const hasPermission = (permission) => async (req, res, next) => {
-  if (!req.user) return responseError(res, 'يجب تسجيل الدخول أولاً', 'UNAUTHORIZED', 401);
+const hasPermission = (permission) => {
+  const hasPermissionMiddleware = async (req, res, next) => {
+    if (!req.user) return responseError(res, 'يجب تسجيل الدخول أولاً', 'UNAUTHORIZED', 401);
 
-  const permissions = ROLE_PERMISSIONS[req.user.role] || [];
-  if (permissions.includes(permission)) return next();
+    const permissions = ROLE_PERMISSIONS[req.user.role] || [];
+    if (permissions.includes(permission)) return next();
 
-  logger.security('PERMISSION_DENIED', { userId: req.user.id, role: req.user.role, required: permission });
-  return responseError(res, 'غير مصرح لك بالقيام بهذا الإجراء', 'PERMISSION_DENIED', 403);
+    logger.security('PERMISSION_DENIED', { userId: req.user.id, role: req.user.role, required: permission });
+    return responseError(res, 'غير مصرح لك بالقيام بهذا الإجراء', 'PERMISSION_DENIED', 403);
+  };
+
+  hasPermissionMiddleware.metadata = {
+    isHasPermission: true,
+    permission
+  };
+
+  return hasPermissionMiddleware;
 };
 
 const requireRoles = (allowedRolesOrMinRole) => (req, res, next) => {
@@ -256,11 +265,22 @@ const optionalAuth = async (req, res, next) => {
   }
 };
 
+const authenticateCustomer = [
+  authenticateToken,
+  (req, res, next) => {
+    if (req.user && (req.user.role === 'customer' || req.user.role === 'admin')) {
+      return next();
+    }
+    return responseError(res, 'غير مصرح لك بالوصول كزبون', 'FORBIDDEN_ACCESS', 403);
+  }
+];
+
 module.exports = { 
   authenticateToken, 
   optionalAuth,
   isAdmin, 
   isManager,
   hasPermission,
-  requireRoles
+  requireRoles,
+  authenticateCustomer
 };

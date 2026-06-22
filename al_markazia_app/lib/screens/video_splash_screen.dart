@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import '../services/storage_service.dart';
-import '../services/session_service.dart';
 import 'main_nav_screen.dart';
 import 'auth_screen.dart';
 import 'language_selection_screen.dart';
@@ -10,7 +9,7 @@ import 'package:provider/provider.dart';
 import '../features/auth/auth_controller.dart';
 
 class VideoSplashScreen extends StatefulWidget {
-  const VideoSplashScreen({Key? key}) : super(key: key);
+  const VideoSplashScreen({super.key});
 
   @override
   State<VideoSplashScreen> createState() => _VideoSplashScreenState();
@@ -44,7 +43,7 @@ class _VideoSplashScreenState extends State<VideoSplashScreen> {
     });
 
     // 2. Safety Timeout (Prevents getting stuck if something freezes)
-    _safetyTimer = Timer(const Duration(seconds: 15), () {
+    _safetyTimer = Timer(const Duration(seconds: 7), () {
       _handleNavigation();
     });
   }

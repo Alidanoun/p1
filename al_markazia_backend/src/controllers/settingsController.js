@@ -114,7 +114,7 @@ exports.updateBranchCredentials = async (req, res) => {
     const manager = await prisma.user.findFirst({
       where: { 
         branchId, 
-        role: { in: ['manager', 'branch_manager'], mode: 'insensitive' } 
+        role: { in: ['MANAGER', 'BRANCH_MANAGER'] } 
       }
     });
 

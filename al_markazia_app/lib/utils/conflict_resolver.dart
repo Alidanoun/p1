@@ -2,19 +2,15 @@ import 'package:flutter/material.dart';
 import '../models/offline_request.dart';
 import 'logger.dart';
 
-/**
- * ⚖️ Resolution strategy rules matrix mapping
- */
+/// ⚖️ Resolution strategy rules matrix mapping
 enum ConflictStrategy {
   serverWinsAuto,    // Application authoritative precedence preserving ledger consistency
   clientChoice,      // Interactive visual dialog offering merge paths for descriptive fields
   silentDiscard      // Dropping stale packets silently to prevent processing deadlocks
 }
 
-/**
- * 🛡️ Distributed Conflict Resolution Engine
- * Evaluates operational safety models when detecting HTTP 409 boundaries.
- */
+/// 🛡️ Distributed Conflict Resolution Engine
+/// Evaluates operational safety models when detecting HTTP 409 boundaries.
 class ConflictResolver {
   static ConflictStrategy determineStrategy(OfflineRequest request) {
     // Authoritative ledger updates (Transfers, Price states, Administrative triggers) strictly mandate Server-Wins

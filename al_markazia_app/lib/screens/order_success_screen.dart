@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'package:lottie/lottie.dart';
 import '../models/order_model.dart';
 import '../l10n/generated/app_localizations.dart';
 import 'main_nav_screen.dart';
@@ -8,7 +7,7 @@ import 'main_nav_screen.dart';
 class OrderSuccessScreen extends StatelessWidget {
   final OrderModel order;
   
-  const OrderSuccessScreen({Key? key, required this.order}) : super(key: key);
+  const OrderSuccessScreen({super.key, required this.order});
 
   @override
   Widget build(BuildContext context) {

@@ -15,12 +15,10 @@ import '../widgets/skeletons/category_skeleton.dart';
 import '../widgets/skeletons/featured_slider_skeleton.dart';
 import '../utils/time_formatter.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import '../widgets/order_tracking_widget.dart';
 import '../models/order_model.dart';
-import 'orders_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({Key? key}) : super(key: key);
+  const HomeScreen({super.key});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -424,7 +422,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   physics: const BouncingScrollPhysics(),
                                   children: [
                                     _buildCategoryTab(AppLocalizations.of(context)!.categoryAll, primaryColor, isAll: true),
-                                    ..._categories.map((c) => _buildCategoryTab(c.displayName, primaryColor)).toList(),
+                                    ..._categories.map((c) => _buildCategoryTab(c.displayName, primaryColor)),
                                   ],
                                 ),
                               ),
@@ -1242,7 +1240,7 @@ class _HomeScreenState extends State<HomeScreen> {
             _searchController.text = query;
             _performSearch(query);
           },
-        )).toList(),
+        )),
       ],
     );
   }

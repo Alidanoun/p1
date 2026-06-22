@@ -3,6 +3,7 @@ const router = express.Router();
 const configService = require('../services/configService');
 const systemController = require('../controllers/systemController');
 const { authenticateToken, isAdmin, hasPermission } = require('../middleware/auth');
+const { checkPermission } = require('../middleware/permissionMiddleware');
 const { PERMISSIONS } = require('../config/permissions');
 const { searchLimiter } = require('../middleware/rateLimiter');
 
@@ -43,7 +44,7 @@ router.get('/config', async (req, res) => {
 });
 
 // Admin: Full configuration (RBAC v3)
-router.get('/config/full', authenticateToken, hasPermission(PERMISSIONS.SYSTEM_CONFIG_MANAGE), async (req, res) => {
+router.get('/config/full', authenticateToken, checkPermission('settings', 'VIEW'), hasPermission(PERMISSIONS.SYSTEM_CONFIG_MANAGE), async (req, res) => {
   try {
     const config = await configService.getFullConfig();
     res.json({ success: true, data: config });
@@ -53,7 +54,7 @@ router.get('/config/full', authenticateToken, hasPermission(PERMISSIONS.SYSTEM_C
 });
 
 // Admin: Refresh Cache (RBAC v3)
-router.post('/config/refresh', authenticateToken, hasPermission(PERMISSIONS.SYSTEM_CONFIG_MANAGE), async (req, res) => {
+router.post('/config/refresh', authenticateToken, checkPermission('settings', 'EDIT_PIN'), hasPermission(PERMISSIONS.SYSTEM_CONFIG_MANAGE), async (req, res) => {
   try {
     const config = await configService.refreshCache();
     res.json({ success: true, data: config });

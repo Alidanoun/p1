@@ -17,7 +17,7 @@ import '../features/auth/auth_controller.dart';
 class ItemDetailsSheet extends StatefulWidget {
   final MenuItem item;
   final RestaurantStatus? status;
-  const ItemDetailsSheet({Key? key, required this.item, this.status}) : super(key: key);
+  const ItemDetailsSheet({super.key, required this.item, this.status});
 
   @override
   State<ItemDetailsSheet> createState() => _ItemDetailsSheetState();
@@ -383,7 +383,7 @@ class _ItemDetailsSheetState extends State<ItemDetailsSheet> {
                              });
                            },
                          );
-                      }).toList(),
+                      }),
                         
                       const SizedBox(height: 16),
                       Text(l10n.notes, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
@@ -479,7 +479,7 @@ class _ItemDetailsSheetState extends State<ItemDetailsSheet> {
                               ]
                             ],
                           ),
-                        )).toList(),
+                        )),
                         
                     ],
                   ),
@@ -637,9 +637,9 @@ class _ItemDetailsSheetState extends State<ItemDetailsSheet> {
 
   void _openReviewDialog() {
     final l10n = AppLocalizations.of(context)!;
-    int _rating = 5;
-    final _commentController = TextEditingController();
-    bool _isSubmitting = false;
+    int rating = 5;
+    final commentController = TextEditingController();
+    bool isSubmitting = false;
 
     showDialog(
       context: context,
@@ -659,17 +659,17 @@ class _ItemDetailsSheetState extends State<ItemDetailsSheet> {
                   children: List.generate(5, (index) {
                     return IconButton(
                       icon: Icon(
-                        index < _rating ? Icons.star : Icons.star_border,
+                        index < rating ? Icons.star : Icons.star_border,
                         color: Colors.orange,
                         size: 36,
                       ),
-                      onPressed: () => setDialogState(() => _rating = index + 1),
+                      onPressed: () => setDialogState(() => rating = index + 1),
                     );
                   }),
                 ),
                 const SizedBox(height: 16),
                 TextField(
-                  controller: _commentController,
+                  controller: commentController,
                   decoration: InputDecoration(
                     hintText: AppLocalizations.of(context)!.reviewHint,
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
@@ -691,16 +691,16 @@ class _ItemDetailsSheetState extends State<ItemDetailsSheet> {
                   backgroundColor: Theme.of(context).primaryColor,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 ),
-                onPressed: _isSubmitting ? null : () async {
-                  setDialogState(() => _isSubmitting = true);
+                onPressed: isSubmitting ? null : () async {
+                  setDialogState(() => isSubmitting = true);
                   final user = StorageService.instance.getCurrentUser();
                   final name = user?['name'] ?? AppLocalizations.of(context)!.guest;
                   try {
                     await ApiService().submitReview(
                       widget.item.id,
                       name,
-                      _rating,
-                      _commentController.text.trim(),
+                      rating,
+                      commentController.text.trim(),
                     );
                     if (mounted) {
                       Navigator.pop(context);
@@ -708,12 +708,12 @@ class _ItemDetailsSheetState extends State<ItemDetailsSheet> {
                     }
                   } catch (e) {
                     if (mounted) {
-                      setDialogState(() => _isSubmitting = false);
+                      setDialogState(() => isSubmitting = false);
                        showCustomSnackbar(context, '${AppLocalizations.of(context)!.supportError}: $e', isSuccess: false);
                     }
                   }
                 },
-                child: _isSubmitting 
+                child: isSubmitting 
                   ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2)) 
                    : Text(AppLocalizations.of(context)!.submitReview, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
               )

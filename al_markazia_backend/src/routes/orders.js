@@ -6,7 +6,8 @@ const {
   authenticateToken: authMiddleware, 
   isAdmin: adminMiddleware,
   isManager: managerMiddleware,
-  hasPermission
+  hasPermission,
+  authenticateCustomer
 } = require('../middleware/auth');
 const { PERMISSIONS } = require('../config/permissions');
 const BranchAccessMiddleware = require('../middleware/branchAccessMiddleware');
@@ -33,6 +34,7 @@ const {
   approveCancellation,
   rejectCancellation,
   handleCancellationRequest,
+  forceCancelOrder,
   requestPartialCancel,
   handlePartialCancelRequest,
   getPendingPartialCancels,
@@ -60,6 +62,9 @@ router.post('/', authMiddleware, idempotency.guard(true), validateOrderBranch, h
 // New Secure Identity Route: Get orders for the authenticated customer
 router.get('/my-orders', authMiddleware, getMyOrders);
 
+// Customer-specific endpoint for fetching own order details securely (prevents 403)
+router.get('/customer/orders/:id', authenticateCustomer, verifyOrderOwnership, validateId(), getOrderById);
+
 // Report endpoint with date filtering (no row limit)
 router.get('/report', authMiddleware, adminMiddleware, BranchAccessMiddleware, enforceIntent('read'), getOrdersReport);
 
@@ -79,6 +84,7 @@ router.post('/:id/approve-cancel', authMiddleware, checkPermission('manageOrders
 router.post('/:id/reject-cancel', authMiddleware, checkPermission('manageOrders', 'EDIT_PIN'), hasPermission(PERMISSIONS.ORDER_CANCEL), BranchAccessMiddleware, verifyOrderOwnership, enforceIntent('write'), idempotency.guard(true), rejectCancellation);
 
 router.post('/:id/handle-cancellation', authMiddleware, checkPermission('manageOrders', 'EDIT_PIN'), hasPermission(PERMISSIONS.ORDER_CANCEL), BranchAccessMiddleware, verifyOrderOwnership, enforceIntent('write'), idempotency.guard(true), validateId(), handleCancellationRequest);
+router.post('/admin/:id/force-cancel', authMiddleware, adminMiddleware, checkPermission('manageOrders', 'EDIT_PIN'), hasPermission(PERMISSIONS.ORDER_CANCEL), BranchAccessMiddleware, enforceIntent('write'), idempotency.guard(true), validateId(), forceCancelOrder);
 
 // --- Partial Cancellation ---
 

@@ -1,5 +1,8 @@
 const express = require('express');
-const { authenticateToken, isAdmin } = require('../middleware/auth');
+const { authenticateToken, isAdmin, hasPermission } = require('../middleware/auth');
+const { checkPermission } = require('../middleware/permissionMiddleware');
+const { PERMISSIONS } = require('../config/permissions');
+
 const { 
   getSettings, updateSetting, updateBulkSettings, 
   getAuditLogs, updateAdminCredentials, updateAdvancedConfig,
@@ -9,18 +12,18 @@ const {
 const router = express.Router();
 
 // Admin only routes
-router.get('/', authenticateToken, isAdmin, getSettings);
-router.post('/', authenticateToken, isAdmin, updateSetting);
-router.put('/', authenticateToken, isAdmin, updateBulkSettings);
-router.patch('/advanced', authenticateToken, isAdmin, updateAdvancedConfig);
+router.get('/', authenticateToken, isAdmin, checkPermission('settings', 'VIEW'), hasPermission(PERMISSIONS.SYSTEM_CONFIG_MANAGE), getSettings);
+router.post('/', authenticateToken, isAdmin, checkPermission('settings', 'EDIT_PIN'), hasPermission(PERMISSIONS.SYSTEM_CONFIG_MANAGE), updateSetting);
+router.put('/', authenticateToken, isAdmin, checkPermission('settings', 'EDIT_PIN'), hasPermission(PERMISSIONS.SYSTEM_CONFIG_MANAGE), updateBulkSettings);
+router.patch('/advanced', authenticateToken, isAdmin, checkPermission('settings', 'EDIT_PIN'), hasPermission(PERMISSIONS.SYSTEM_CONFIG_MANAGE), updateAdvancedConfig);
 
 // Audit logs
-router.get('/audit', authenticateToken, isAdmin, getAuditLogs);
+router.get('/audit', authenticateToken, isAdmin, checkPermission('settings', 'VIEW'), hasPermission(PERMISSIONS.SYSTEM_VIEW_LOGS), getAuditLogs);
 
 // Admin Credentials
-router.put('/credentials', authenticateToken, isAdmin, updateAdminCredentials);
+router.put('/credentials', authenticateToken, isAdmin, checkPermission('settings', 'EDIT_PIN'), hasPermission(PERMISSIONS.SYSTEM_CONFIG_MANAGE), updateAdminCredentials);
 
 // Branch Credentials
-router.put('/branch-credentials', authenticateToken, isAdmin, updateBranchCredentials);
+router.put('/branch-credentials', authenticateToken, isAdmin, checkPermission('settings', 'EDIT_PIN'), hasPermission(PERMISSIONS.SYSTEM_CONFIG_MANAGE), updateBranchCredentials);
 
 module.exports = router;

@@ -61,7 +61,12 @@ class TokenService {
         iat: Math.floor(Date.now() / 1000)
       },
       PRIVATE_KEY,
-      { algorithm: 'RS256', expiresIn: ACCESS_TOKEN_EXPIRY }
+      { 
+        algorithm: 'RS256', 
+        expiresIn: ACCESS_TOKEN_EXPIRY,
+        issuer: 'al_markazia_auth_server',
+        audience: 'al_markazia_clients'
+      }
     );
   }
 
@@ -199,31 +204,52 @@ class TokenService {
 
       logger.debug('[TokenService] Validating token structure', { userId, jti });
 
-      const savedToken = await prisma.refreshToken.findUnique({ where: { jti } });
+      // 🛡️ [SEC-FIX] Atomic Update to prevent Race Conditions
+      const updateResult = await prisma.refreshToken.updateMany({
+        where: { jti, isUsed: false, isRevoked: false },
+        data: { isUsed: true }
+      });
 
-      if (!savedToken) {
-        logger.warn('[TokenService] Token not found in DB', { jti, userId });
-        throw new Error('INVALID_TOKEN');
-      }
-
-      if (savedToken.isRevoked || savedToken.isUsed) {
-        logger.security('[BREACH_DETECTED] Refresh token reuse attempted', {
-          userId, jti,
-          isRevoked: savedToken.isRevoked,
-          isUsed: savedToken.isUsed
-        });
-        if (savedToken.tokenFamily) {
-          await prisma.refreshToken.updateMany({
-            where: { tokenFamily: savedToken.tokenFamily },
-            data: { isRevoked: true }
-          });
-          logger.security(
-            '[TokenService] Token family invalidated due to reuse attempt',
-            { family: savedToken.tokenFamily }
-          );
+      if (updateResult.count === 0) {
+        // Token was either not found, already used, or revoked. Fetch it to analyze.
+        const existingToken = await prisma.refreshToken.findUnique({ where: { jti } });
+        if (!existingToken) {
+          logger.warn('[TokenService] Token not found in DB', { jti, userId });
+          throw new Error('INVALID_TOKEN');
         }
-        throw new Error('TOKEN_REUSE_DETECTED');
+
+        if (existingToken.isRevoked) {
+           throw new Error('INVALID_TOKEN'); // Already revoked
+        }
+
+        if (existingToken.isUsed) {
+          // 🧠 Graceful Retry Logic: Check HOW LONG ago it was used
+          const timeSinceUsedMs = Date.now() - new Date(existingToken.updatedAt).getTime();
+          
+          if (timeSinceUsedMs < 5000) {
+            // Used within the last 5 seconds -> Highly likely a network retry or parallel race.
+            logger.info('[TokenService] Graceful Retry detected (duplicate request within 5s). Rejecting softly.', { jti, userId, timeSinceUsedMs });
+            throw new Error('GRACEFUL_DUPLICATE_RETRY');
+          } else {
+            // Used a long time ago -> Token Breach!
+            logger.security('[BREACH_DETECTED] Refresh token reuse attempted (Theft suspected)', {
+              userId, jti, timeSinceUsedMs
+            });
+            
+            if (existingToken.tokenFamily) {
+              await prisma.refreshToken.updateMany({
+                where: { tokenFamily: existingToken.tokenFamily },
+                data: { isRevoked: true }
+              });
+              logger.security('[TokenService] Token family invalidated due to theft attempt', { family: existingToken.tokenFamily });
+            }
+            throw new Error('TOKEN_REUSE_DETECTED');
+          }
+        }
       }
+
+      // Fetch the token again to get the tokenFamily for the new generation
+      const savedToken = await prisma.refreshToken.findUnique({ where: { jti } });
 
       const user =
         (await prisma.user.findUnique({ where: { uuid: userId } })) ||
@@ -232,11 +258,6 @@ class TokenService {
       if (!user || user.isActive === false || user.isBlacklisted === true) {
         throw new Error('ACCOUNT_DISABLED_OR_BLOCKED');
       }
-
-      await prisma.refreshToken.update({
-        where: { id: savedToken.id },
-        data: { isUsed: true }
-      });
 
       const { token: newRefreshToken, jti: newJti } =
         await this.generateAndSaveRefreshToken(user, {

@@ -5,7 +5,7 @@ import '../services/storage_service.dart';
 class NotificationDetailScreen extends StatelessWidget {
   final dynamic notification;
 
-  const NotificationDetailScreen({Key? key, required this.notification}) : super(key: key);
+  const NotificationDetailScreen({super.key, required this.notification});
 
   String _localizedField(String field) {
     final isEn = StorageService.instance.getLanguageCode() == 'en';

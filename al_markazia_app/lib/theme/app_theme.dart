@@ -20,9 +20,7 @@ class AppTheme {
       colorScheme: const ColorScheme.light(
         primary: primaryColor,
         secondary: primaryDarkColor,
-        background: lightBackground,
-        surface: lightSurface,
-        onBackground: Color(0xFF2C2C2C), // Dark charcoal text instead of harsh black
+        surface: lightSurface, // Dark charcoal text instead of harsh black
         onSurface: Color(0xFF2C2C2C),
       ),
       fontFamily: fontFamily,
@@ -104,7 +102,6 @@ class AppTheme {
       colorScheme: const ColorScheme.dark(
         primary: primaryColor,
         secondary: primaryDarkColor,
-        background: darkBackground,
         surface: darkSurface,
       ),
       fontFamily: fontFamily,

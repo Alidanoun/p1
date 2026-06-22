@@ -96,8 +96,6 @@ const handleOrderEvent = async (event) => {
     io.to(SOCKET_ROOMS.MONITOR_BRANCH(branchId)).emit(SOCKET_EVENTS.NOTIFICATION_NEW, securityPolicyService.wrapPayload(notificationPayload));
   }
 
-  // 5. 🛰️ Order Tracking Context
-  io.to(SOCKET_ROOMS.ORDER_TRACKING(orderId)).emit('tracking:order_updated', wrappedPayload);
 
   logger.debug(`[SocketBridge] 🛰️ Dispatched ${socketEvent} for Order #${orderId}`);
 };

@@ -3,26 +3,26 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'theme/app_theme.dart';
-import 'services/storage_service.dart';
-import 'services/notification_service.dart';
-import 'screens/auth_screen.dart';
-import 'screens/video_splash_screen.dart'; // Added for video splash
-import 'screens/main_nav_screen.dart';
-import 'services/api_service.dart';
+import 'package:al_markazia_app/theme/app_theme.dart';
+import 'package:al_markazia_app/services/storage_service.dart';
+import 'package:al_markazia_app/services/notification_service.dart';
+import 'package:al_markazia_app/screens/video_splash_screen.dart'; // Added for video splash
 import 'package:provider/provider.dart';
-import 'features/auth/auth_controller.dart';
-import 'features/orders/order_controller.dart';
-import 'features/cart/cart_controller.dart';
-import 'features/checkout/checkout_controller.dart';
-import 'services/session_service.dart';
-import 'services/secure_client.dart';
+import 'package:al_markazia_app/features/auth/auth_controller.dart';
+import 'package:al_markazia_app/features/orders/order_controller.dart';
+import 'package:al_markazia_app/features/cart/cart_controller.dart';
+import 'package:al_markazia_app/features/checkout/checkout_controller.dart';
+import 'package:al_markazia_app/services/session_service.dart';
+import 'package:al_markazia_app/services/secure_client.dart';
+import 'firebase_options.dart';
 
 import 'l10n/generated/app_localizations.dart';
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   debugPrint("🛰️ Handling background message: ${message.messageId}");
   
   // 🛡️ Show local notification for data-only messages in background
@@ -61,7 +61,9 @@ void main() async {
 
 
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   
   // 🛡️ Register Background Handler before any other async work
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
@@ -106,7 +108,7 @@ void main() async {
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 class MarkaziaApp extends StatefulWidget {
-  const MarkaziaApp({Key? key}) : super(key: key);
+  const MarkaziaApp({super.key});
 
   @override
   State<MarkaziaApp> createState() => _MarkaziaAppState();

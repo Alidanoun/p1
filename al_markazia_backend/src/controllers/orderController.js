@@ -389,6 +389,46 @@ exports.cancelOrder = async (req, res) => {
   }
 };
 
+exports.forceCancelOrder = async (req, res) => {
+  try {
+    const orderId = parseInt(req.params.id);
+    const { reason, managerPassword } = req.body;
+    const idempotencyKey = req.headers['idempotency-key'] || `force_cancel_${orderId}_${Date.now()}`;
+
+    if (isNaN(orderId)) {
+      return response.error(res, 'معرف الطلب غير صحيح', 'INVALID_ID', 400);
+    }
+
+    const contractGateway = require('../services/contractGateway');
+    const result = await contractGateway.execute(orderId, 'FORCE_CANCEL', {
+      reason,
+      managerPassword,
+      idempotencyKey
+    }, req.user);
+
+    // 🕵️ SystemAuditLog registration
+    const auditService = require('../services/auditService');
+    await auditService.log({
+      userId: req.user.id,
+      userRole: req.user.role,
+      action: 'FORCE_CANCEL_ORDER',
+      entityType: 'Order',
+      entityId: orderId.toString(),
+      status: 'SUCCESS',
+      metadata: { reason },
+      req
+    }).catch(err => logger.error('Failed to log force cancel audit log', { error: err.message }));
+
+    return res.json(result);
+  } catch (error) {
+    logger.error('forceCancelOrder error', { error: error.message });
+    if (error.message === 'ORDER_NOT_FOUND') {
+      return response.error(res, 'الطلب غير موجود', 'ORDER_NOT_FOUND', 404);
+    }
+    return response.error(res, 'فشل عملية الإلغاء القسري', 'FORCE_CANCEL_FAILED', 500);
+  }
+};
+
 exports.approveCancellation = async (req, res) => {
   try {
     const orderId = parseInt(req.params.id);

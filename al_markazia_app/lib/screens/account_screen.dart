@@ -3,8 +3,6 @@ import 'package:flutter/cupertino.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../services/storage_service.dart';
-import '../services/session_service.dart';
-import '../services/api_service.dart';
 import '../features/auth/auth_controller.dart';
 import 'auth_screen.dart';
 import 'package:provider/provider.dart';
@@ -13,7 +11,7 @@ import '../widgets/custom_snackbar.dart';
 import 'loyalty_hub_screen.dart';
 
 class AccountScreen extends StatefulWidget {
-  const AccountScreen({Key? key}) : super(key: key);
+  const AccountScreen({super.key});
 
   @override
   State<AccountScreen> createState() => _AccountScreenState();
@@ -143,7 +141,7 @@ class _AccountScreenState extends State<AccountScreen> {
                   cardColor: cardColor,
                   trailing: CupertinoSwitch(
                     value: auth.isBiometricEnabled,
-                    activeColor: const Color(0xFFFF6D00),
+                    activeTrackColor: const Color(0xFFFF6D00),
                     onChanged: (val) async {
                       if (val) {
                         final enabled = await auth.enableBiometrics(reason: l10n.biometricEnableReason);
@@ -278,7 +276,7 @@ class _AccountScreenState extends State<AccountScreen> {
               cardColor: cardColor,
               trailing: CupertinoSwitch(
                 value: StorageService.instance.getDarkMode(),
-                activeColor: primaryColor,
+                activeTrackColor: primaryColor,
                 onChanged: (val) {
                   StorageService.instance.setDarkMode(val);
                 },
@@ -297,7 +295,7 @@ class _AccountScreenState extends State<AccountScreen> {
               cardColor: cardColor,
               trailing: CupertinoSwitch(
                 value: _notificationsEnabled,
-                activeColor: primaryColor,
+                activeTrackColor: primaryColor,
                 onChanged: (val) {
                   setState(() => _notificationsEnabled = val);
                 },

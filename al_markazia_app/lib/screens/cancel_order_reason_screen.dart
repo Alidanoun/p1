@@ -6,7 +6,7 @@ import '../l10n/generated/app_localizations.dart';
 
 class CancelOrderReasonScreen extends StatefulWidget {
   final OrderModel order;
-  const CancelOrderReasonScreen({Key? key, required this.order}) : super(key: key);
+  const CancelOrderReasonScreen({super.key, required this.order});
 
   @override
   State<CancelOrderReasonScreen> createState() => _CancelOrderReasonScreenState();
@@ -52,7 +52,7 @@ class _CancelOrderReasonScreenState extends State<CancelOrderReasonScreen> {
                     style: TextStyle(color: Colors.grey.shade500),
                   ),
                   const SizedBox(height: 32),
-                  ...reasons.map((reason) => _buildReasonItem(reason, primaryColor, isDark)).toList(),
+                  ...reasons.map((reason) => _buildReasonItem(reason, primaryColor, isDark)),
                 ],
               ),
             ),

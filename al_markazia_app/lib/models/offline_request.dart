@@ -1,10 +1,7 @@
-import 'dart:convert';
 import 'package:uuid/uuid.dart';
 
-/**
- * 📦 Offline Request Data Model (Optimistic Concurrency Layer)
- * Implements monotonic client version assertions and idempotency mapping.
- */
+/// 📦 Offline Request Data Model (Optimistic Concurrency Layer)
+/// Implements monotonic client version assertions and idempotency mapping.
 class OfflineRequest {
   final String id;
   final String entityId;
@@ -34,9 +31,7 @@ class OfflineRequest {
     required this.nextRetryAt,
   });
 
-  /**
-   * 🛡️ Safe Factory Constructor asserting versioning compliance
-   */
+  /// 🛡️ Safe Factory Constructor asserting versioning compliance
   factory OfflineRequest.create({
     String? id,
     required String entityId,
@@ -52,7 +47,7 @@ class OfflineRequest {
       throw StateError('Cannot queue offline action without verified entity version metadata');
     }
 
-    final uuid = const Uuid();
+    const uuid = Uuid();
     return OfflineRequest._(
       id: id ?? uuid.v4(),
       entityId: entityId,

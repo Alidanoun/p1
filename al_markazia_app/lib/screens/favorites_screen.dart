@@ -13,7 +13,7 @@ import '../widgets/custom_snackbar.dart';
 import '../models/cart_item.dart';
 
 class FavoritesScreen extends StatefulWidget {
-  const FavoritesScreen({Key? key}) : super(key: key);
+  const FavoritesScreen({super.key});
 
   @override
   State<FavoritesScreen> createState() => _FavoritesScreenState();

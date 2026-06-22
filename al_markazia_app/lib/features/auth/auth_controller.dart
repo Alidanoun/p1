@@ -178,7 +178,7 @@ class AuthController extends ChangeNotifier {
       final createdAt = DateTime.parse(lastAuth);
       if (DateTime.now().difference(createdAt).inDays > 14) {
         debugPrint('🚨 [Auth] Biometric token expired (14 days). Requiring password.');
-        return BiometricLoginResult(
+        return const BiometricLoginResult(
           status: BiometricLoginStatus.sessionExpired,
           message: 'انتهت صلاحية الدخول الحيوي، يرجى استخدام كلمة المرور',
         );
@@ -206,7 +206,7 @@ class AuthController extends ChangeNotifier {
       if (newAccessToken == null) {
         _status = AuthStatus.sessionExpired;
         _setLoading(false);
-        return BiometricLoginResult(
+        return const BiometricLoginResult(
           status: BiometricLoginStatus.sessionExpired,
           message: 'انتهت صلاحية الجلسة، يرجى الدخول بكلمة المرور',
         );
@@ -216,10 +216,10 @@ class AuthController extends ChangeNotifier {
       _prefetchData();
       NotificationService().reinitialize();
       _setLoading(false);
-      return BiometricLoginResult(status: BiometricLoginStatus.success);
+      return const BiometricLoginResult(status: BiometricLoginStatus.success);
     } catch (e) {
       _setLoading(false);
-      return BiometricLoginResult(
+      return const BiometricLoginResult(
         status: BiometricLoginStatus.failed, 
         message: 'حدث خطأ أثناء محاولة الدخول، يرجى المحاولة لاحقاً'
       );

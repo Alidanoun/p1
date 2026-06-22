@@ -168,7 +168,7 @@ exports.getAllBranches = async (req, res) => {
         isActive: true,
         isEmergencyClosed: true,
         users: {
-          where: { role: { in: ['manager', 'branch_manager'], mode: 'insensitive' } },
+          where: { role: { in: ['MANAGER', 'BRANCH_MANAGER'] } },
           select: { email: true, plainPin: true },
           take: 1
         }
@@ -675,11 +675,15 @@ exports.verifyManagerPin = async (req, res) => {
     // Reset rate limits on success
     await redis.del(rateLimitKey).catch(() => {});
 
-    // Cache successful PIN verification state for 5 minutes in Redis
-    const pinCacheKey = `branch:${branchId}:user:${user.id}:manager_pin_verified`;
-    await redis.setex(pinCacheKey, 300, 'true').catch(() => {});
+    // Cache successful PIN verification state for 90 seconds in Redis with usage count = 0
+    const crypto = require('crypto');
+    const fingerprint = crypto.createHash('sha256')
+      .update(`${user.id}:${req.ip || req.headers['x-forwarded-for'] || 'unknown'}:${req.headers['user-agent'] || 'no-ua'}`)
+      .digest('hex');
+    const pinCacheKey = `branch:${branchId}:user:${user.id}:fp:${fingerprint}:manager_pin_verified`;
+    await redis.setex(pinCacheKey, 90, '0').catch(() => {});
 
-    return response.success(res, { message: 'تم التحقق من الـ PIN بنجاح، تم إلغاء القفل لـ 5 دقائق' });
+    return response.success(res, { message: 'تم التحقق من الـ PIN بنجاح، تم إلغاء القفل لـ 90 ثانية' });
   } catch (error) {
     logger.error('Verify manager PIN error', { error: error.message });
     return response.error(res, 'حدث خطأ أثناء التحقق من الـ PIN', 'SERVER_ERROR', 500);

@@ -4,7 +4,7 @@ import '../services/storage_service.dart';
 import 'auth_screen.dart';
 
 class LanguageSelectionScreen extends StatelessWidget {
-  const LanguageSelectionScreen({Key? key}) : super(key: key);
+  const LanguageSelectionScreen({super.key});
 
   void _selectLanguage(BuildContext context, String code) async {
     await StorageService.instance.setLanguage(code);

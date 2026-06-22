@@ -11,7 +11,7 @@ import '../config/features.dart';
 class LiveTrackingScreen extends StatefulWidget {
   final OrderModel order;
 
-  const LiveTrackingScreen({Key? key, required this.order}) : super(key: key);
+  const LiveTrackingScreen({super.key, required this.order});
 
   @override
   State<LiveTrackingScreen> createState() => _LiveTrackingScreenState();

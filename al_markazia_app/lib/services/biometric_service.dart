@@ -81,7 +81,7 @@ class BiometricService {
   }) async {
     // Guard: check availability first
     if (!await isAvailable) {
-      return BiometricResult(
+      return const BiometricResult(
         success: false,
         error: BiometricError.notAvailable,
         message: 'جهازك لا يدعم المقاييس الحيوية أو لم يتم تسجيلها',
@@ -100,9 +100,9 @@ class BiometricService {
 
       if (authenticated) {
         debugPrint('BiometricService: authentication succeeded');
-        return BiometricResult(success: true);
+        return const BiometricResult(success: true);
       } else {
-        return BiometricResult(
+        return const BiometricResult(
           success: false,
           error: BiometricError.cancelled,
           message: 'تم إلغاء التحقق',

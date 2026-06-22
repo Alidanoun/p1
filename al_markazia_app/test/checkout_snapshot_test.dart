@@ -1,5 +1,8 @@
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:al_markazia_app/services/session_service.dart';
 import 'package:al_markazia_app/features/cart/cart_controller.dart';
 import 'package:al_markazia_app/features/checkout/checkout_controller.dart';
 import 'package:al_markazia_app/features/auth/auth_controller.dart';
@@ -22,7 +25,21 @@ void main() {
   late MockAuthController mockAuth;
   late MockAppLocalizations mockL10n;
 
-  setUpAll(() {
+  setUpAll(() async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    
+    // Mock flutter_secure_storage platform channel
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+      const MethodChannel('plugins.it_nomads.com/flutter_secure_storage'),
+      (MethodCall methodCall) async {
+        return null;
+      },
+    );
+
+    SharedPreferences.setMockInitialValues({});
+    await StorageService.instance.init();
+    await SessionService.instance.init();
+
     registerFallbackValue(OrderModel(
       orderId: '',
       timestamp: DateTime.now(),
@@ -32,7 +49,6 @@ void main() {
       cartItems: [],
       totalPrice: 0.0,
     ));
-    registerFallbackValue(CartController(storageService: MockStorageService()));
   });
 
   setUp(() {
@@ -51,6 +67,9 @@ void main() {
     when(() => mockL10n.cartChangedError).thenReturn('تغيرت محتويات السلة');
     when(() => mockL10n.priceChangedError).thenReturn('تغيرت الأسعار');
     when(() => mockL10n.minOrderError).thenReturn('الحد الأدنى للطلب');
+    when(() => mockL10n.addressAreaLabel).thenReturn('Area');
+    when(() => mockL10n.addressStreetLabel).thenReturn('Street');
+    when(() => mockL10n.addressBuildingLabel).thenReturn('Building');
 
     cartController = CartController(storageService: mockStorage);
     checkoutController = CheckoutController(apiService: mockApi, storageService: mockStorage);

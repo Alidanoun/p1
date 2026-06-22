@@ -11,7 +11,6 @@ import 'storage_service.dart';
 import 'app_events.dart';
 import '../main.dart';
 import '../screens/notification_detail_screen.dart';
-import 'package:flutter/services.dart';
 
 /// 🛰️ Enterprise Notification Service V4 (Bulletproof Distributed Core)
 /// Standardized for high-pressure event processing, persistent TTL, and backpressure control.
@@ -61,7 +60,7 @@ class NotificationService extends ChangeNotifier {
         if (token == null) return;
         
         final response = await http.get(
-          Uri.parse('${ApiService.baseUrl}/orders/$orderId'),
+          Uri.parse('${ApiService.baseUrl}/orders/customer/orders/$orderId'),
           headers: {'Authorization': 'Bearer $token'}
         ).timeout(const Duration(seconds: 10));
 
@@ -369,7 +368,7 @@ class NotificationService extends ChangeNotifier {
               onPressed: () => Navigator.pop(context, true),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Theme.of(context).primaryColor,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               ),
               child: const Text('تفعيل التنبيهات', style: TextStyle(color: Colors.white)),
             ),
@@ -386,7 +385,7 @@ class NotificationService extends ChangeNotifier {
   Future<void> _showLocalNotification(dynamic data, {required String normalizedId}) async {
     final int notificationId = normalizedId.hashCode.toUnsigned(31); 
     
-    final androidDetails = AndroidNotificationDetails(
+    const androidDetails = AndroidNotificationDetails(
       'almarkazia_channel',
       'Al Markazia Notifications',
       importance: Importance.max,
@@ -399,8 +398,8 @@ class NotificationService extends ChangeNotifier {
       groupKey: 'almarkazia_orders',
       setAsGroupSummary: false,
       actions: <AndroidNotificationAction>[
-        const AndroidNotificationAction('track_order', '🔍 تتبع الطلب', showsUserInterface: true),
-        const AndroidNotificationAction('call_branch', '📞 اتصال بالفرع'),
+        AndroidNotificationAction('track_order', '🔍 تتبع الطلب', showsUserInterface: true),
+        AndroidNotificationAction('call_branch', '📞 اتصال بالفرع'),
       ],
     );
 
@@ -412,7 +411,7 @@ class NotificationService extends ChangeNotifier {
       notificationId,
       title,
       message,
-      NotificationDetails(android: androidDetails),
+      const NotificationDetails(android: androidDetails),
       payload: json.encode(data),
     );
 

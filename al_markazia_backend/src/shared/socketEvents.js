@@ -22,7 +22,6 @@ const SOCKET_EVENTS = {
   DASHBOARD_METRICS_UPDATE: 'dashboard:metrics:update',
   NOTIFICATION_NEW: 'notification:new',
   SYSTEM_ALERT: 'system:alert',
-  DRIVER_LOCATION_UPDATE: 'tracking:location_update',
   NOTIFICATION_READ: 'notification:read',
   NOTIFICATION_READ_ALL: 'notification:read_all',
   RESTAURANT_STATUS_CHANGED: 'restaurant:status_changed',
@@ -38,7 +37,6 @@ const SOCKET_ROOMS = {
 
   // 👤 User Contexts
   CUSTOMER: (id) => `room:user:${id}`,
-  ORDER_TRACKING: (id) => `room:tracking:order:${id}`,
 };
 
 const ROLES = {

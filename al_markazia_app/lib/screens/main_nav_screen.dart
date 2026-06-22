@@ -8,7 +8,7 @@ import 'cart_screen.dart';
 
 class MainNavScreen extends StatefulWidget {
   final int initialIndex;
-  const MainNavScreen({Key? key, this.initialIndex = 0}) : super(key: key);
+  const MainNavScreen({super.key, this.initialIndex = 0});
 
   @override
   State<MainNavScreen> createState() => _MainNavScreenState();
@@ -73,7 +73,6 @@ class _MainNavScreenState extends State<MainNavScreen> {
         ).animate(onPlay: (c) => c.repeat(reverse: true)).scaleXY(end: 1.05, duration: 2.seconds),
       ),
       bottomNavigationBar: Container(
-        height: 70,
         decoration: BoxDecoration(
           color: navBgColor,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
@@ -87,15 +86,21 @@ class _MainNavScreenState extends State<MainNavScreen> {
         ),
         child: ClipRRect(
           borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              _buildNavItem(icon: Icons.home_rounded, index: 0, unselectedColor: unselectedColor, primaryColor: primaryColor),
-              _buildNavItem(icon: Icons.favorite_border_rounded, activeIcon: Icons.favorite_rounded, index: 1, unselectedColor: unselectedColor, primaryColor: primaryColor),
-              const SizedBox(width: 48), // Space for FAB
-              _buildNavItem(icon: Icons.receipt_long_outlined, activeIcon: Icons.receipt_long_rounded, index: 3, unselectedColor: unselectedColor, primaryColor: primaryColor),
-              _buildNavItem(icon: Icons.person_outline_rounded, activeIcon: Icons.person_rounded, index: 4, unselectedColor: unselectedColor, primaryColor: primaryColor),
-            ],
+          child: SafeArea(
+            top: false,
+            child: SizedBox(
+              height: 70,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _buildNavItem(icon: Icons.home_rounded, index: 0, unselectedColor: unselectedColor, primaryColor: primaryColor),
+                  _buildNavItem(icon: Icons.favorite_border_rounded, activeIcon: Icons.favorite_rounded, index: 1, unselectedColor: unselectedColor, primaryColor: primaryColor),
+                  const SizedBox(width: 48), // Space for FAB
+                  _buildNavItem(icon: Icons.receipt_long_outlined, activeIcon: Icons.receipt_long_rounded, index: 3, unselectedColor: unselectedColor, primaryColor: primaryColor),
+                  _buildNavItem(icon: Icons.person_outline_rounded, activeIcon: Icons.person_rounded, index: 4, unselectedColor: unselectedColor, primaryColor: primaryColor),
+                ],
+              ),
+            ),
           ),
         ),
       ),

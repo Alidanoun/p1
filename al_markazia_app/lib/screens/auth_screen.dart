@@ -10,7 +10,7 @@ import '../services/biometric_service.dart';
 import '../widgets/feedback/ui_feedback.dart';
 
 class AuthScreen extends StatefulWidget {
-  const AuthScreen({Key? key}) : super(key: key);
+  const AuthScreen({super.key});
 
   @override
   State<AuthScreen> createState() => _AuthScreenState();

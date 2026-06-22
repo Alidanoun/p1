@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 
-/**
- * 🎨 Al-Markazia Design System (Premium Tokens)
- * Purpose: Centralize visual excellence and ensure consistent UI across the app.
- */
+/// 🎨 Al-Markazia Design System (Premium Tokens)
+/// Purpose: Centralize visual excellence and ensure consistent UI across the app.
 class DesignSystem {
   // --- 🌈 Colors (Luxury Palette) ---
   static const Color primary = Color(0xFFDCA965);
