@@ -2024,6 +2024,40 @@ class OrderService {
                 }
               });
             }
+
+            // 🎟️ Referral System Hook: Award points if this is the customer's first delivered order
+            if (updated.customerId) {
+              const dbCustomer = await tx.customer.findUnique({
+                where: { id: updated.customerId },
+                select: { referredById: true }
+              });
+              
+              if (dbCustomer && dbCustomer.referredById) {
+                const previousDeliveredOrdersCount = await tx.order.count({
+                  where: {
+                    customerId: updated.customerId,
+                    status: 'delivered',
+                    id: { not: updated.id }
+                  }
+                });
+                
+                if (previousDeliveredOrdersCount === 0) {
+                  const referralPoints = await this.container.loyaltyService.calculateEngagementPoints('REFERRAL');
+                  await this.container.outboxService.enqueue(tx, {
+                    type: 'loyalty.referral_award',
+                    aggregateId: String(dbCustomer.referredById),
+                    aggregateType: 'Customer',
+                    payload: {
+                      referredCustomerId: updated.customerId,
+                      referrerCustomerId: dbCustomer.referredById,
+                      points: referralPoints,
+                      orderId: updated.id
+                    }
+                  });
+                  this.logger.info(`[OrderService] Enqueued referral reward for referrer Customer #${dbCustomer.referredById} due to Customer #${updated.customerId} first order`);
+                }
+              }
+            }
           }
 
           // 📮 Authoritative Event Publication (Transactional Outbox)

@@ -29,6 +29,7 @@ class _AuthScreenState extends State<AuthScreen>
   String regEmail = '';
   String regPassword = '';
   String regPhone = '';
+  String regReferralCode = '';
 
   bool _loginPasswordVisible = false;
   bool _regPasswordVisible = false;
@@ -438,6 +439,14 @@ class _AuthScreenState extends State<AuthScreen>
               ),
               onSaved: (val) => regPassword = val!,
             ),
+            const SizedBox(height: 16),
+            TextFormField(
+              decoration: _inputDecoration(
+                'كود الدعوة (اختياري)',
+                Icons.card_giftcard_rounded,
+              ),
+              onSaved: (val) => regReferralCode = val?.trim() ?? '',
+            ),
             const SizedBox(height: 32),
             SizedBox(
               width: double.infinity,
@@ -453,6 +462,7 @@ class _AuthScreenState extends State<AuthScreen>
                             email: regEmail,
                             password: regPassword,
                             phone: regPhone,
+                            referralCode: regReferralCode.isNotEmpty ? regReferralCode : null,
                           );
                           if (success && mounted) {
                             _showOtpDialog(context, regEmail, isReset: false);

@@ -431,12 +431,14 @@ class ApiService {
     required String email,
     required String password,
     required String phone,
+    String? referralCode,
   }) async {
     final response = await _authApi.registerCustomer(
       name: name,
       email: email,
       password: password,
       phone: phone,
+      referralCode: referralCode,
     );
 
     return response;

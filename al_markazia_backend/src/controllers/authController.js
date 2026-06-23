@@ -393,7 +393,7 @@ const EmailService = require('../services/emailService');
  * 📝 Phase 1: Registration Request (Send OTP)
  */
 const register = async (req, res) => {
-  const { name, email, password, phone, fcmToken } = req.body;
+  const { name, email, password, phone, fcmToken, referralCode } = req.body;
   try {
     // 🛡️ Normalize email early to prevent case-mismatch bugs
     const cleanEmail = email.toLowerCase().trim();
@@ -422,6 +422,16 @@ const register = async (req, res) => {
       }
     }
 
+    // Validate referral code early if provided
+    if (referralCode) {
+      const referrer = await prisma.customer.findUnique({
+        where: { referralCode: referralCode.trim().toUpperCase() }
+      });
+      if (!referrer) {
+        return response.error(res, 'كود الدعوة غير صحيح', 'INVALID_REFERRAL_CODE', 400);
+      }
+    }
+
     const OtpService = require('../services/otpService');
     const hashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
@@ -435,7 +445,8 @@ const register = async (req, res) => {
         email: cleanEmail, 
         password: hashedPassword, 
         phone,
-        fcmToken 
+        fcmToken,
+        referralCode: referralCode ? referralCode.trim().toUpperCase() : null
       }
     });
 
@@ -487,7 +498,32 @@ const verifyRegistration = async (req, res) => {
       return response.error(res, 'كود التحقق غير صحيح', 'INVALID_OTP', 400);
     }
 
-    const { name, password, phone } = otpRecord.metadata;
+    const { name, password, phone, referralCode } = otpRecord.metadata;
+
+    // Lookup referrer
+    let referredById = null;
+    if (referralCode) {
+      const referrer = await prisma.customer.findUnique({
+        where: { referralCode }
+      });
+      if (referrer) {
+        referredById = referrer.id;
+      }
+    }
+
+    // Generate my own referral code
+    let myReferralCode;
+    let isUnique = false;
+    let attempts = 0;
+    while (!isUnique && attempts < 5) {
+      myReferralCode = 'REF-' + require('crypto').randomBytes(3).toString('hex').toUpperCase();
+      const existingCode = await prisma.customer.findUnique({ where: { referralCode: myReferralCode } });
+      if (!existingCode) {
+        isUnique = true;
+      }
+      attempts++;
+    }
+
     const account = await prisma.customer.create({
       data: {
         name,
@@ -496,7 +532,9 @@ const verifyRegistration = async (req, res) => {
         password,
         phone: phone ? encrypt(phone) : null,
         phoneHash: phone ? hashBlind(phone) : null,
-        fcmToken: otpRecord.metadata.fcmToken ? encrypt(otpRecord.metadata.fcmToken) : null
+        fcmToken: otpRecord.metadata.fcmToken ? encrypt(otpRecord.metadata.fcmToken) : null,
+        referralCode: myReferralCode,
+        referredById: referredById
       }
     });
 

@@ -607,6 +607,17 @@ class _OrdersScreenState extends State<OrdersScreen> {
                 final success = await context.read<OrderController>().rateOrder(order.orderId, currentRating, commentController.text);
                 if (success && mounted) {
                   Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        StorageService.instance.getLanguageCode() == 'ar'
+                            ? 'شكراً لتقييمك! سيتم إضافة نقاط الولاء بعد مراجعة التقييم من قِبل الإدارة.'
+                            : 'Thank you for your review! Loyalty points will be added after admin review.',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
                 }
               },
               child: Text(l10n.confirm),

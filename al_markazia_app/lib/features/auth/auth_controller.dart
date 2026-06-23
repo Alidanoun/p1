@@ -261,6 +261,7 @@ class AuthController extends ChangeNotifier {
     required String email,
     required String password,
     required String phone,
+    String? referralCode,
   }) async {
     _setLoading(true);
     try {
@@ -269,6 +270,7 @@ class AuthController extends ChangeNotifier {
         email: email,
         password: password,
         phone: phone,
+        referralCode: referralCode,
       );
       _setLoading(false);
       return true;

@@ -450,6 +450,12 @@ model Customer {
   notifications       Notification[] @relation("NotificationCustomer")
   couponRequests      CouponRequest[]
 
+  // Referral System
+  referralCode        String?            @unique
+  referredById        Int?
+  referredBy          Customer?          @relation("ReferralRelation", fields: [referredById], references: [id])
+  referredByMe        Customer[]         @relation("ReferralRelation")
+
   @@index([isBlacklisted])
 }
 

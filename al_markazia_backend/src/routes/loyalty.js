@@ -17,6 +17,7 @@ router.patch('/settings', authMiddleware, adminMiddleware, loyaltyController.upd
 
 // 📱 Mobile App Endpoints
 router.get('/profile', authMiddleware, loyaltyController.getMyLoyaltyProfile);
+router.post('/referral/generate', authMiddleware, loyaltyController.generateReferralCode);
 router.post('/share-product', authMiddleware, loyaltyController.rewardSocialShare);
 
 // 🛒 Rewards Store (Admin / Branch Manager)

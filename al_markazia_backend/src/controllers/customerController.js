@@ -216,7 +216,7 @@ const requestRegistrationOtp = async (req, res) => {
  */
 const registerCustomer = async (req, res) => {
   try {
-    const { name, phone, code, fcmToken } = req.body;
+    const { name, phone, code, fcmToken, referralCode } = req.body;
     if (!name || !phone) {
       return responseError(res, 'الاسم والرقم مطلوبان', 'MISSING_FIELDS', 400);
     }
@@ -242,6 +242,31 @@ const registerCustomer = async (req, res) => {
       return responseError(res, 'الرقم مسجّل مسبقاً', 'DUPLICATE', 400);
     }
 
+    // Process referral code if provided
+    let referredById = null;
+    if (referralCode) {
+      const referrer = await prisma.customer.findUnique({
+        where: { referralCode: referralCode.trim().toUpperCase() }
+      });
+      if (!referrer) {
+        return responseError(res, 'كود الدعوة غير صحيح', 'INVALID_REFERRAL_CODE', 400);
+      }
+      referredById = referrer.id;
+    }
+
+    // Generate my own referral code
+    let myReferralCode;
+    let isUnique = false;
+    let attempts = 0;
+    while (!isUnique && attempts < 5) {
+      myReferralCode = 'REF-' + require('crypto').randomBytes(3).toString('hex').toUpperCase();
+      const existingCode = await prisma.customer.findUnique({ where: { referralCode: myReferralCode } });
+      if (!existingCode) {
+        isUnique = true;
+      }
+      attempts++;
+    }
+
     // 3. Create Verified Account
     const customer = await prisma.customer.create({
       data: { 
@@ -250,11 +275,13 @@ const registerCustomer = async (req, res) => {
         phone: encrypt(cleanPhone),
         phoneHash: hashBlind(cleanPhone),
         phoneVerifiedAt: new Date(),
-        fcmToken: fcmToken ? encrypt(fcmToken) : null
+        fcmToken: fcmToken ? encrypt(fcmToken) : null,
+        referralCode: myReferralCode,
+        referredById: referredById
       }
     });
 
-    logger.info('New verified customer registered', { phone: cleanPhone, name, uuid: customer.uuid });
+    logger.info('New verified customer registered', { phone: cleanPhone, name, uuid: customer.uuid, referredById });
 
     // 4. Issue JWTs
     const accessToken = TokenService.generateAccessToken(customer);

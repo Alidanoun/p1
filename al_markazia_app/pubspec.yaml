@@ -48,6 +48,7 @@ dependencies:
   local_auth: ^2.3.0
   google_maps_flutter: ^2.5.3
   geolocator: ^11.0.0
+  share_plus: ^7.2.1
 
   uuid: any
 dev_dependencies:

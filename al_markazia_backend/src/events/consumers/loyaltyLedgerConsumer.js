@@ -79,6 +79,27 @@ const loyaltyLedgerConsumer = new StreamConsumerGroup(
     },
 
     /**
+     * 🎟️ Handle Referral-Based Rewards
+     */
+    'loyalty.referral_award': async (event) => {
+      const { payload } = event;
+      const { referrerCustomerId, referredCustomerId, points, orderId } = payload;
+      const loyaltyLedgerService = container.loyaltyLedgerService;
+
+      const entry = await loyaltyLedgerService.credit(
+        referrerCustomerId,
+        points,
+        'REFERRAL_AWARD',
+        referredCustomerId,
+        'مكافأة دعوة صديق',
+        `referral:${referrerCustomerId}:${referredCustomerId}:${orderId}` // Idempotency Key
+      );
+
+      // 🔄 [PHASE 4] Sync Projection
+      await loyaltyLedgerService.syncProjection(referrerCustomerId, entry.balanceAfter);
+    },
+
+    /**
      * 👮 Handle Administrative Adjustments
      */
     'loyalty.manual_adjustment': async (event) => {

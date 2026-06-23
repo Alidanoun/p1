@@ -39,6 +39,7 @@ class AuthApi {
     required String email,
     required String password,
     required String phone,
+    String? referralCode,
   }) async {
     final response = await http.post(
       Uri.parse('$baseUrl/auth/register'),
@@ -48,6 +49,8 @@ class AuthApi {
         'email': email,
         'password': password,
         'phone': phone,
+        if (referralCode != null && referralCode.trim().isNotEmpty)
+          'referralCode': referralCode.trim(),
       }),
     ).timeout(const Duration(seconds: 10));
 

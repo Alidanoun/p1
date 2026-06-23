@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../models/loyalty_profile.dart';
 import '../services/api_service.dart';
+import '../services/storage_service.dart';
 import '../theme/design_system.dart';
 import '../widgets/feedback/ui_feedback.dart';
 
@@ -353,7 +356,7 @@ class _LoyaltyHubScreenState extends State<LoyaltyHubScreen> {
   }
 
   void _triggerReferralEngagement() {
-    final String inviteCode = _profile != null ? 'REF-${(_profile!.points.toString() + _profile!.tier).hashCode.abs().toString().substring(0, 4)}' : 'MARKAZIA-VIP';
+    final String inviteCode = _profile?.referralCode ?? 'MARKAZIA-VIP';
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -388,6 +391,7 @@ class _LoyaltyHubScreenState extends State<LoyaltyHubScreen> {
                     icon: const Icon(Icons.copy, size: 16),
                     label: const Text('نسخ الكود', style: TextStyle(fontSize: 12)),
                     onPressed: () {
+                      Clipboard.setData(ClipboardData(text: inviteCode));
                       Navigator.pop(ctx);
                       UIFeedback.showSuccess(context, 'تم نسخ كود الدعوة بنجاح! شاركه الآن.');
                     },
@@ -403,23 +407,33 @@ class _LoyaltyHubScreenState extends State<LoyaltyHubScreen> {
   }
 
   Future<void> _triggerSocialShareEngagement() async {
-    final result = await ApiService.instance.triggerSocialShareReward();
-    if (result != null && result['success'] == true) {
-      if (result['rewarded'] == true) {
-        if (mounted) {
-          UIFeedback.showSuccess(context, result['message'] ?? 'تم إضافة نقاط المشاركة لمحفظتك!');
-          _loadData();
+    final shareText = StorageService.instance.getLanguageCode() == 'ar'
+        ? 'استمتع بأشهى المأكولات من مطعم المركزية! جرب تطبيقنا واطلب الآن: https://almarkazia.com'
+        : 'Enjoy the most delicious meals from Al-Markazia Restaurant! Download our app and order now: https://almarkazia.com';
+
+    try {
+      await Share.share(shareText);
+      
+      final result = await ApiService.instance.triggerSocialShareReward();
+      if (result != null && result['success'] == true) {
+        if (result['rewarded'] == true) {
+          if (mounted) {
+            UIFeedback.showSuccess(context, result['message'] ?? 'تم إضافة نقاط المشاركة لمحفظتك!');
+            _loadData();
+          }
+        } else {
+          if (mounted) {
+            UIFeedback.showInfo(context, result['message'] ?? 'لقد حصلت على مكافأة المشاركة اليوم مسبقاً.');
+          }
         }
       } else {
         if (mounted) {
-          UIFeedback.showInfo(context, result['message'] ?? 'لقد حصلت على مكافأة المشاركة اليوم مسبقاً.');
+          UIFeedback.showSuccess(context, 'تمت مشاركة رابط المنتج بنجاح! تم إضافة النقاط لمحفظتك.');
+          _loadData();
         }
       }
-    } else {
-      if (mounted) {
-        UIFeedback.showSuccess(context, 'تمت مشاركة رابط المنتج بنجاح! تم إضافة النقاط لمحفظتك.');
-        _loadData();
-      }
+    } catch (e) {
+      debugPrint('Sharing failed or cancelled: $e');
     }
   }
 

@@ -5,6 +5,7 @@ class LoyaltyProfile {
   final String nextTier;
   final int targetOrders;
   final int progress;
+  final String? referralCode;
 
   LoyaltyProfile({
     required this.points,
@@ -13,6 +14,7 @@ class LoyaltyProfile {
     required this.nextTier,
     required this.targetOrders,
     required this.progress,
+    this.referralCode,
   });
 
   factory LoyaltyProfile.fromJson(Map<String, dynamic> json) {
@@ -23,6 +25,7 @@ class LoyaltyProfile {
       nextTier: json['nextTier'] ?? 'GOLD',
       targetOrders: json['targetOrders'] ?? 10,
       progress: json['progress'] ?? 0,
+      referralCode: json['referralCode'],
     );
   }
 }

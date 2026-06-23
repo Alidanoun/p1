@@ -211,10 +211,29 @@ class LoyaltyController {
     try {
       const customer = await prisma.customer.findUnique({
         where: { uuid: req.user.id },
-        select: { id: true, name: true, points: true, tier: true, totalOrders: true }
+        select: { id: true, name: true, points: true, tier: true, totalOrders: true, referralCode: true }
       });
 
       if (!customer) return res.status(404).json({ success: false, error: 'Customer not found' });
+
+      // Generate a referral code on-demand if it's missing (for existing users)
+      let referralCode = customer.referralCode;
+      if (!referralCode) {
+        let isUnique = false;
+        let attempts = 0;
+        while (!isUnique && attempts < 5) {
+          referralCode = 'REF-' + require('crypto').randomBytes(3).toString('hex').toUpperCase();
+          const existingCode = await prisma.customer.findUnique({ where: { referralCode } });
+          if (!existingCode) {
+            isUnique = true;
+          }
+          attempts++;
+        }
+        await prisma.customer.update({
+          where: { id: customer.id },
+          data: { referralCode }
+        });
+      }
 
       const config = await loyaltyService.getConfig();
 
@@ -236,11 +255,51 @@ class LoyaltyController {
         success: true,
         data: {
           ...customer,
+          referralCode,
           nextTier,
           targetOrders,
           progress: Math.min(100, Math.round(progress))
         }
       });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  }
+
+  /**
+   * 🎟️ Generate or return Referral Code
+   */
+  async generateReferralCode(req, res) {
+    try {
+      const customerUuid = req.user.id;
+      const customer = await prisma.customer.findUnique({
+        where: { uuid: customerUuid },
+        select: { id: true, referralCode: true }
+      });
+      if (!customer) return res.status(404).json({ success: false, error: 'Customer not found' });
+      
+      if (customer.referralCode) {
+        return res.json({ success: true, referralCode: customer.referralCode });
+      }
+
+      let myReferralCode;
+      let isUnique = false;
+      let attempts = 0;
+      while (!isUnique && attempts < 5) {
+        myReferralCode = 'REF-' + require('crypto').randomBytes(3).toString('hex').toUpperCase();
+        const existingCode = await prisma.customer.findUnique({ where: { referralCode: myReferralCode } });
+        if (!existingCode) {
+          isUnique = true;
+        }
+        attempts++;
+      }
+
+      await prisma.customer.update({
+        where: { id: customer.id },
+        data: { referralCode: myReferralCode }
+      });
+
+      res.json({ success: true, referralCode: myReferralCode });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }

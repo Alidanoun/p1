@@ -269,7 +269,7 @@ exports.toggleApproval = async (req, res) => {
         const container = require('../lib/container');
         const points = await container.loyaltyService.calculateEngagementPoints('REVIEW');
         
-        await prisma.systemOutbox.create({
+        await prisma.outboxEvent.create({
           data: {
             type: 'loyalty.review_award',
             aggregateId: String(review.id),
