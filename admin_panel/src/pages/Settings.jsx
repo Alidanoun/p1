@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Save, MessageCircle, Bell, Shield, Settings as SettingsIcon, Clock, Phone, MapPin, Image as ImageIcon, Plus, Smartphone, ExternalLink, Building2 } from 'lucide-react';
 import { toast } from 'sonner';
 import Header from '../components/Header';
@@ -19,7 +19,11 @@ const DAYS = [
 
 const Settings = () => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('general');
+  const location = useLocation();
+  const [activeTab, setActiveTab] = useState(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get('tab') || 'general';
+  });
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
 
@@ -85,7 +89,10 @@ const Settings = () => {
     allowedPermissions: { ...DEFAULT_PERMISSION_MATRIX }
   });
 
-  const [selectedEditBranchId, setSelectedEditBranchId] = useState('');
+  const [selectedEditBranchId, setSelectedEditBranchId] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('branchId') || '';
+  });
   const [editBranchPermissions, setEditBranchPermissions] = useState({ ...DEFAULT_PERMISSION_MATRIX });
   const [loadingPermissions, setLoadingPermissions] = useState(false);
   const [savingPermissions, setSavingPermissions] = useState(false);
@@ -157,7 +164,14 @@ const Settings = () => {
       if (branchesData && branchesData.length > 0) {
         setBranches(branchesData);
         setBranchCredentials(prev => ({ ...prev, branchId: branchesData[0].id }));
-        setSelectedEditBranchId(branchesData[0].id);
+        setSelectedEditBranchId(prev => {
+          const params = new URLSearchParams(window.location.search);
+          const branchIdParam = params.get('branchId');
+          if (branchIdParam && branchesData.some(b => b.id === branchIdParam)) {
+            return branchIdParam;
+          }
+          return prev || branchesData[0].id;
+        });
       }
 
       if (scheduleData && scheduleData.schedule) {
@@ -186,6 +200,19 @@ const Settings = () => {
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const tabParam = params.get('tab');
+    const branchIdParam = params.get('branchId');
+
+    if (tabParam) {
+      setActiveTab(tabParam);
+    }
+    if (branchIdParam) {
+      setSelectedEditBranchId(branchIdParam);
+    }
+  }, [location.search]);
 
   const handleSaveSettings = async () => {
     setUpdating(true);

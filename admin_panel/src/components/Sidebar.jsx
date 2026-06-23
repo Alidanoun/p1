@@ -27,7 +27,7 @@ const Sidebar = () => {
       label: 'إدارة المحتوى',
       show: isAdmin || isBranchManager,
       items: [
-        { name: 'إدارة القائمة', icon: MenuSquare, path: '/menu', show: isAdmin || isAuthorized('menu') },
+        { name: 'إدارة القائمة', icon: MenuSquare, path: '/menu', show: isAdmin },
         { name: 'منيو الفرع', icon: Utensils, path: '/branch-menu', show: isAuthorized('menu') },
         { name: 'مناطق التوصيل', icon: MapPin, path: '/delivery-zones', show: isAdmin || isAuthorized('deliveryZones') },
       ]

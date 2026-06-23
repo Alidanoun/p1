@@ -4,6 +4,7 @@ import { CheckCircle, XCircle, Trash2, Star, Search, Filter, Phone, Clock, FileT
 import { toast } from 'sonner';
 import Header from '../components/Header';
 import api, { unwrap } from '../api/client';
+import { useAuth } from '../hooks/useAuth';
 import { cn } from '../lib/utils';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
@@ -11,6 +12,8 @@ import InvoiceModal from '../components/InvoiceModal';
 import ConfirmationModal from '../components/ConfirmationModal';
 
 const ReviewsManager = () => {
+  const { isAuthorized } = useAuth();
+  const canEdit = isAuthorized('reviews', 'EDIT_PIN');
   const [reviews, setReviews] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all'); // all, pending, approved
@@ -217,27 +220,31 @@ const ReviewsManager = () => {
                       </button>
                     )}
 
-                    <button
-                      onClick={() => toggleApproval(review.id, review.isApproved)}
-                      className={cn(
-                        "flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all",
-                        review.isApproved 
-                          ? "bg-white/5 text-text-muted hover:text-white" 
-                          : "bg-emerald-500 text-white shadow-lg shadow-emerald-500/20"
-                      )}
-                    >
-                      {review.isApproved ? <XCircle className="w-5 h-5" /> : <CheckCircle className="w-5 h-5" />}
-                      <span>{review.isApproved ? 'إخفاء' : 'موافقة'}</span>
-                    </button>
+                    {canEdit && (
+                      <>
+                        <button
+                          onClick={() => toggleApproval(review.id, review.isApproved)}
+                          className={cn(
+                            "flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all",
+                            review.isApproved 
+                              ? "bg-white/5 text-text-muted hover:text-white" 
+                              : "bg-emerald-500 text-white shadow-lg shadow-emerald-500/20"
+                          )}
+                        >
+                          {review.isApproved ? <XCircle className="w-5 h-5" /> : <CheckCircle className="w-5 h-5" />}
+                          <span>{review.isApproved ? 'إخفاء' : 'موافقة'}</span>
+                        </button>
 
-                  <button
-                    onClick={() => deleteReview(review.id)}
-                    className="p-3 bg-red-500/10 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all flex items-center justify-center"
-                    title="حذف التقييم"
-                  >
-                    <Trash2 className="w-5 h-5" />
-                  </button>
-                </div>
+                        <button
+                          onClick={() => deleteReview(review.id)}
+                          className="p-3 bg-red-500/10 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all flex items-center justify-center"
+                          title="حذف التقييم"
+                        >
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      </>
+                    )}
+                  </div>
               </motion.div>
             ))}
           </AnimatePresence>

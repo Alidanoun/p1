@@ -3,14 +3,21 @@ import { Send, CheckCircle, Smartphone, Users } from 'lucide-react';
 import Header from '../components/Header';
 import api from '../api/client';
 import { toast } from 'sonner';
+import { useAuth } from '../hooks/useAuth';
 
 const BroadcastNotifications = () => {
+  const { isAuthorized } = useAuth();
+  const canEdit = isAuthorized('notifications', 'EDIT_PIN');
   const [title, setTitle] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleBroadcast = async (e) => {
     e.preventDefault();
+    if (!canEdit) {
+      toast.error('ليس لديك صلاحية إرسال إشعارات');
+      return;
+    }
     if (!title || !message) {
       toast.error('يرجى تعبئة العنوان والرسالة');
       return;
@@ -48,7 +55,8 @@ const BroadcastNotifications = () => {
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                className="w-full bg-background border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+                disabled={!canEdit}
+                className="w-full bg-background border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 placeholder="اكتب العنوان هنا..."
               />
             </div>
@@ -58,19 +66,24 @@ const BroadcastNotifications = () => {
               <textarea
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
+                disabled={!canEdit}
                 rows={5}
-                className="w-full bg-background border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary resize-none transition-all"
+                className="w-full bg-background border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary resize-none transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 placeholder="مرحباً، لدينا عرض جديد لك..."
               />
             </div>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-primary hover:bg-primary/90 text-white font-bold py-3 rounded-xl transition-all shadow-lg hover:shadow-primary/20 flex items-center justify-center gap-2 mt-6 active:scale-[0.98]"
-            >
-              {loading ? <span className="animate-pulse">جاري الإرسال...</span> : <><Send className="w-5 h-5" /> إرسال لجميع العملاء فوراً</>}
-            </button>
+            {canEdit ? (
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-primary hover:bg-primary/90 text-white font-bold py-3 rounded-xl transition-all shadow-lg hover:shadow-primary/20 flex items-center justify-center gap-2 mt-6 active:scale-[0.98]"
+              >
+                {loading ? <span className="animate-pulse">جاري الإرسال...</span> : <><Send className="w-5 h-5" /> إرسال لجميع العملاء فوراً</>}
+              </button>
+            ) : (
+              <p className="text-amber-500 text-xs mt-2 font-bold">عذراً، لديك صلاحية المشاهدة فقط ولا يمكنك إرسال إشعارات.</p>
+            )}
           </div>
         </form>
 

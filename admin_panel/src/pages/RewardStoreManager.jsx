@@ -2,11 +2,14 @@ import { useState, useEffect } from 'react';
 import { Gift, Plus, Edit, Trash2, Save, X, Image as ImageIcon, Stars } from 'lucide-react';
 import Header from '../components/Header';
 import api, { unwrap } from '../api/client';
+import { useAuth } from '../hooks/useAuth';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
 import ConfirmationModal from '../components/ConfirmationModal';
 
 const RewardStoreManager = () => {
+  const { isAuthorized } = useAuth();
+  const canEdit = isAuthorized('rewardsStore', 'EDIT_PIN');
   const [rewards, setRewards] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -134,13 +137,15 @@ const RewardStoreManager = () => {
         title="متجر المكافآت" 
         subtitle="إدارة الوجبات والمنتجات التي يمكن للزبائن استبدال نقاطهم بها" 
         action={
-          <button 
-            onClick={() => handleOpenModal()}
-            className="bg-primary hover:bg-primary/90 text-white px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-primary/20 transition-all"
-          >
-            <Plus className="w-5 h-5" />
-            <span>إضافة مكافأة جديدة</span>
-          </button>
+          canEdit && (
+            <button 
+              onClick={() => handleOpenModal()}
+              className="bg-primary hover:bg-primary/90 text-white px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-primary/20 transition-all"
+            >
+              <Plus className="w-5 h-5" />
+              <span>إضافة مكافأة جديدة</span>
+            </button>
+          )
         }
       />
 
@@ -171,16 +176,28 @@ const RewardStoreManager = () => {
                 
                 {/* Status Badge */}
                 <div className="absolute top-4 right-4">
-                  <button 
-                    onClick={() => toggleActiveStatus(reward)}
-                    className={`px-3 py-1 rounded-full text-xs font-bold border backdrop-blur-md transition-colors ${
-                      reward.isActive 
-                        ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/30' 
-                        : 'bg-rose-500/20 text-rose-400 border-rose-500/30 hover:bg-rose-500/30'
-                    }`}
-                  >
-                    {reward.isActive ? 'متاح للجميع' : 'متوقف'}
-                  </button>
+                  {canEdit ? (
+                    <button 
+                      onClick={() => toggleActiveStatus(reward)}
+                      className={`px-3 py-1 rounded-full text-xs font-bold border backdrop-blur-md transition-colors ${
+                        reward.isActive 
+                          ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/30' 
+                          : 'bg-rose-500/20 text-rose-400 border-rose-500/30 hover:bg-rose-500/30'
+                      }`}
+                    >
+                      {reward.isActive ? 'متاح للجميع' : 'متوقف'}
+                    </button>
+                  ) : (
+                    <span 
+                      className={`px-3 py-1 rounded-full text-xs font-bold border backdrop-blur-md ${
+                        reward.isActive 
+                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/10' 
+                          : 'bg-rose-500/10 text-rose-400 border-rose-500/10'
+                      }`}
+                    >
+                      {reward.isActive ? 'متاح للجميع' : 'متوقف'}
+                    </span>
+                  )}
                 </div>
 
                 {/* Points Badge */}
@@ -196,22 +213,24 @@ const RewardStoreManager = () => {
                   <p className="text-sm text-text-muted mb-6 line-clamp-2">{reward.description}</p>
                 )}
 
-                <div className="flex gap-2 border-t border-white/5 pt-4">
-                  <button 
-                    onClick={() => handleOpenModal(reward)}
-                    className="flex-1 bg-white/5 hover:bg-white/10 text-white py-2 rounded-xl text-sm font-bold transition-colors flex items-center justify-center gap-2"
-                  >
-                    <Edit className="w-4 h-4" />
-                    <span>تعديل</span>
-                  </button>
-                  <button 
-                    onClick={() => handleDelete(reward.id)}
-                    className="flex-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 py-2 rounded-xl text-sm font-bold transition-colors flex items-center justify-center gap-2"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    <span>حذف</span>
-                  </button>
-                </div>
+                {canEdit && (
+                  <div className="flex gap-2 border-t border-white/5 pt-4">
+                    <button 
+                      onClick={() => handleOpenModal(reward)}
+                      className="flex-1 bg-white/5 hover:bg-white/10 text-white py-2 rounded-xl text-sm font-bold transition-colors flex items-center justify-center gap-2"
+                    >
+                      <Edit className="w-4 h-4" />
+                      <span>تعديل</span>
+                    </button>
+                    <button 
+                      onClick={() => handleDelete(reward.id)}
+                      className="flex-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 py-2 rounded-xl text-sm font-bold transition-colors flex items-center justify-center gap-2"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      <span>حذف</span>
+                    </button>
+                  </div>
+                )}
               </div>
             </motion.div>
           ))}

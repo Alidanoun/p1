@@ -98,7 +98,7 @@ function App() {
               </ProtectedRoute>
             } />
             <Route path="/menu" element={
-              <ProtectedRoute requiredRole={['admin', 'manager', 'branch_manager']} permission="menu">
+              <ProtectedRoute requiredRole={['admin']} permission="menu">
                 <MenuManager />
               </ProtectedRoute>
             } />

@@ -12,6 +12,12 @@ exports.getAllItems = async (req, res) => {
   try {
     const { admin, categoryId, featured, query } = req.query;
     
+    if (admin === 'true') {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    }
+    
     let targetBranchId = req.query.branchId || req.user?.branchId || null;
     if (targetBranchId === 'null' || targetBranchId === 'undefined') targetBranchId = null;
 

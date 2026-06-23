@@ -23,7 +23,14 @@ const getDailyReports = async (req, res) => {
       }
     });
 
-    res.json(reports);
+    // Map database fields to keys expected by the frontend reports dashboard
+    const mappedReports = reports.map(r => ({
+      ...r,
+      totalRevenue: Number(r.totalSales || 0),
+      totalOrders: r.orderCount || 0
+    }));
+
+    res.json(mappedReports);
   } catch (err) {
     logger.error(`[getDailyReports] Error: ${err.message}`);
     res.status(500).json({ error: 'Failed to fetch reports' });
@@ -37,7 +44,7 @@ const getTopItems = async (req, res) => {
     pastDate.setDate(pastDate.getDate() - 30); // Last 30 days
     
     const items = await prisma.orderItem.groupBy({
-      by: ['title'],
+      by: ['itemName'],
       where: {
         order: {
           createdAt: { gte: pastDate },
@@ -55,7 +62,13 @@ const getTopItems = async (req, res) => {
       take: 5
     });
 
-    res.json(items);
+    // Map database field itemName to title expected by frontend dashboard
+    const mappedItems = items.map(item => ({
+      title: item.itemName,
+      _sum: item._sum
+    }));
+
+    res.json(mappedItems);
   } catch (err) {
     logger.error(`[getTopItems] Error: ${err.message}`);
     res.status(500).json({ error: 'Failed to fetch top items' });

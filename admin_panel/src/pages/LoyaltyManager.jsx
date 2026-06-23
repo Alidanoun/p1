@@ -2,12 +2,15 @@ import { useState, useEffect } from 'react';
 import { Stars, Settings, Save, TrendingUp, Gift, Share2, MessageSquare, UserPlus } from 'lucide-react';
 import Header from '../components/Header';
 import api, { unwrap } from '../api/client';
+import { useAuth } from '../hooks/useAuth';
 import { useSocket } from '../hooks/useSocket';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
 import ConfirmationModal from '../components/ConfirmationModal';
 
 const LoyaltyManager = () => {
+  const { isAuthorized } = useAuth();
+  const canEdit = isAuthorized('loyalty', 'EDIT_PIN');
   const { socket } = useSocket();
   const [settings, setSettings] = useState({
     pointsPerJod: 10,
@@ -209,6 +212,7 @@ const LoyaltyManager = () => {
                 value={settings.pointsPerJod}
                 onChange={(val) => setSettings({...settings, pointsPerJod: val})}
                 suffix="نقطة / دينار"
+                disabled={!canEdit}
               />
               <SettingCard 
                 title="قيمة النقاط (للاسترداد)"
@@ -216,6 +220,7 @@ const LoyaltyManager = () => {
                 value={settings.pointsToJodRate}
                 onChange={(val) => setSettings({...settings, pointsToJodRate: val})}
                 suffix="نقطة = 1 دينار"
+                disabled={!canEdit}
               />
               <SettingCard 
                 title="الحد الأدنى لاستخدام النقاط"
@@ -223,6 +228,7 @@ const LoyaltyManager = () => {
                 value={settings.minPointsToRedeem}
                 onChange={(val) => setSettings({...settings, minPointsToRedeem: val})}
                 suffix="نقطة"
+                disabled={!canEdit}
               />
             </div>
           </motion.div>
@@ -280,6 +286,7 @@ const LoyaltyManager = () => {
                       value={settings.tierGoldMinOrders}
                       onChange={(val) => setSettings({...settings, tierGoldMinOrders: val})}
                       suffix="طلب"
+                      disabled={!canEdit}
                     />
                   </div>
                   <SettingInput 
@@ -288,6 +295,7 @@ const LoyaltyManager = () => {
                     onChange={(val) => setSettings({...settings, pointsMultiplierGold: val})}
                     suffix="x"
                     step="0.1"
+                    disabled={!canEdit}
                   />
                 </div>
 
@@ -304,6 +312,7 @@ const LoyaltyManager = () => {
                       value={settings.tierPlatinumMinOrders}
                       onChange={(val) => setSettings({...settings, tierPlatinumMinOrders: val})}
                       suffix="طلب"
+                      disabled={!canEdit}
                     />
                   </div>
                   <SettingInput 
@@ -312,6 +321,7 @@ const LoyaltyManager = () => {
                     onChange={(val) => setSettings({...settings, pointsMultiplierPlatinum: val})}
                     suffix="x"
                     step="0.1"
+                    disabled={!canEdit}
                   />
                 </div>
               </div>
@@ -352,6 +362,7 @@ const LoyaltyManager = () => {
                   <input 
                     type="checkbox" 
                     checked={settings.isHappyHourEnabled}
+                    disabled={!canEdit}
                     onChange={async (e) => {
                       const newVal = e.target.checked;
                       setSettings({...settings, isHappyHourEnabled: newVal});
@@ -378,6 +389,7 @@ const LoyaltyManager = () => {
                 onChange={(val) => setSettings({...settings, happyHourStart: val})}
                 suffix=""
                 type="time"
+                disabled={!canEdit}
               />
               <div className="flex flex-col gap-2">
                 <SettingInput 
@@ -386,37 +398,40 @@ const LoyaltyManager = () => {
                   onChange={(val) => setSettings({...settings, happyHourEnd: val})}
                   suffix=""
                   type="time"
+                  disabled={!canEdit}
                 />
                 {/* Quick Presets */}
-                <div className="flex gap-2 mt-1">
-                    {[1, 2, 3].map(h => (
-                      <button
-                        key={h}
-                        type="button"
-                        onClick={() => {
-                          // Use server time if available, fallback to local (though server time is preferred)
-                          const [sH, sM] = (settings.serverTime || "12:00").split(':').map(Number);
-                          const now = new Date();
-                          now.setHours(sH, sM, 0, 0);
+                {canEdit && (
+                  <div className="flex gap-2 mt-1">
+                      {[1, 2, 3].map(h => (
+                        <button
+                          key={h}
+                          type="button"
+                          onClick={() => {
+                            // Use server time if available, fallback to local (though server time is preferred)
+                            const [sH, sM] = (settings.serverTime || "12:00").split(':').map(Number);
+                            const now = new Date();
+                            now.setHours(sH, sM, 0, 0);
 
-                          const startStr = settings.serverTime || `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-                          
-                          const end = new Date(now.getTime() + h * 60 * 60 * 1000);
-                          const endStr = `${end.getHours().toString().padStart(2, '0')}:${end.getMinutes().toString().padStart(2, '0')}`;
-                          
-                          setSettings({
-                            ...settings, 
-                            happyHourStart: startStr,
-                            happyHourEnd: endStr,
-                            isHappyHourEnabled: true
-                          });
-                        }}
-                      className="px-2 py-1 text-[9px] font-bold bg-white/5 border border-white/10 rounded-lg hover:bg-primary/20 hover:border-primary/30 transition-all text-text-muted hover:text-white"
-                    >
-                      {h} ساعة
-                    </button>
-                  ))}
-                </div>
+                            const startStr = settings.serverTime || `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+                            
+                            const end = new Date(now.getTime() + h * 60 * 60 * 1000);
+                            const endStr = `${end.getHours().toString().padStart(2, '0')}:${end.getMinutes().toString().padStart(2, '0')}`;
+                            
+                            setSettings({
+                              ...settings, 
+                              happyHourStart: startStr,
+                              happyHourEnd: endStr,
+                              isHappyHourEnabled: true
+                            });
+                          }}
+                        className="px-2 py-1 text-[9px] font-bold bg-white/5 border border-white/10 rounded-lg hover:bg-primary/20 hover:border-primary/30 transition-all text-text-muted hover:text-white"
+                      >
+                        {h} ساعة
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <SettingInput 
                 label="مضاعف النقاط"
@@ -424,34 +439,37 @@ const LoyaltyManager = () => {
                 onChange={(val) => setSettings({...settings, happyHourMultiplier: val})}
                 suffix="x"
                 step="0.1"
+                disabled={!canEdit}
               />
             </div>
 
             {/* 🚀 Quick Action: Start Now & Notify */}
-            <div className="mt-8 pt-8 border-t border-white/5">
-              {!settings.isHappyHourEnabled || settings.happyHourStatus?.status !== 'ACTIVE' ? (
-                <button
-                  onClick={handleStartNow}
-                  disabled={isSaving}
-                  className="w-full bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold py-4 rounded-2xl transition-all flex items-center justify-center gap-3 group"
-                >
-                  <Gift className="w-5 h-5 animate-bounce" />
-                  <span>تفعيل "ساعة السعادة" الآن وإرسال تنبيه لجميع العملاء 📢</span>
-                </button>
-              ) : (
-                <button
-                  onClick={handleStopNow}
-                  disabled={isSaving}
-                  className="w-full bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 font-bold py-4 rounded-2xl transition-all flex items-center justify-center gap-3 group"
-                >
-                  <div className="relative">
-                    <Gift className="w-5 h-5" />
-                    <div className="absolute -top-1 -right-1 w-2 h-2 bg-rose-500 rounded-full animate-ping" />
-                  </div>
-                  <span>إيقاف "ساعة السعادة" الآن (إنهاء العرض) 🛑</span>
-                </button>
-              )}
-            </div>
+            {canEdit && (
+              <div className="mt-8 pt-8 border-t border-white/5">
+                {!settings.isHappyHourEnabled || settings.happyHourStatus?.status !== 'ACTIVE' ? (
+                  <button
+                    onClick={handleStartNow}
+                    disabled={isSaving}
+                    className="w-full bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold py-4 rounded-2xl transition-all flex items-center justify-center gap-3 group"
+                  >
+                    <Gift className="w-5 h-5 animate-bounce" />
+                    <span>تفعيل "ساعة السعادة" الآن وإرسال تنبيه لجميع العملاء 📢</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleStopNow}
+                    disabled={isSaving}
+                    className="w-full bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 font-bold py-4 rounded-2xl transition-all flex items-center justify-center gap-3 group"
+                  >
+                    <div className="relative">
+                      <Gift className="w-5 h-5" />
+                      <div className="absolute -top-1 -right-1 w-2 h-2 bg-rose-500 rounded-full animate-ping" />
+                    </div>
+                    <span>إيقاف "ساعة السعادة" الآن (إنهاء العرض) 🛑</span>
+                  </button>
+                )}
+              </div>
+            )}
           </motion.div>
         </div>
 
@@ -477,34 +495,39 @@ const LoyaltyManager = () => {
                 title="تقييم وجبة"
                 value={settings.reviewPoints}
                 onChange={(val) => setSettings({...settings, reviewPoints: val})}
+                disabled={!canEdit}
               />
               <EngagementItem 
                 icon={<UserPlus className="w-4 h-4" />}
                 title="دعوة صديق"
                 value={settings.referralPoints}
                 onChange={(val) => setSettings({...settings, referralPoints: val})}
+                disabled={!canEdit}
               />
               <EngagementItem 
                 icon={<Share2 className="w-4 h-4" />}
                 title="مشاركة المنتج"
                 value={settings.socialSharePoints}
                 onChange={(val) => setSettings({...settings, socialSharePoints: val})}
+                disabled={!canEdit}
               />
             </div>
           </motion.div>
 
           {/* Action Button */}
-          <div className="sticky bottom-8">
-            <button
-              onClick={handleUpdateSettings}
-              disabled={isSaving}
-              className="w-full bg-primary hover:bg-primary/90 text-white font-bold py-5 rounded-2xl shadow-2xl shadow-primary/20 transition-all flex items-center justify-center gap-3 group overflow-hidden relative"
-            >
-              <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
-              <Save className={isSaving ? 'animate-spin' : 'relative z-10'} />
-              <span className="relative z-10 text-lg">{isSaving ? 'جاري الحفظ...' : 'حفظ جميع الإعدادات'}</span>
-            </button>
-          </div>
+          {canEdit && (
+            <div className="sticky bottom-8">
+              <button
+                onClick={handleUpdateSettings}
+                disabled={isSaving}
+                className="w-full bg-primary hover:bg-primary/90 text-white font-bold py-5 rounded-2xl shadow-2xl shadow-primary/20 transition-all flex items-center justify-center gap-3 group overflow-hidden relative"
+              >
+                <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
+                <Save className={isSaving ? 'animate-spin' : 'relative z-10'} />
+                <span className="relative z-10 text-lg">{isSaving ? 'جاري الحفظ...' : 'حفظ جميع الإعدادات'}</span>
+              </button>
+            </div>
+          )}
         </div>
 
       </div>
@@ -523,7 +546,7 @@ const LoyaltyManager = () => {
   );
 };
 
-const SettingCard = ({ title, description, value, onChange, suffix }) => (
+const SettingCard = ({ title, description, value, onChange, suffix, disabled }) => (
   <div className="bg-white/5 rounded-2xl p-6 border border-white/5 flex flex-col justify-between gap-4">
     <div className="space-y-1">
       <h3 className="font-bold text-white">{title}</h3>
@@ -534,14 +557,15 @@ const SettingCard = ({ title, description, value, onChange, suffix }) => (
         type="number"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="flex-1 bg-background border border-white/10 rounded-xl px-4 py-3 text-center text-white font-bold outline-none focus:border-primary transition-all"
+        disabled={disabled}
+        className="flex-1 bg-background border border-white/10 rounded-xl px-4 py-3 text-center text-white font-bold outline-none focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed"
       />
       <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider">{suffix}</span>
     </div>
   </div>
 );
 
-const SettingInput = ({ label, value, onChange, suffix, step = "1", type }) => {
+const SettingInput = ({ label, value, onChange, suffix, step = "1", type, disabled }) => {
   const inputType = type || (typeof value === 'string' && value.includes(':') ? 'text' : 'number');
   
   return (
@@ -554,7 +578,8 @@ const SettingInput = ({ label, value, onChange, suffix, step = "1", type }) => {
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={inputType === 'text' ? 'HH:mm' : ''}
-          className="flex-1 bg-background border border-white/10 rounded-xl px-3 py-2 text-sm text-white font-bold outline-none focus:border-primary transition-all [color-scheme:dark]"
+          disabled={disabled}
+          className="flex-1 bg-background border border-white/10 rounded-xl px-3 py-2 text-sm text-white font-bold outline-none focus:border-primary transition-all [color-scheme:dark] disabled:opacity-50 disabled:cursor-not-allowed"
         />
         {suffix && <span className="text-[10px] font-bold text-text-muted">{suffix}</span>}
       </div>
@@ -562,7 +587,7 @@ const SettingInput = ({ label, value, onChange, suffix, step = "1", type }) => {
   );
 };
 
-const EngagementItem = ({ icon, title, value, onChange }) => (
+const EngagementItem = ({ icon, title, value, onChange, disabled }) => (
   <div className="flex items-center justify-between p-4 rounded-2xl bg-white/5 border border-white/5">
     <div className="flex items-center gap-3">
       <div className="p-2 bg-white/5 rounded-lg text-text-muted">
@@ -575,7 +600,8 @@ const EngagementItem = ({ icon, title, value, onChange }) => (
         type="number"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-16 bg-background border border-white/10 rounded-lg px-2 py-1 text-center text-xs text-white font-bold outline-none focus:border-primary"
+        disabled={disabled}
+        className="w-16 bg-background border border-white/10 rounded-lg px-2 py-1 text-center text-xs text-white font-bold outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
       />
       <span className="text-[9px] text-text-muted font-bold">نقطة</span>
     </div>

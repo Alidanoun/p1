@@ -6,6 +6,27 @@ export const isValidBranchId = (id) => {
   return id && typeof id === 'string' && !['null', 'undefined', ''].includes(id.trim());
 };
 
+const getCookie = (name) => {
+  if (typeof document === 'undefined') return null;
+  const value = `; ${document.cookie}`;
+  const parts = value.split(`; ${name}=`);
+  if (parts.length === 2) return parts.pop().split(';').shift();
+  return null;
+};
+
+const postRefresh = async () => {
+  const xsrfToken = getCookie('XSRF-TOKEN');
+  const headers = {};
+  if (xsrfToken) {
+    headers['X-XSRF-TOKEN'] = xsrfToken;
+  }
+  return await axios.post(`${BASE_URL}/auth/refresh`, {}, { 
+    withCredentials: true, 
+    timeout: 10000,
+    headers
+  });
+};
+
 const getBaseUrl = () => {
   if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
   if (import.meta.env.PROD) throw new Error('CRITICAL: VITE_API_URL is missing in production');
@@ -78,7 +99,21 @@ api.interceptors.request.use((config) => {
     config.headers['Authorization'] = `Bearer ${token}`;
   }
 
-  // 2. Attach Branch Context (Multi-tenancy isolation) - Admin only!
+  // 2. Prevent GET requests caching in admin panel
+  if (config.method?.toLowerCase() === 'get') {
+    config.params = {
+      ...config.params,
+      _t: Date.now()
+    };
+  }
+
+  // Attach XSRF token manually to prevent CSRF blocks on state-changing API requests
+  const xsrfToken = getCookie('XSRF-TOKEN');
+  if (xsrfToken) {
+    config.headers['X-XSRF-TOKEN'] = xsrfToken;
+  }
+
+  // 3. Attach Branch Context (Multi-tenancy isolation) - Admin only!
   try {
     const userCache = JSON.parse(sessionStorage.getItem('user_cache') || localStorage.getItem('user_cache') || '{}');
     const isAdmin = userCache.role?.toUpperCase() === 'ADMIN';
@@ -145,7 +180,7 @@ api.interceptors.response.use(
       if (!refreshPromise) {
         refreshPromise = (async () => {
           try {
-            const response = await axios.post(`${BASE_URL}/auth/refresh`, {}, { withCredentials: true, timeout: 10000 });
+            const response = await postRefresh();
             const refreshData = response.data.success ? response.data.data : response.data;
             const { accessToken } = refreshData;
 
@@ -230,7 +265,7 @@ export const executeRefresh = async () => {
   
   refreshPromise = (async () => {
     try {
-      const response = await axios.post(`${BASE_URL}/auth/refresh`, {}, { withCredentials: true, timeout: 10000 });
+      const response = await postRefresh();
       const refreshData = response.data.success ? response.data.data : response.data;
       const { accessToken } = refreshData;
       tokenStore.set(accessToken);

@@ -9,9 +9,12 @@ import Header from '../components/Header';
 import { cn } from '../lib/utils';
 import Switch from '../components/Switch';
 import api, { unwrap } from '../api/client';
+import { useAuth } from '../hooks/useAuth';
 import ConfirmationModal from '../components/ConfirmationModal';
 
 const DeliveryZonesManager = () => {
+  const { isAuthorized } = useAuth();
+  const canEdit = isAuthorized('deliveryZones', 'EDIT_PIN');
   const [zones, setZones] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -162,15 +165,17 @@ const DeliveryZonesManager = () => {
           title="إدارة مناطق التوصيل" 
           subtitle="تحكم في مناطق التغطية، أسعار التوصيل، والحد الأدنى للطلبات" 
         />
-        <motion.button 
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={() => handleOpenModal()} 
-          className="glass-button flex items-center justify-center gap-2 h-14 px-8 group"
-        >
-          <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform" />
-          <span>إضافة منطقة جديدة</span>
-        </motion.button>
+        {canEdit && (
+          <motion.button 
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => handleOpenModal()} 
+            className="glass-button flex items-center justify-center gap-2 h-14 px-8 group"
+          >
+            <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform" />
+            <span>إضافة منطقة جديدة</span>
+          </motion.button>
+        )}
       </div>
 
       {/* Global Stats bar */}
@@ -222,22 +227,22 @@ const DeliveryZonesManager = () => {
           <table className="w-full text-right border-collapse">
             <thead>
               <tr className="bg-white/[0.02] border-b border-white/5">
-                <th className="px-6 py-5 text-xs font-black text-text-muted uppercase tracking-widest">الترتيب</th>
+                {canEdit && <th className="px-6 py-5 text-xs font-black text-text-muted uppercase tracking-widest">الترتيب</th>}
                 <th className="px-6 py-5 text-xs font-black text-text-muted uppercase tracking-widest">المنطقة</th>
                 <th className="px-6 py-5 text-xs font-black text-text-muted uppercase tracking-widest">سعر التوصيل</th>
-                <th className="px-6 py-5 text-xs font-black text-text-muted uppercase tracking-widest">الحد الأدنى للطلب</th>
-                <th className="px-6 py-5 text-xs font-black text-text-muted uppercase tracking-widest">الحالة</th>
-                <th className="px-6 py-5 text-xs font-black text-text-muted uppercase tracking-widest text-left">الإجراءات</th>
+                {canEdit && <th className="px-6 py-5 text-xs font-black text-text-muted uppercase tracking-widest">الحد الأدنى للطلب</th>}
+                {canEdit && <th className="px-6 py-5 text-xs font-black text-text-muted uppercase tracking-widest">الحالة</th>}
+                {canEdit && <th className="px-6 py-5 text-xs font-black text-text-muted uppercase tracking-widest text-left">الإجراءات</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
               {loading ? (
                 <tr>
-                  <td colSpan="6" className="px-6 py-20 text-center text-text-muted italic opacity-50">جاري تحميل البيانات...</td>
+                  <td colSpan={canEdit ? "6" : "2"} className="px-6 py-20 text-center text-text-muted italic opacity-50">جاري تحميل البيانات...</td>
                 </tr>
               ) : filteredZones.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="px-6 py-20 text-center text-text-muted italic opacity-50">لا توجد مناطق لعرضها</td>
+                  <td colSpan={canEdit ? "6" : "2"} className="px-6 py-20 text-center text-text-muted italic opacity-50">لا توجد مناطق لعرضها</td>
                 </tr>
               ) : filteredZones.map((zone) => (
                 <motion.tr 
@@ -248,7 +253,7 @@ const DeliveryZonesManager = () => {
                     zone.isActive ? "hover:bg-white/[0.02]" : "bg-red-500/[0.02] opacity-70"
                   )}
                 >
-                  <td className="px-6 py-5 font-mono text-sm text-text-muted">#{zone.sortOrder}</td>
+                  {canEdit && <td className="px-6 py-5 font-mono text-sm text-text-muted">#{zone.sortOrder}</td>}
                   <td className="px-6 py-5">
                     <div className="flex flex-col">
                       <span className="font-bold text-white text-lg">{zone.nameAr}</span>
@@ -256,48 +261,54 @@ const DeliveryZonesManager = () => {
                     </div>
                   </td>
                   <td className="px-6 py-5 font-bold text-white font-mono">{parseFloat(zone.fee).toFixed(2)} JOD</td>
-                  <td className="px-6 py-5">
-                    {zone.minOrder ? (
-                      <span className="px-3 py-1 rounded-full bg-amber-500/10 text-amber-500 text-xs font-bold border border-amber-500/20">
-                        {parseFloat(zone.minOrder).toFixed(2)} JOD
-                      </span>
-                    ) : (
-                      <span className="text-text-muted text-xs italic">بدون حد أدنى</span>
-                    )}
-                  </td>
-                  <td className="px-6 py-5">
-                    <div className="flex items-center gap-3">
-                      <Switch 
-                        checked={zone.isActive} 
-                        onChange={() => toggleActive(zone)}
-                        disabled={updatingId === zone.id}
-                      />
-                      <span className={cn(
-                        "text-[10px] font-black uppercase tracking-tighter",
-                        zone.isActive ? "text-emerald-500" : "text-text-muted"
-                      )}>
-                        {zone.isActive ? 'نشطة' : 'متوقفة'}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-5">
-                    <div className="flex items-center justify-start gap-2">
-                      <button 
-                        onClick={() => handleOpenModal(zone)}
-                        className="p-2.5 rounded-xl bg-white/5 border border-white/5 text-text-muted hover:text-white hover:bg-white/10 transition-all"
-                        title="تعديل"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button 
-                        onClick={() => handleDelete(zone.id, zone.nameAr)}
-                        className="p-2.5 rounded-xl bg-white/5 border border-white/5 text-text-muted hover:text-danger hover:bg-danger/10 transition-all"
-                        title="حذف"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
+                  {canEdit && (
+                    <td className="px-6 py-5">
+                      {zone.minOrder ? (
+                        <span className="px-3 py-1 rounded-full bg-amber-500/10 text-amber-500 text-xs font-bold border border-amber-500/20">
+                          {parseFloat(zone.minOrder).toFixed(2)} JOD
+                        </span>
+                      ) : (
+                        <span className="text-text-muted text-xs italic">بدون حد أدنى</span>
+                      )}
+                    </td>
+                  )}
+                  {canEdit && (
+                    <td className="px-6 py-5">
+                      <div className="flex items-center gap-3">
+                        <Switch 
+                          checked={zone.isActive} 
+                          onChange={() => toggleActive(zone)}
+                          disabled={updatingId === zone.id || !canEdit}
+                        />
+                        <span className={cn(
+                          "text-[10px] font-black uppercase tracking-tighter",
+                          zone.isActive ? "text-emerald-500" : "text-text-muted"
+                        )}>
+                          {zone.isActive ? 'نشطة' : 'متوقفة'}
+                        </span>
+                      </div>
+                    </td>
+                  )}
+                  {canEdit && (
+                    <td className="px-6 py-5">
+                      <div className="flex items-center justify-start gap-2">
+                        <button 
+                          onClick={() => handleOpenModal(zone)}
+                          className="p-2.5 rounded-xl bg-white/5 border border-white/5 text-text-muted hover:text-white hover:bg-white/10 transition-all"
+                          title="تعديل"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => handleDelete(zone.id, zone.nameAr)}
+                          className="p-2.5 rounded-xl bg-white/5 border border-white/5 text-text-muted hover:text-danger hover:bg-danger/10 transition-all"
+                          title="حذف"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  )}
                 </motion.tr>
               ))}
             </tbody>

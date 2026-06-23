@@ -11,6 +11,13 @@ describe('⭐ Reviews System - Integration Test', () => {
   let testCustomerToken, testAdminToken;
 
   beforeAll(async () => {
+    // Clean up any stale refresh tokens from previous failed runs
+    await prisma.refreshToken.deleteMany({
+      where: {
+        token: { in: ['test_customer_refresh_token', 'test_admin_refresh_token'] }
+      }
+    });
+
     // 0. Create Test Category to avoid foreign key errors
     testCategory = await prisma.category.create({
       data: {
@@ -50,7 +57,7 @@ describe('⭐ Reviews System - Integration Test', () => {
     await prisma.refreshToken.create({
       data: {
         token: 'test_customer_refresh_token',
-        customerId: testCustomer.id,
+        userId: testCustomer.uuid,
         role: 'customer',
         jti: customerJti,
         expiresAt: new Date(Date.now() + 3600000)
@@ -70,7 +77,7 @@ describe('⭐ Reviews System - Integration Test', () => {
       data: {
         email: `test_admin_${Date.now()}@test.com`,
         password: 'ComplexityPassword123!',
-        role: 'admin',
+        role: 'ADMIN',
         isActive: true
       }
     });
@@ -80,7 +87,7 @@ describe('⭐ Reviews System - Integration Test', () => {
     await prisma.refreshToken.create({
       data: {
         token: 'test_admin_refresh_token',
-        userId: testAdmin.id,
+        userId: testAdmin.uuid,
         role: 'admin',
         jti: adminJti,
         expiresAt: new Date(Date.now() + 3600000)
@@ -162,8 +169,8 @@ describe('⭐ Reviews System - Integration Test', () => {
     await prisma.refreshToken.deleteMany({
       where: {
         OR: [
-          ...(testCustomer ? [{ customerId: testCustomer.id }] : []),
-          ...(testAdmin ? [{ userId: testAdmin.id }] : [])
+          ...(testCustomer ? [{ userId: testCustomer.uuid }] : []),
+          ...(testAdmin ? [{ userId: testAdmin.uuid }] : [])
         ]
       }
     });

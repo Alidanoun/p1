@@ -23,12 +23,12 @@ class ApiService {
   Timer? _silentRefreshTimer;
 
   static String get baseUrl {
-    return const String.fromEnvironment('API_URL', defaultValue: 'https://al-markazia.duckdns.org/api/v1');
+    return const String.fromEnvironment('API_URL', defaultValue: 'http://192.168.3.122:5000/api/v1');
   }
 
   /// 🔌 Socket Base URL (without /api/v1 prefix — Socket.IO connects to root)
   static String get socketUrl {
-    return const String.fromEnvironment('SOCKET_URL', defaultValue: 'https://al-markazia.duckdns.org');
+    return const String.fromEnvironment('SOCKET_URL', defaultValue: 'http://192.168.3.122:5000');
   }
 
   /// 🏥 Fetch Restaurant Operational Status

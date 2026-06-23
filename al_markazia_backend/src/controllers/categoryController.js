@@ -3,10 +3,16 @@ const prisma = require('../lib/prisma');
 const { deleteFile } = require('../utils/fileUploadHelper');
 const logger = require('../utils/logger');
 const imageService = require('../services/imageService');
+const menuCacheService = require('../services/menuCacheService');
 
 exports.getAllCategories = async (req, res) => {
   try {
     const { admin } = req.query;
+    if (admin === 'true') {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    }
     const filter = admin === 'true' ? { isDeleted: false } : { isActive: true, isDeleted: false };
     const categories = await prisma.category.findMany({
       where: filter,
@@ -47,6 +53,8 @@ exports.createCategory = async (req, res) => {
         isActive: isActive === 'false' || isActive === false ? false : true
       }
     });
+
+    await menuCacheService.invalidate();
 
     logger.info('Category created', { name: category.name, categoryId: category.id });
     res.status(201).json({
@@ -110,6 +118,8 @@ exports.updateCategory = async (req, res) => {
       data: updateData
     });
 
+    await menuCacheService.invalidate();
+
     logger.info('Category updated', { categoryId: id, name: updatedCategory.name });
     res.json({
       success: true,
@@ -125,13 +135,6 @@ exports.deleteCategory = async (req, res) => {
   try {
     const { id } = req.params;
     
-    // Check if category has items before deleting
-    const itemsCount = await prisma.item.count({ where: { categoryId: parseInt(id) } });
-    if (itemsCount > 0) {
-      logger.warn('Attempt to delete category with active items', { categoryId: id, count: itemsCount });
-      return res.status(400).json({ error: `Cannot delete category with ${itemsCount} active items. Remove items first.` });
-    }
-
     // 1. Get image path before deleting
     const category = await prisma.category.findUnique({
       where: { id: parseInt(id) },
@@ -158,7 +161,10 @@ exports.deleteCategory = async (req, res) => {
       });
     });
 
-    // 3. Delete physical file
+    // 3. Invalidate menu cache
+    await menuCacheService.invalidate();
+
+    // 4. Delete physical file
     if (category?.image) {
       deleteFile(category.image);
     }

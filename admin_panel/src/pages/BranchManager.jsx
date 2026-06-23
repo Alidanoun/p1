@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../api/client';
 import { 
   Building2, 
@@ -9,13 +10,15 @@ import {
   PowerOff,
   Power,
   X,
-  AlertTriangle
+  AlertTriangle,
+  Shield
 } from 'lucide-react';
 import { useSocket } from '../hooks/useSocket';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 
 const BranchManager = () => {
+  const navigate = useNavigate();
   const { socket } = useSocket();
   const [branches, setBranches] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -103,7 +106,7 @@ const BranchManager = () => {
       setIsCreateModalOpen(false);
       resetForm();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'حدث خطأ أثناء إنشاء الفرع');
+      toast.error(err.response?.data?.error?.message || err.response?.data?.message || 'حدث خطأ أثناء إنشاء الفرع');
     } finally {
       setSubmitting(false);
     }
@@ -126,7 +129,7 @@ const BranchManager = () => {
       setIsEditModalOpen(false);
       resetForm();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'حدث خطأ أثناء تحديث الفرع');
+      toast.error(err.response?.data?.error?.message || err.response?.data?.message || 'حدث خطأ أثناء تحديث الفرع');
     } finally {
       setSubmitting(false);
     }
@@ -142,7 +145,7 @@ const BranchManager = () => {
       setIsConfirmModalOpen(false);
       setSelectedBranch(null);
     } catch (err) {
-      toast.error(err.response?.data?.message || 'حدث خطأ أثناء تحديث حالة الفرع');
+      toast.error(err.response?.data?.error?.message || err.response?.data?.message || 'حدث خطأ أثناء تحديث حالة الفرع');
     } finally {
       setSubmitting(false);
     }
@@ -229,19 +232,26 @@ const BranchManager = () => {
                 </div>
               </div>
 
-              <div className="flex gap-3 pt-4 border-t border-slate-800">
+              <div className="flex gap-2 pt-4 border-t border-slate-800">
                 <button 
                   onClick={() => openEditModal(branch)}
-                  className="flex-1 flex items-center justify-center gap-2 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm transition-colors"
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs font-semibold transition-colors"
                 >
-                  <Settings2 className="w-4 h-4" />
+                  <Settings2 className="w-3.5 h-3.5" />
                   تعديل
+                </button>
+                <button
+                  onClick={() => navigate(`/settings?tab=security&branchId=${branch.id}`)}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-amber-600/10 hover:bg-amber-600/20 text-amber-500 rounded-lg text-xs font-semibold transition-colors"
+                >
+                  <Shield className="w-3.5 h-3.5" />
+                  الصلاحيات
                 </button>
                 <button 
                   onClick={() => openConfirmModal(branch)}
-                  className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm transition-colors ${branch.isActive ? 'bg-red-500/10 text-red-500 hover:bg-red-500/20' : 'bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20'}`}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-colors ${branch.isActive ? 'bg-red-500/10 text-red-500 hover:bg-red-500/20' : 'bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20'}`}
                 >
-                  {branch.isActive ? <PowerOff className="w-4 h-4" /> : <Power className="w-4 h-4" />}
+                  {branch.isActive ? <PowerOff className="w-3.5 h-3.5" /> : <Power className="w-3.5 h-3.5" />}
                   {branch.isActive ? 'تعطيل' : 'تفعيل'}
                 </button>
               </div>
