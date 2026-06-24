@@ -1,0 +1,55 @@
+# ─── STAGE 1: Builder ──────────────────────────────────────────
+FROM node:22-alpine AS builder
+
+# Enable corepack for modern package manager support if needed, and install openssl for Prisma
+RUN apk update && apk add --no-cache openssl dumb-init
+
+WORKDIR /usr/src/app
+
+# Copy package configuration files
+COPY package*.json ./
+COPY prisma ./prisma/
+
+# Install all dependencies (including devDependencies needed for building/generating)
+RUN npm ci
+
+# Copy project source files
+COPY . .
+
+# Generate Prisma Client specifically for the Alpine target
+ENV DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy?schema=public"
+RUN npx prisma generate
+
+# ─── STAGE 2: Runner ───────────────────────────────────────────
+FROM node:22-alpine AS runner
+
+# Install external utilities required for production operation and internal health checks
+RUN apk update && apk add --no-cache openssl curl dumb-init
+
+WORKDIR /usr/src/app
+
+# Set non-root execution context and strict production runtime environment
+ENV NODE_ENV=production
+ENV PORT=5000
+
+# Pre-create required persistence directories and enforce explicit ownership to the unprivileged node user
+RUN mkdir -p logs uploads && chown -R node:node /usr/src/app
+
+# Switch context to the dedicated non-root system user
+USER node
+
+# Copy pre-compiled dependencies and source assets from builder stage
+COPY --chown=node:node --from=builder /usr/src/app/node_modules ./node_modules
+COPY --chown=node:node --from=builder /usr/src/app/package*.json ./
+COPY --chown=node:node --from=builder /usr/src/app/prisma ./prisma
+COPY --chown=node:node --from=builder /usr/src/app/src ./src
+COPY --chown=node:node --from=builder /usr/src/app/scripts ./scripts
+
+# Expose internal runtime container port
+EXPOSE 5000
+
+# Leverage dumb-init as PID 1 to gracefully intercept OS signal traps and handle async execution teardown
+ENTRYPOINT ["dumb-init", "--"]
+
+# Initialize application entry point
+CMD ["npx", "@dotenvx/dotenvx", "run", "-f", ".env.production", "--", "node", "src/server.js"]
