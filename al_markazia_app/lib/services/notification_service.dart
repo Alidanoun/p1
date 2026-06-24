@@ -177,6 +177,7 @@ class NotificationService extends ChangeNotifier {
 
     socket?.on('order:created', (data) => _processIncomingEvent(data, fromSocket: true));
     socket?.on('order:updated', (data) => _processIncomingEvent(data, fromSocket: true));
+    socket?.on('notification:new', (data) => _processIncomingEvent(data, fromSocket: true));
   }
 
   /// 🧠 Central Event Router (Authority-Based + Backpressure)
@@ -229,11 +230,16 @@ class NotificationService extends ChangeNotifier {
     }
 
     // 3. 🔔 Local Notification Display
-    // FCM messages: always show local notification for foreground visibility
-    // Socket messages: show local notification too (for real-time order alerts)
-    if (resolvedData is Map && resolvedData['notification'] != null) {
+    if (resolvedData is Map && (resolvedData['notification'] != null || (resolvedData['title'] != null && resolvedData['message'] != null))) {
+      final displayData = Map<String, dynamic>.from(resolvedData as Map);
+      if (displayData['notification'] == null) {
+        displayData['notification'] = {
+          'title': displayData['title']?.toString() ?? '',
+          'message': (displayData['message'] ?? displayData['body'])?.toString() ?? '',
+        };
+      }
       print('🔔 [NotificationService] Triggering Local Alert for: $id (FCM: $fromFCM, Socket: $fromSocket)');
-      _showLocalNotification(resolvedData, normalizedId: id);
+      _showLocalNotification(displayData, normalizedId: id);
     } else if (fromSocket && resolvedData is Map<String, dynamic>) {
       // Socket data-only events: generate notification content from order data
       final status = resolvedData['status']?.toString() ?? '';
@@ -332,7 +338,7 @@ class NotificationService extends ChangeNotifier {
       // Topics Management
       if (SessionService.instance.isAdmin) {
         await _fcm.subscribeToTopic('staff_orders');
-        await _fcm.unsubscribeFromTopic('all_users');
+        await _fcm.subscribeToTopic('all_users'); // Also subscribe to broadcasts
       } else {
         await _fcm.subscribeToTopic('all_users');
         await _fcm.unsubscribeFromTopic('staff_orders');

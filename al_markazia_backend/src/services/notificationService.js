@@ -113,6 +113,29 @@ class NotificationService {
 
       await this._attemptFCMPush(notif, orderContext, target);
 
+      // 📡 [REALTIME-SYNC] Emit notification via Socket.io
+      const io = this._getIO();
+      if (io) {
+        const socketPayload = {
+          id: notif.id,
+          type: notif.type || 'broadcast',
+          title: notif.title,
+          message: notif.body,
+          isRead: false,
+          createdAt: notif.createdAt || new Date()
+        };
+
+        const SecurityPolicyService = require('./securityPolicyService');
+        const wrappedPayload = SecurityPolicyService.wrapPayload(socketPayload);
+
+        if (target.isBroadcast) {
+          io.emit('notification:new', wrappedPayload);
+        } else if (userId) {
+          const { SOCKET_ROOMS } = require('../shared/socketEvents');
+          io.to(SOCKET_ROOMS.CUSTOMER(userId)).emit('notification:new', wrappedPayload);
+        }
+      }
+
       await this.prisma.notificationLog.update({
         where: { id: notif.id },
         data: { status: 'SENT', sentAt: new Date(), retries: { increment: 1 } }
