@@ -2,7 +2,7 @@ require('dotenv').config();
 const Redis = require('ioredis');
 const logger = require('../utils/logger');
 
-// 🔗 Support REDIS_URL connection string (Railway, Heroku, etc.)
+// 🔗 Support REDIS_URL connection string (Local, Docker, etc.)
 // Falls back to individual REDIS_HOST/PORT/PASSWORD if REDIS_URL is not set.
 function buildRedisConfig() {
   const redisUrl = process.env.REDIS_URL;

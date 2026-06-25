@@ -32,7 +32,7 @@ const getBaseUrl = () => {
   
   /** 
    * 🌐 Same-Origin Fallback:
-   * When admin panel is served from the same Express backend (e.g., Railway),
+   * When admin panel is served from the same Express backend,
    * relative path '/api/v1' works because the browser resolves it against the current origin.
    */
   return '/api/v1';
