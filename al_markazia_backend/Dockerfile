@@ -41,7 +41,7 @@ USER node
 # Copy pre-compiled dependencies and source assets from builder stage
 COPY --chown=node:node --from=builder /usr/src/app/node_modules ./node_modules
 COPY --chown=node:node --from=builder /usr/src/app/package*.json ./
-COPY --chown=node:node --from=builder /usr/src/app/.env.production ./
+# Note: .env.production is NOT copied — Railway injects env vars directly
 COPY --chown=node:node --from=builder /usr/src/app/public_admin ./public_admin
 COPY --chown=node:node --from=builder /usr/src/app/prisma ./prisma
 COPY --chown=node:node --from=builder /usr/src/app/src ./src
@@ -53,5 +53,5 @@ EXPOSE 5000
 # Leverage dumb-init as PID 1 to gracefully intercept OS signal traps and handle async execution teardown
 ENTRYPOINT ["dumb-init", "--"]
 
-# Initialize application entry point
-CMD ["npx", "@dotenvx/dotenvx", "run", "-f", ".env.production", "--", "node", "src/server.js"]
+# Initialize application entry point — Railway injects env vars directly, no dotenvx needed
+CMD ["node", "src/server.js"]

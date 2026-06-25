@@ -101,6 +101,7 @@ async function startServer() {
           styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
           fontSrc: ["'self'", "https://fonts.gstatic.com"],
           imgSrc: ["'self'", "data:", "blob:", "https://*.cloudinary.com", "https://*.googleusercontent.com"], 
+          connectSrc: ["'self'", "wss:", "ws:"],
           objectSrc: ["'none'"],
           upgradeInsecureRequests: [],
           baseUri: ["'self'"],

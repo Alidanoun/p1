@@ -29,12 +29,11 @@ const postRefresh = async () => {
 
 const getBaseUrl = () => {
   if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
-  if (import.meta.env.PROD) throw new Error('CRITICAL: VITE_API_URL is missing in production');
   
   /** 
-   * 🌐 Versioned Proxy Path:
-   * By returning '/api/v1', requests become relative to the versioned root (e.g., /api/v1/auth/login).
-   * This is then handled by the Vite Proxy in vite.config.js and forwarded to the backend.
+   * 🌐 Same-Origin Fallback:
+   * When admin panel is served from the same Express backend (e.g., Railway),
+   * relative path '/api/v1' works because the browser resolves it against the current origin.
    */
   return '/api/v1';
 };

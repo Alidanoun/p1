@@ -2,20 +2,44 @@ require('dotenv').config();
 const Redis = require('ioredis');
 const logger = require('../utils/logger');
 
-const baseConfig = {
-  host: process.env.REDIS_HOST || 'localhost',
-  port: process.env.REDIS_PORT || 6379,
-  username: process.env.REDIS_USERNAME || undefined,
-  password: process.env.REDIS_PASSWORD || undefined,
-  maxRetriesPerRequest: null,
-  connectTimeout: 15000,
-};
+// 🔗 Support REDIS_URL connection string (Railway, Heroku, etc.)
+// Falls back to individual REDIS_HOST/PORT/PASSWORD if REDIS_URL is not set.
+function buildRedisConfig() {
+  const redisUrl = process.env.REDIS_URL;
+  if (redisUrl) {
+    try {
+      const parsed = new URL(redisUrl);
+      return {
+        host: parsed.hostname,
+        port: parseInt(parsed.port, 10) || 6379,
+        username: parsed.username || undefined,
+        password: parsed.password || undefined,
+        maxRetriesPerRequest: null,
+        connectTimeout: 15000,
+      };
+    } catch (e) {
+      logger.warn('[Redis] Failed to parse REDIS_URL, falling back to individual env vars', { error: e.message });
+    }
+  }
+  return {
+    host: process.env.REDIS_HOST || 'localhost',
+    port: process.env.REDIS_PORT || 6379,
+    username: process.env.REDIS_USERNAME || undefined,
+    password: process.env.REDIS_PASSWORD || undefined,
+    maxRetriesPerRequest: null,
+    connectTimeout: 15000,
+  };
+}
 
-// 🛡️ Decorrelated Retry Strategy with Jitter to prevent Thundering Herd
+const baseConfig = buildRedisConfig();
+
+// 🛡️ Decorrelated Retry Strategy with Jitter — gives up after a few attempts
 const createRetryStrategy = (clientLabel) => (times) => {
-  if (times > 10) return 5000; // Cap backoff at fixed 5s after 10 attempts
-  const baseDelay = times * 100;
-  // Separate coordination timelines: Cache retries faster, coordination adds larger jitter
+  if (times > 3) {
+    logger.warn(`[Redis:${clientLabel}] Giving up after ${times} retries. Using in-memory fallback.`);
+    return null; // Stop retrying — null tells ioredis to stop
+  }
+  const baseDelay = times * 200;
   const jitter = clientLabel === 'Cache' ? Math.random() * 100 : Math.random() * 300;
   return Math.min(baseDelay + jitter, 2000);
 };
@@ -355,7 +379,7 @@ const createSubscriber = () => new Redis({
   db: 0,
   connectionName: 'pubsub_sub_custom',
   enableReadyCheck: false,
-  retryStrategy: (times) => Math.min(times * 100, 3000),
+  retryStrategy: (times) => times > 3 ? null : Math.min(times * 200, 3000),
 });
 
 // 🛡️ Shield child/cloned connections (like in BullMQ or custom workers) from inheriting commandTimeout
