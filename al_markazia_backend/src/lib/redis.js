@@ -49,6 +49,51 @@ class InMemoryRedisFallback {
   constructor() {
     this.store = new Map();
     this.expirations = new Map();
+    this.streams = new Map();
+    this.streamOffsets = new Map();
+  }
+
+  // 🛰️ Redis Streams In-Memory Emulation
+  async xgroup(cmd, key, group, ...args) {
+    return 'OK';
+  }
+
+  async xadd(key, ...args) {
+    const starIndex = args.indexOf('*');
+    const fields = starIndex !== -1 ? args.slice(starIndex + 1) : args;
+    const id = `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    if (!this.streams.has(key)) {
+      this.streams.set(key, []);
+    }
+    this.streams.get(key).push({ id, fields });
+    return id;
+  }
+
+  async xreadgroup(groupWord, groupName, consumerName, blockWord, blockTimeout, countWord, count, streamsWord, streamKey, lastIdOption) {
+    const offsetKey = `${streamKey}:${groupName}`;
+    const currentOffset = this.streamOffsets.get(offsetKey) || 0;
+    const stream = this.streams.get(streamKey) || [];
+    
+    if (currentOffset >= stream.length) {
+      const waitTime = parseInt(blockTimeout, 10) || 1000;
+      await new Promise(resolve => setTimeout(resolve, Math.min(waitTime, 1000)));
+      return null;
+    }
+    
+    const countVal = parseInt(count, 10) || 10;
+    const messagesToRead = stream.slice(currentOffset, currentOffset + countVal);
+    this.streamOffsets.set(offsetKey, currentOffset + messagesToRead.length);
+    
+    const formattedMessages = messagesToRead.map(m => [m.id, m.fields]);
+    return [[streamKey, formattedMessages]];
+  }
+
+  async xack(key, group, id) {
+    return 1;
+  }
+
+  async xautoclaim(key, group, consumer, idle, start, countWord, count) {
+    return ['0-0', []];
   }
 
   _isExpired(key) {
@@ -374,13 +419,19 @@ clients.forEach((client, index) => {
   });
 });
 
-const createSubscriber = () => new Redis({
-  ...baseConfig,
-  db: 0,
-  connectionName: 'pubsub_sub_custom',
-  enableReadyCheck: false,
-  retryStrategy: (times) => times > 3 ? null : Math.min(times * 200, 3000),
-});
+const createSubscriber = () => {
+  const sub = new Redis({
+    ...baseConfig,
+    db: 0,
+    connectionName: 'pubsub_sub_custom',
+    enableReadyCheck: false,
+    retryStrategy: (times) => times > 3 ? null : Math.min(times * 200, 3000),
+  });
+  sub.on('error', (err) => {
+    logger.warn('[Redis:Sub] Subscription client connection error', { error: err.message });
+  });
+  return sub;
+};
 
 // 🛡️ Shield child/cloned connections (like in BullMQ or custom workers) from inheriting commandTimeout
 const originalOptions = cache.options;

@@ -34,6 +34,9 @@ class StreamConsumerGroup {
       commandTimeout: undefined // Disable command timeout for blocking reads so they can block safely
     };
     this.readClient = new Redis(readConfig);
+    this.readClient.on('error', (err) => {
+      logger.warn(`[StreamConsumerGroup] Redis error for ${this.groupName}:${this.consumerName}`, { error: err.message });
+    });
 
     this.isRunning = true;
     logger.info(`[StreamConsumerGroup] 🟢 Consumer daemon active: ${this.groupName}:${this.consumerName}`);
