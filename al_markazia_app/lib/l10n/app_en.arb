@@ -16,6 +16,7 @@
   "noFavorites": "Your favorites list is empty",
   "addFavoritePlates": "Add your favorite dishes to find them here quickly",
   "logout": "Logout",
+  "loginOrRegister": "Login / Create Account",
   "home": "Home",
   "cart": "Cart",
   "pending": "Pending",

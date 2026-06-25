@@ -7,6 +7,7 @@ import '../features/auth/auth_controller.dart';
 import '../widgets/custom_dialogs.dart';
 import 'checkout_screen.dart';
 import 'auth_screen.dart';
+import 'main_nav_screen.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../services/api_service.dart';
@@ -75,7 +76,12 @@ class _CartScreenState extends State<CartScreen> {
               Text(AppLocalizations.of(context)!.emptyCart, style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: isDark ? Colors.white54 : Colors.grey)),
               const SizedBox(height: 32),
               ElevatedButton(
-                onPressed: () => Navigator.pop(context),
+                onPressed: () {
+                  Navigator.of(context).pushAndRemoveUntil(
+                    MaterialPageRoute(builder: (_) => const MainNavScreen()),
+                    (route) => false,
+                  );
+                },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Theme.of(context).primaryColor,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),

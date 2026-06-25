@@ -52,6 +52,12 @@ class _AccountScreenState extends State<AccountScreen> {
     );
   }
 
+  void _navigateToAuth() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const AuthScreen()),
+    );
+  }
+
   Future<void> _logout() async {
     final l10n = AppLocalizations.of(context)!;
     final confirmed = await showDialog<bool>(
@@ -337,14 +343,24 @@ class _AccountScreenState extends State<AccountScreen> {
   
             const SizedBox(height: 16),
   
-            GestureDetector(
-              onTap: _logout,
-              child: _buildSettingsCard(
-                context: context,
-                title: l10n.logout,
-                icon: Icons.logout_rounded,
-                cardColor: cardColor,
-              ),
+            Consumer<AuthController>(
+              builder: (context, auth, _) {
+                final bool isGuest = auth.user == null;
+                return GestureDetector(
+                  onTap: isGuest ? _navigateToAuth : _logout,
+                  child: _buildSettingsCard(
+                    context: context,
+                    title: isGuest
+                        ? l10n.loginOrRegister
+                        : l10n.logout,
+                    icon: isGuest
+                        ? Icons.login_rounded
+                        : Icons.logout_rounded,
+                    iconColor: isGuest ? const Color(0xFFFF6D00) : null,
+                    cardColor: cardColor,
+                  ),
+                );
+              },
             ),
             
             const SizedBox(height: 100),

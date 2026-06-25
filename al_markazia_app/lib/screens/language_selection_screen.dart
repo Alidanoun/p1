@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../services/storage_service.dart';
-import 'auth_screen.dart';
+import 'main_nav_screen.dart';
 
 class LanguageSelectionScreen extends StatelessWidget {
   const LanguageSelectionScreen({super.key});
@@ -10,7 +10,7 @@ class LanguageSelectionScreen extends StatelessWidget {
     await StorageService.instance.setLanguage(code);
     if (context.mounted) {
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const AuthScreen()),
+        MaterialPageRoute(builder: (_) => const MainNavScreen()),
       );
     }
   }

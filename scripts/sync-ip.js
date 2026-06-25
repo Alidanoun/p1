@@ -47,32 +47,40 @@ const configs = [
         name: 'App',
         path: path.join(rootPath, 'al_markazia_app', '.env'),
         updates: [
-            { pattern: /SERVER_IP=\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/g, replacement: `SERVER_IP=${currentIP}` }
-        ]
+            { pattern: /SERVER_IP=[^\r\n]*/g, replacement: `SERVER_IP=${currentIP}` }
+        ],
+        ensureKeys: {
+            'SERVER_IP': `SERVER_IP=${currentIP}`
+        }
     },
     {
         name: 'Backend',
         path: path.join(rootPath, 'al_markazia_backend', '.env'),
         updates: [
-            { pattern: /HOST_IP=\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/g, replacement: `HOST_IP=${currentIP}` },
-            { pattern: /CORS_ORIGIN=http:\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/g, replacement: `CORS_ORIGIN=http://${currentIP}` }
-        ]
+            { pattern: /HOST_IP=[^\r\n]*/g, replacement: `HOST_IP=${currentIP}` },
+            { pattern: /CORS_ORIGIN=http:\/\/[^\r\n,]+/g, replacement: `CORS_ORIGIN=http://${currentIP}` }
+        ],
+        ensureKeys: {
+            'HOST_IP': `HOST_IP=${currentIP}`
+        }
     },
     {
         name: 'Admin Panel',
         path: path.join(rootPath, 'admin_panel', '.env'),
         updates: [
-            { pattern: /HOST_IP=\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/g, replacement: `HOST_IP=${currentIP}` },
-            { pattern: /CORS_ORIGIN=http:\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/g, replacement: `CORS_ORIGIN=http://${currentIP}` }
-        ]
+            { pattern: /VITE_API_URL=http:\/\/[^\r\n/]+/g, replacement: `VITE_API_URL=http://${currentIP}:5000` }
+        ],
+        ensureKeys: {
+            'VITE_API_URL': `VITE_API_URL=http://${currentIP}:5000/api/v1`
+        }
     },
     {
         name: 'App Source Code',
         path: path.join(rootPath, 'al_markazia_app', 'lib', 'services', 'api_service.dart'),
         updates: [
             { 
-                pattern: /defaultValue: '\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}'/g, 
-                replacement: `defaultValue: '${currentIP}'` 
+                pattern: /(defaultValue:\s*'http:\/\/)\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/g, 
+                replacement: `$1${currentIP}` 
             }
         ]
     }
@@ -83,12 +91,27 @@ configs.forEach(config => {
         let content = fs.readFileSync(config.path, 'utf8');
         let modified = false;
 
-        config.updates.forEach(update => {
-            if (update.pattern.test(content)) {
-                content = content.replace(update.pattern, update.replacement);
-                modified = true;
-            }
-        });
+        // Perform regex updates
+        if (config.updates) {
+            config.updates.forEach(update => {
+                const nextContent = content.replace(update.pattern, update.replacement);
+                if (nextContent !== content) {
+                    content = nextContent;
+                    modified = true;
+                }
+            });
+        }
+
+        // Ensure key-value pairs exist in .env files
+        if (config.ensureKeys) {
+            Object.keys(config.ensureKeys).forEach(key => {
+                const regex = new RegExp(`^${key}\\s*=`, 'm');
+                if (!regex.test(content)) {
+                    content = content.trim() + `\n${config.ensureKeys[key]}\n`;
+                    modified = true;
+                }
+            });
+        }
 
         if (modified) {
             fs.writeFileSync(config.path, content, 'utf8');
