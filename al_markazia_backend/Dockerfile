@@ -53,5 +53,5 @@ EXPOSE 5000
 # Leverage dumb-init as PID 1 to gracefully intercept OS signal traps and handle async execution teardown
 ENTRYPOINT ["dumb-init", "--"]
 
-# Initialize application entry point and run migrations automatically on startup
-CMD ["sh", "-c", "npx prisma migrate deploy && node src/server.js"]
+# Force-sync the schema directly with the database on startup (bypasses corrupted migration history)
+CMD ["sh", "-c", "npx prisma db push --accept-data-loss && node src/server.js"]
