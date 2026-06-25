@@ -205,11 +205,12 @@ async function startServer() {
     const deprecation = require('./middleware/deprecation');
     app.use((req, res, next) => {
       const isVersioned = req.path.startsWith('/api/v1');
+      const isApi = req.path.startsWith('/api');
       const isInternal = req.path.startsWith('/uploads') || 
                         req.path.startsWith('/socket.io') || 
                         req.path === '/health/external';
 
-      if (!isVersioned && !isInternal) {
+      if (isApi && !isVersioned && !isInternal) {
         return deprecation({
           alternative: `/api/v1${req.path}`,
           date: '2026-12-31' // End of support for legacy endpoints
@@ -238,6 +239,17 @@ async function startServer() {
 
     // Health Checks (external probes — always at root)
     app.get('/health/external', externalProbeController.pings);
+
+    // ─── Serve Admin Panel (SPA static files) ────────────────
+    app.use(express.static(path.join(__dirname, '../public_admin')));
+
+    // SPA Fallback: Redirect all non-API, non-internal requests to index.html
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api') || req.path.startsWith('/socket.io') || req.path.startsWith('/uploads')) {
+        return next();
+      }
+      res.sendFile(path.join(__dirname, '../public_admin/index.html'));
+    });
 
 
     // 🚨 Global Error Handler (Centralized Survival Layer)

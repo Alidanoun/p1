@@ -42,6 +42,7 @@ USER node
 COPY --chown=node:node --from=builder /usr/src/app/node_modules ./node_modules
 COPY --chown=node:node --from=builder /usr/src/app/package*.json ./
 COPY --chown=node:node --from=builder /usr/src/app/.env.production ./
+COPY --chown=node:node --from=builder /usr/src/app/public_admin ./public_admin
 COPY --chown=node:node --from=builder /usr/src/app/prisma ./prisma
 COPY --chown=node:node --from=builder /usr/src/app/src ./src
 COPY --chown=node:node --from=builder /usr/src/app/scripts ./scripts
