@@ -20,6 +20,10 @@ const emailQueue = new Queue('email-queue', {
   },
 });
 
+emailQueue.on('error', (err) => {
+  logger.error('[EmailQueue] Connection error', { error: err.message });
+});
+
 let emailWorker;
 if (process.env.NODE_ENV !== 'test') {
   emailWorker = new Worker(
@@ -58,6 +62,10 @@ if (process.env.NODE_ENV !== 'test') {
 
   emailWorker.on('failed', (job, err) => {
     logger.error(`❌ [Email Queue] Job ${job.id} failed after ${job.attemptsMade} attempts: ${err.message}`);
+  });
+
+  emailWorker.on('error', (err) => {
+    logger.error('[EmailWorker] Connection error', { error: err.message });
   });
 }
 

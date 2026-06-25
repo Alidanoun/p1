@@ -15,6 +15,10 @@ const orderQueue = new Queue('order-lifecycle', {
   }
 });
 
+orderQueue.on('error', (err) => {
+  logger.error('[OrderQueue] Connection error', { error: err.message });
+});
+
 /**
  * 🛠️ Order Lifecycle Worker
  */
@@ -67,6 +71,10 @@ const initOrderWorker = (container) => {
 
   worker.on('failed', (job, err) => {
     logger.error(`[OrderWorker] Job ${job.id} failed`, { error: err.message });
+  });
+
+  worker.on('error', (err) => {
+    logger.error('[OrderWorker] Connection error', { error: err.message });
   });
 
   return worker;

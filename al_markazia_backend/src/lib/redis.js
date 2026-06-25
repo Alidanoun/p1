@@ -445,10 +445,20 @@ Object.defineProperty(cache, 'options', {
   enumerable: true
 });
 
-const originalDuplicate = cache.duplicate.bind(cache);
-cache.duplicate = (overrideOptions) => {
-  return originalDuplicate({ commandTimeout: undefined, ...overrideOptions });
-};
+function configureDuplicate(client, label) {
+  const originalDuplicate = client.duplicate.bind(client);
+  client.duplicate = function(overrideOptions) {
+    const duplicatedClient = originalDuplicate({ commandTimeout: undefined, ...overrideOptions });
+    duplicatedClient.on('error', (err) => {
+      logger.warn(`[Redis:${label}:Duplicated] Suppressed connection error: ${err.message}`);
+    });
+    return duplicatedClient;
+  };
+}
+
+configureDuplicate(cache, 'Cache');
+configureDuplicate(bullmq, 'BullMQ');
+configureDuplicate(pubsub, 'PubSub');
 
 // 🛰️ Hybrid Resilient Redis Export
 const resilientCache = makeResilient(cache, 'Cache');

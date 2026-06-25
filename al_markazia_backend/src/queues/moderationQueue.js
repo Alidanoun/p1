@@ -9,6 +9,10 @@ const moderationQueue = new Queue('moderation', {
   connection: redisBullMQ
 });
 
+moderationQueue.on('error', (err) => {
+  logger.error('[ModerationQueue] Connection error', { error: err.message });
+});
+
 let moderationWorker;
 if (process.env.NODE_ENV !== 'test') {
   moderationWorker = new Worker('moderation', async (job) => {
@@ -50,6 +54,10 @@ if (process.env.NODE_ENV !== 'test') {
     }
   }, {
     connection: redisBullMQ.duplicate()
+  });
+
+  moderationWorker.on('error', (err) => {
+    logger.error('[ModerationWorker] Connection error', { error: err.message });
   });
 }
 

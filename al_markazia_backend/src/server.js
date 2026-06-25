@@ -245,7 +245,7 @@ async function startServer() {
     app.use(express.static(path.join(__dirname, '../public_admin')));
 
     // SPA Fallback: Redirect all non-API, non-internal requests to index.html
-    app.get('*', (req, res, next) => {
+    app.get('*all', (req, res, next) => {
       if (req.path.startsWith('/api') || req.path.startsWith('/socket.io') || req.path.startsWith('/uploads')) {
         return next();
       }

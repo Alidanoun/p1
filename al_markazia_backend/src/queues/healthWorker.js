@@ -10,6 +10,9 @@ const admin = require('firebase-admin');
 const { v4: uuidv4 } = require('uuid');
 
 const healthQueue = new Queue('healthQueue', { connection: redisBullMQ });
+healthQueue.on('error', (err) => {
+  logger.error('[HealthQueue] Connection error', { error: err.message });
+});
 const instanceId = uuidv4();
 
 /**
@@ -141,6 +144,10 @@ const initHealthWorker = async () => {
   }, { 
     connection: redisBullMQ.duplicate(),
     concurrency: 1, 
+  });
+
+  worker.on('error', (err) => {
+    logger.error('[HealthWorker] Connection error', { error: err.message });
   });
 
   return worker;
