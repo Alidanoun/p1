@@ -4,7 +4,7 @@ const logger = require('../utils/logger');
 
 /**
  * 🛡️ Ownership Validation Middleware (Phase 3 Hardening)
- * Ensures that customers and drivers can only interact with their own orders.
+ * Ensures that customers can only interact with their own orders.
  * Admins and Branch Managers (within their branch) are exempted.
  */
 const verifyOrderOwnership = async (req, res, next) => {
@@ -44,14 +44,6 @@ const verifyOrderOwnership = async (req, res, next) => {
       return next();
     }
 
-    // 🚗 Drivers (If implemented in Phase 2/3)
-    if (role === 'driver') {
-      // Assuming driverId field exists or is coming in future
-      if (order.driverId !== userId) {
-        return responseError(res, 'هذا الطلب ليس معيناً لك', 'FORBIDDEN_ACCESS', 403);
-      }
-      return next();
-    }
 
     // Default: Deny
     return responseError(res, 'غير مسموح لك بالقيام بهذا الإجراء', 'FORBIDDEN_ACCESS', 403);

@@ -30,7 +30,7 @@ class SecurityPolicyService {
 
     let normalizedRole = user.role.toLowerCase();
     
-    const ALLOWED_ROLES = ['admin', 'branch_manager', 'manager', 'customer', 'staff', 'driver'];
+    const ALLOWED_ROLES = ['admin', 'branch_manager', 'manager', 'customer', 'staff'];
 
     if (!ALLOWED_ROLES.includes(normalizedRole)) {
       logger.security('UNAUTHORIZED_ROLE_ACCESS', { userId: user.id, role: user.role, modelName });

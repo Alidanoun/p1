@@ -20,9 +20,7 @@ class RatingService {
 
     if (!customer) {
       throw new Error('CUSTOMER_NOT_FOUND');
-    }
-
-    // Fetch branchId and driverId from order
+    // Fetch branchId from order
     const order = await prisma.order.findUnique({
       where: { id: orderId }
     });
@@ -41,7 +39,6 @@ class RatingService {
         images: images || [],
         fingerprint,
         branchId: order.branchId,
-        // driverId: order.driverId, // Assuming driverId is in Order model or related
         status: 'PENDING'
       }
     });

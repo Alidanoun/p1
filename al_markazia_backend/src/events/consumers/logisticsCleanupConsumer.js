@@ -7,7 +7,7 @@ const { mapOrderResponse } = require('../../mappers/order.mapper');
 
 /**
  * 🚚 Logistics Cleanup Consumer
- * Purpose: Unassigns drivers and voids delivery tasks after order cancellation.
+ * Purpose: Voids delivery tasks after order cancellation.
  * Idempotency: Enforced via StreamConsumerGroup state.
  */
 const logisticsCleanupConsumer = new StreamConsumerGroup(
@@ -25,8 +25,7 @@ const logisticsCleanupConsumer = new StreamConsumerGroup(
           // 1. 🚜 [VOID TASKS] Mark delivery tasks as VOIDED
           logger.info(`[LogisticsCleanupConsumer] 🚜 Marking tasks for order #${orderId} as VOIDED.`);
 
-          // 2. 👤 [UNASSIGN DRIVER] Clear driver assignment
-          logger.info(`[LogisticsCleanupConsumer] 👤 Unassigning driver for order #${orderId}.`);
+
 
           // 🔗 Chain final step: Finalized Event
           const updatedOrder = await tx.order.findUnique({
@@ -51,7 +50,7 @@ const logisticsCleanupConsumer = new StreamConsumerGroup(
               eventAction: 'CLEANUP_COMPLETED',
               changedBy: 'system',
               changedByRole: 'system',
-              newData: JSON.stringify({ action, tasksStatus: 'VOIDED', driver: 'UNASSIGNED' }),
+              newData: JSON.stringify({ action, tasksStatus: 'VOIDED' }),
               createdAt: new Date()
             }
           });

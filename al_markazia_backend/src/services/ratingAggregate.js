@@ -17,10 +17,9 @@ class RatingAggregateService {
         where: { id: reviewId },
         include: { order: true }
       });
-
       if (!review || review.status !== 'APPROVED') return;
 
-      const { branchId, driverId, rating } = review;
+      const { branchId, rating } = review;
 
       const pipeline = redis.pipeline();
 
@@ -31,22 +30,15 @@ class RatingAggregateService {
         pipeline.expire(`rating:branch:${branchId}`, 604800); // 7 days TTL
       }
 
-      // 2. Update Driver Stats
-      if (driverId) {
-        pipeline.hincrby(`rating:driver:${driverId}`, 'sum', rating);
-        pipeline.hincrby(`rating:driver:${driverId}`, 'count', 1);
-        pipeline.expire(`rating:driver:${driverId}`, 604800);
-      }
-
       await pipeline.exec();
-      logger.info('[RatingAggregate] 📈 Aggregates updated', { reviewId, branchId, driverId });
+      logger.info('[RatingAggregate] 📈 Aggregates updated', { reviewId, branchId });
     } catch (err) {
       logger.error('[RatingAggregate] ❌ Update failed', { error: err.message });
     }
   }
 
   /**
-   * Reads the current average for a branch or driver.
+   * Reads the current average for a branch.
    * Logic: sum / count
    */
   async getStats(type, id) {

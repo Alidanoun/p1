@@ -37,7 +37,7 @@ const transitions = {
   'ready': {
     to: {
       'delivered': {
-        permissions: ['admin', 'manager', 'branch_manager', 'driver', 'cashier', 'supervisor', 'superadmin', 'super_admin'],
+        permissions: ['admin', 'manager', 'branch_manager', 'cashier', 'supervisor', 'superadmin', 'super_admin'],
         sideEffects: ['capture_revenue', 'award_loyalty_points']
       },
       'cancelled': {

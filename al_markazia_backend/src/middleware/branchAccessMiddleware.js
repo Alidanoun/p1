@@ -50,8 +50,8 @@ const BranchAccessMiddleware = async (req, res, next) => {
       authoritativeBranchId = req.query?.branchId || req.body?.branchId || req.headers['x-branch-context'];
     }
 
-    // 🛡️ [SECURITY-FIX] For Managers: Always override or validate branchId
-    if (!isGlobalAdmin && (role === 'branch_manager' || role === 'manager')) {
+    // 🛡️ [SECURITY-FIX] For Managers and Staff: Always override or validate branchId
+    if (!isGlobalAdmin && (role === 'branch_manager' || role === 'manager' || role === 'staff')) {
       // If a manager tries to access a branch other than their own, we block or force theirs
       if (authoritativeBranchId && authoritativeBranchId !== user.branchId) {
         // Double-check multi-branch access from SecurityPolicy
@@ -70,9 +70,9 @@ const BranchAccessMiddleware = async (req, res, next) => {
       }
     }
 
-    // 👑 Fail-Safe: If it's a manager and we STILL don't have a branchId, something is wrong
-    if (!isGlobalAdmin && (role === 'branch_manager' || role === 'manager') && !authoritativeBranchId) {
-      logger.error('CRITICAL_SECURITY_HOLE: Manager with no branch assignment', { userId: user.id });
+    // 👑 Fail-Safe: If it's a manager or staff and we STILL don't have a branchId, something is wrong
+    if (!isGlobalAdmin && (role === 'branch_manager' || role === 'manager' || role === 'staff') && !authoritativeBranchId) {
+      logger.error('CRITICAL_SECURITY_HOLE: Manager/Staff with no branch assignment', { userId: user.id });
       return response.error(res, 'خطأ في إعدادات الحساب: الفرع غير محدد', 'CONFIG_ERROR', 500);
     }
 

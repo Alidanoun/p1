@@ -100,7 +100,7 @@ const inventoryRestockConsumer = new StreamConsumerGroup(
             type: eventTypes.ORDER_LOGISTICS_CLEANUP,
             aggregateId: orderId,
             aggregateType: 'Order',
-            payload: { orderId, action: 'VOID_TASKS', unassignDriver: true }
+            payload: { orderId, action: 'VOID_TASKS' }
           });
           
           await container.outboxService.immediateDispatch(nextEvent.id);

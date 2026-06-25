@@ -53,7 +53,7 @@ class RatingController {
    */
   async getStats(req, res) {
     try {
-      const { type, id } = req.params; // type: branch or driver
+      const { type, id } = req.params; // type: branch
       const stats = await ratingAggregate.getStats(type, id);
       res.json({ success: true, data: stats });
     } catch (err) {
