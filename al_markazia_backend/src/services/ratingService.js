@@ -20,6 +20,7 @@ class RatingService {
 
     if (!customer) {
       throw new Error('CUSTOMER_NOT_FOUND');
+    }
     // Fetch branchId from order
     const order = await prisma.order.findUnique({
       where: { id: orderId }
