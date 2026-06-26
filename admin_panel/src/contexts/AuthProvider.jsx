@@ -228,11 +228,32 @@ export const AuthProvider = ({ children }) => {
     return true;
   };
 
+  const forgotPassword = async (email) => {
+    try {
+      const { data } = await api.post('/auth/forgot-password', { email });
+      return { success: true, message: data.message || 'إذا كان البريد مسجلاً، ستصلك رسالة قريباً' };
+    } catch (error) {
+      const message = error.response?.data?.error?.message || error.response?.data?.error || 'حدث خطأ ما';
+      return { success: false, error: typeof message === 'string' ? message : JSON.stringify(message) };
+    }
+  };
+
+  const resetPassword = async (email, code, newPassword) => {
+    try {
+      const { data } = await api.post('/auth/reset-password', { email, code, newPassword });
+      return { success: true, message: data.message || 'تم إعادة تعيين كلمة المرور بنجاح' };
+    } catch (error) {
+      const message = error.response?.data?.error?.message || error.response?.data?.error || 'حدث خطأ ما';
+      return { success: false, error: typeof message === 'string' ? message : JSON.stringify(message) };
+    }
+  };
+
   return (
     <AuthContext.Provider value={{ 
       user, login, logout, loading, 
       selectedBranchId, setSelectedBranchId,
-      canAccess, isAuthorized 
+      canAccess, isAuthorized,
+      forgotPassword, resetPassword
     }}>
       {children}
     </AuthContext.Provider>

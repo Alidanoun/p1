@@ -22,6 +22,7 @@ import DeliveryZonesManager from './pages/DeliveryZonesManager';
 import AuditLog from './pages/AuditLog';
 import BranchMenu from './pages/BranchMenu';
 import BranchManager from './pages/BranchManager';
+import CustomerManager from './pages/CustomerManager';
 import ProtectedRoute from './components/ProtectedRoute';
 import PinGuard from './components/PinGuard';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -110,6 +111,11 @@ function App() {
             <Route path="/reviews" element={
               <ProtectedRoute requiredRole={['admin', 'manager', 'branch_manager']} permission="reviews">
                 <ReviewsManager />
+              </ProtectedRoute>
+            } />
+            <Route path="/customers" element={
+              <ProtectedRoute requiredRole={['admin']}>
+                <CustomerManager />
               </ProtectedRoute>
             } />
             <Route path="/loyalty" element={
