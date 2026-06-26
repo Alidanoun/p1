@@ -9,6 +9,29 @@
 set +x
 set -euo pipefail
 
+# ─── 🔔 Telegram Alerting Configuration ────────────────────────────────────────
+TELEGRAM_TOKEN="${BACKUP_TELEGRAM_TOKEN:-}"
+TELEGRAM_CHAT_ID="${BACKUP_TELEGRAM_CHAT_ID:-}"
+
+send_telegram_alert() {
+  local message="$1"
+  if [ -n "${TELEGRAM_TOKEN}" ] && [ -n "${TELEGRAM_CHAT_ID}" ]; then
+    curl -s --max-time 10 -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+      -d chat_id="${TELEGRAM_CHAT_ID}" \
+      -d text="${message}" > /dev/null || true
+  fi
+}
+
+cleanup_and_exit() {
+  local exit_code=$?
+  if [ "${exit_code}" -ne 0 ]; then
+    log "❌ CRITICAL: Backup process terminated abnormally with exit code ${exit_code}."
+    send_telegram_alert "⚠️ فشل النسخ الاحتياطي لقاعدة بيانات المركزية (رمز الخروج: ${exit_code})!"
+  fi
+}
+
+trap cleanup_and_exit EXIT
+
 # ─── ⚙️ Configuration & Paths ──────────────────────────────────────────────────
 BACKUP_DIR="${BACKUP_ROOT_DIR:-/usr/src/app/backups}"
 LOG_FILE="${BACKUP_DIR}/backup_execution.log"
@@ -18,8 +41,9 @@ DB_USER="${POSTGRES_USER:-admin}"
 DB_NAME="${POSTGRES_DB:-al_markazia_db}"
 BACKUP_FILENAME="dump_${DB_NAME}_${TIMESTAMP}.sql.gz"
 TARGET_FILE="${BACKUP_DIR}/${BACKUP_FILENAME}"
-RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-7}"
+RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-30}"
 S3_BUCKET="${BACKUP_S3_BUCKET:-}"
+RCLONE_REMOTE="${BACKUP_RCLONE_REMOTE:-}"
 
 mkdir -p "${BACKUP_DIR}"
 chmod 700 "${BACKUP_DIR}" # Protect backup directory contents locally
@@ -67,6 +91,19 @@ if [ -n "${S3_BUCKET}" ]; then
   fi
 else
   log "ℹ️ Remote offsite transmission bypassed (BACKUP_S3_BUCKET variable unset)."
+fi
+
+# ─── ☁️ Rclone Cloud Offloading ────────────────────────────────────────────────
+if [ -n "${RCLONE_REMOTE}" ]; then
+  log "Offloading payload to remote via rclone: ${RCLONE_REMOTE}..."
+  if rclone copy "${TARGET_FILE}" "${RCLONE_REMOTE}"; then
+    log "✅ Payload successfully offloaded via rclone."
+  else
+    log "❌ CRITICAL: Rclone transmission failed."
+    exit 2
+  fi
+else
+  log "ℹ️ Rclone remote offsite transmission bypassed (BACKUP_RCLONE_REMOTE unset)."
 fi
 
 log "🎉 Full backup engine sequence achieved normal termination."

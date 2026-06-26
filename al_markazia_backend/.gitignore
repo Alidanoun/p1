@@ -29,3 +29,4 @@ local_hashes_utf8.txt
 remote_hashes.txt
 remote_hashes_new.txt
 test.js
+backups/
