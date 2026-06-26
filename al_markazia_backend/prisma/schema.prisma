@@ -59,6 +59,8 @@ model User {
   plainPin        String?
 
   @@index([branchId])
+  @@index([branchId, role], map: "idx_users_branch_id_role")
+  @@index([email], map: "idx_users_email")
 }
 
 model UserNotificationPreference {
@@ -94,7 +96,7 @@ model Branch {
   isDeleted Boolean  @default(false)
   deletedAt DateTime?
   country   String?  @default("JO")
-  timezone  String?  @default("Africa/Cairo")
+  timezone  String?  @default("Asia/Amman")
   isEmergencyClosed Boolean   @default(false)
   closureReason     String?
   reopenAt          DateTime?
@@ -170,6 +172,8 @@ model BranchItem {
 
   @@unique([branchId, itemId])
   @@index([branchId])
+  @@index([branchId, isAvailable], map: "idx_branch_items_available")
+  @@index([itemId], map: "idx_branch_items_item_id")
 }
 
 model BranchVariant {
@@ -345,6 +349,8 @@ model Order {
   @@index([branchId])
   @@index([branchId, status])
   @@index([branchId, isDeleted, status])
+  @@index([branchId, createdAt(sort: Desc)], map: "idx_orders_branch_created")
+  @@index([createdAt(sort: Desc)], map: "idx_orders_created_at")
 }
 
 model Event {
@@ -442,7 +448,7 @@ model Customer {
   orders              Order[]
   reviews             Review[]
   customerRewards     CustomerReward[]
-  timezone            String?            @default("Africa/Cairo")
+  timezone            String?            @default("Asia/Amman")
   quietHoursStart     Int                @default(23)
   quietHoursEnd       Int                @default(7)
   notificationPreferences CustomerNotificationPreference[]
@@ -508,6 +514,7 @@ model Notification {
   @@index([customerPhone])
   @@index([status])
   @@index([createdAt])
+  @@index([customerId, isRead], map: "idx_notifications_user_read")
 }
 
 model Review {
@@ -710,6 +717,7 @@ model RefreshToken {
   @@index([token])
   @@index([jti])
   @@index([tokenFamily])
+  @@index([expiresAt], map: "idx_refresh_tokens_expires")
 }
 
 model HealthMetric {
@@ -770,6 +778,8 @@ model SystemAuditLog {
   @@index([entityType, entityId])
   @@index([createdAt])
   @@index([isDeleted])
+  @@index([action, createdAt(sort: Desc)], map: "idx_audit_action_created")
+  @@index([userId, createdAt(sort: Desc)], map: "idx_audit_user_id_created")
 }
 
 model RestaurantSettings {
@@ -1059,7 +1069,7 @@ model HappyHour {
   discount              Int            // percentage
   description           String?
   status                String         @default("active") // active/inactive
-  timezone              String?        @default("Africa/Cairo")
+  timezone              String?        @default("Asia/Amman")
   eligibilityCriteria   String?        @default("ALL") // ALL, LOYALTY_TIER, TARGETED
   loyaltyTierRequired   String?        // SILVER, GOLD, PLATINUM
   targetCustomerIds     String[]       @default([])
