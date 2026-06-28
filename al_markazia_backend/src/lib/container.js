@@ -116,6 +116,9 @@ const factories = {
   financialSnapshotService: () => {
     const FinancialSnapshotService = require('../services/financialSnapshotService');
     return new FinancialSnapshotService(container);
+  },
+  liveCacheService: () => {
+    return require('../services/liveCacheService');
   }
 };
 

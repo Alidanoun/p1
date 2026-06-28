@@ -23,12 +23,12 @@ class ApiService {
   Timer? _silentRefreshTimer;
 
   static String get baseUrl {
-    return const String.fromEnvironment('API_URL', defaultValue: 'http://192.168.1.117:5000/api/v1');
+    return const String.fromEnvironment('API_URL', defaultValue: 'http://10.56.149.143:5000/api/v1');
   }
 
   /// 🔌 Socket Base URL (without /api/v1 prefix — Socket.IO connects to root)
   static String get socketUrl {
-    return const String.fromEnvironment('SOCKET_URL', defaultValue: 'http://192.168.1.117:5000');
+    return const String.fromEnvironment('SOCKET_URL', defaultValue: 'http://10.56.149.143:5000');
   }
 
   /// 🏥 Fetch Restaurant Operational Status
@@ -479,7 +479,18 @@ class ApiService {
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 401) throw Exception('401');
-      if (response.statusCode != 201) throw Exception('Failed to submit review');
+      if (response.statusCode != 201) {
+        try {
+          final Map<String, dynamic> errorData = json.decode(utf8.decode(response.bodyBytes));
+          final errorMsg = errorData['error'] ?? errorData['message'] ?? 'Failed to submit review';
+          throw Exception(errorMsg);
+        } catch (e) {
+          if (e is Exception && !e.toString().contains('Failed to submit review')) {
+            rethrow;
+          }
+          throw Exception('Failed to submit review');
+        }
+      }
     });
   }
 
@@ -528,6 +539,19 @@ class ApiService {
       return decoded['data'];
     }
     throw Exception('Failed to fetch loyalty profile');
+  }
+
+  Future<List<dynamic>> fetchLoyaltyLedger() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/loyalty/ledger'), 
+      headers: await _headers
+    ).timeout(const Duration(seconds: 10));
+    
+    if (response.statusCode == 200) {
+      final decoded = json.decode(utf8.decode(response.bodyBytes));
+      return decoded['data'] ?? [];
+    }
+    throw Exception('Failed to fetch loyalty ledger');
   }
 
   Future<Map<String, dynamic>> fetchSystemConfig() async {

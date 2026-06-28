@@ -194,6 +194,12 @@ abstract class AppLocalizations {
   /// **'تسجيل الخروج'**
   String get logout;
 
+  /// No description provided for @loginOrRegister.
+  ///
+  /// In ar, this message translates to:
+  /// **'تسجيل الدخول / إنشاء حساب'**
+  String get loginOrRegister;
+
   /// No description provided for @home.
   ///
   /// In ar, this message translates to:

@@ -3,6 +3,7 @@ const eventTypes = require('../eventTypes');
 const { SOCKET_EVENTS, SOCKET_ROOMS } = require('../../shared/socketEvents');
 const logger = require('../../utils/logger');
 const { mapOrderResponse } = require('../../mappers/order.mapper');
+const { v4: uuidv4 } = require('uuid');
 
 /**
  * 🌉 Event to Socket Bridge (SDS 3.0)
@@ -85,6 +86,7 @@ const handleOrderEvent = async (event) => {
 
   // 4. 🔔 Notification Bell Context (UI Alert)
   const notificationPayload = {
+    eventId: event.metadata?.eventId || event.id || uuidv4(),
     title: type === eventTypes.ORDER_CREATED ? 'طلب جديد 🔔' : 'تحديث طلب',
     message: `الطلب #${order.orderNumber || order.id}`,
     type: type,

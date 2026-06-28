@@ -338,7 +338,8 @@ export const SocketProvider = ({ children }) => {
     });
 
     newSocket.on(SOCKET_EVENTS.NOTIFICATION_NEW, (payload) => {
-      const { eventId, data: notification } = payload;
+      const notification = payload?.data || payload;
+      const eventId = payload?.eventId || payload?.data?.eventId || payload?.data?._syncMetadata?.eventId;
       if (isDuplicate(eventId)) return;
 
       setNotifications(prev => [notification, ...prev]);

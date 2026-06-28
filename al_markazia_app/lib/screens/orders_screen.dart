@@ -218,6 +218,24 @@ class _OrdersScreenState extends State<OrdersScreen> {
                 
                 OrderStatusTracker(status: order.status ?? 'pending'),
                 
+                if (order.notes != null && order.notes!.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 16.0),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withOpacity(0.05),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.orange.withOpacity(0.1)),
+                      ),
+                      child: Text(
+                        '${StorageService.instance.getLanguageCode() == 'ar' ? 'ملاحظتك: ' : 'Your Note: '} ${order.notes}',
+                        style: const TextStyle(color: Colors.orange, fontSize: 12, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                
                 const SizedBox(height: 24),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -404,6 +422,23 @@ class _OrdersScreenState extends State<OrdersScreen> {
               ],
             ),
             const SizedBox(height: 12),
+            if (order.notes != null && order.notes!.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12.0),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.orange.withOpacity(0.1)),
+                  ),
+                  child: Text(
+                    '${StorageService.instance.getLanguageCode() == 'ar' ? 'ملاحظتك: ' : 'Your Note: '} ${order.notes}',
+                    style: const TextStyle(color: Colors.orange, fontSize: 11, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -512,6 +547,11 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                   Text('${item.quantity}x ${item.displayTitle}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                                   if (item.displayOptionsText.isNotEmpty)
                                     Text(item.displayOptionsText, style: const TextStyle(color: Colors.grey, fontSize: 10)),
+                                  if (item.note != null && item.note.isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 2.0),
+                                      child: Text('⚠️ ${item.note}', style: const TextStyle(color: Colors.orange, fontSize: 10, fontStyle: FontStyle.italic)),
+                                    ),
                                 ],
                               ),
                             ),
@@ -519,6 +559,22 @@ class _OrdersScreenState extends State<OrdersScreen> {
                           ],
                         ),
                       )),
+
+                      if (order.notes != null && order.notes!.isNotEmpty)
+                        Container(
+                          width: double.infinity,
+                          margin: const EdgeInsets.only(top: 8, bottom: 8),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.orange.withOpacity(0.2)),
+                          ),
+                          child: Text(
+                            '${StorageService.instance.getLanguageCode() == 'ar' ? 'ملاحظة الطلب: ' : 'Order Note: '} ${order.notes}',
+                            style: const TextStyle(color: Colors.orange, fontSize: 12, fontWeight: FontWeight.bold),
+                          ),
+                        ),
                       
                       const SizedBox(height: 8),
                       Text(

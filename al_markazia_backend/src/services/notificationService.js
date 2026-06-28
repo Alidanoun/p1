@@ -76,12 +76,14 @@ class NotificationService {
     try {
       const type = notif.type;
       
+      const userId = orderContext?.customer?.uuid || notif.userId || orderContext?.customerId || orderContext?.customer?.id;
+
       // 1. Zod Validation (Phase 1)
       const validationResult = notificationPayloadSchema.safeParse({
         type: this._mapToSchemaType(type),
         title: notif.title,
         body: notif.body,
-        userId: orderContext?.customerId || orderContext?.customer?.id,
+        userId: userId,
         data: { orderId: orderContext?.id }
       });
 
@@ -91,7 +93,6 @@ class NotificationService {
       }
 
       // 2. Policy Evaluation (Phase 1: Preferences, Quiet Hours)
-      const userId = orderContext?.customerId || orderContext?.customer?.id;
       if (userId && type !== 'broadcast') {
         const identityType = orderContext?.customer ? 'customer' : 'user';
         const policy = await notificationPolicyService.evaluate(userId, this._mapToSchemaType(type), identityType);

@@ -4,7 +4,7 @@ const bcrypt = require('bcrypt');
 const prisma = require('../lib/prisma');
 const { hashBlind } = require('../utils/crypto');
 const logger = require('../utils/logger');
-const { addOtpToQueue } = require('../queues/emailQueue');
+const { addOtpToQueue, addPasswordResetToQueue } = require('../queues/emailQueue');
 
 const OTP_LENGTH = 6;
 const OTP_TTL_MINUTES = 5;
@@ -110,7 +110,11 @@ class OtpService {
       // Skip queue, already logged above
     } else {
       if (cleanEmail) {
-        await addOtpToQueue(cleanEmail, code, purpose);
+        if (purpose === 'password_reset') {
+          await addPasswordResetToQueue(cleanEmail, code);
+        } else {
+          await addOtpToQueue(cleanEmail, code, purpose);
+        }
       }
     }
 

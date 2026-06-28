@@ -127,9 +127,15 @@ class OrderApi {
     if (response.statusCode != 200) {
       final Map<String, dynamic> errorData = json.decode(utf8.decode(response.bodyBytes));
       String errorMsg = 'Failed to submit review';
-       if (errorData['error'] != null && errorData['error'] is Map) {
-         errorMsg = errorData['error']['message'] ?? errorMsg;
-       }
+      if (errorData['error'] != null) {
+        if (errorData['error'] is Map) {
+          errorMsg = errorData['error']['message'] ?? errorMsg;
+        } else {
+          errorMsg = errorData['error'].toString();
+        }
+      } else if (errorData['message'] != null) {
+        errorMsg = errorData['message'].toString();
+      }
       throw Exception(errorMsg);
     }
   }

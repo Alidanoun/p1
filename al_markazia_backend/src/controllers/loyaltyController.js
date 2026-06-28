@@ -267,6 +267,28 @@ class LoyaltyController {
   }
 
   /**
+   * 📱 App: Get My Loyalty Ledger History (Points history)
+   */
+  async getMyLoyaltyLedger(req, res) {
+    try {
+      const customer = await prisma.customer.findUnique({
+        where: { uuid: req.user.id }
+      });
+      if (!customer) return res.status(404).json({ success: false, error: 'Customer not found' });
+
+      const ledger = await prisma.loyaltyLedger.findMany({
+        where: { customerId: customer.id, isDeleted: false },
+        orderBy: { createdAt: 'desc' },
+        take: 100
+      });
+
+      res.json({ success: true, data: ledger });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  }
+
+  /**
    * 🎟️ Generate or return Referral Code
    */
   async generateReferralCode(req, res) {

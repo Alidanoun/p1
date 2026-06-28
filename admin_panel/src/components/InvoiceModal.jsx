@@ -51,11 +51,13 @@ const InvoiceModal = ({ order, isOpen, onClose }) => {
         const price = Number(item.price || item.unitPrice || 0);
         const lineTotal = item.lineTotal !== undefined ? Number(item.lineTotal) : (price * qty);
         const options = item.optionsText || item.selectedOptions || (Array.isArray(item.modifiers) && item.modifiers.length > 0 ? item.modifiers.map(m => m.name || m.title || String(m)).join('، ') : '');
+        const itemNote = item.notes || item.note || '';
         return `
           <tr>
             <td style="padding-top: 6px; font-size: 14px; font-weight: bold; text-align: right;">
               ${item.title || item.name || item.itemName || 'صنف'}
               ${options ? `<div style="font-size: 11px; font-weight: normal; color: #555; margin-top: 2px;">+ ${options}</div>` : ''}
+              ${itemNote ? `<div style="font-size: 11px; font-style: italic; color: #d97706; margin-top: 2px;">⚠️ ملاحظة: ${itemNote}</div>` : ''}
             </td>
             <td style="padding-top: 6px; text-align: center; font-size: 14px;">${qty}</td>
             <td style="padding-top: 6px; text-align: left; font-size: 14px; font-weight: bold;">${formatCurrencyArabic(lineTotal)}</td>
@@ -192,6 +194,12 @@ const InvoiceModal = ({ order, isOpen, onClose }) => {
                   <td class="text-left">${customerPhone}</td>
                 </tr>
               ` : ''}
+              ${order.notes ? `
+                <tr>
+                  <td class="font-bold" style="color: #d97706; padding-top: 4px;">ملاحظات الطلب:</td>
+                  <td class="text-left" style="color: #d97706; font-weight: bold; padding-top: 4px;">${order.notes}</td>
+                </tr>
+              ` : ''}
             </table>
             
             <hr />
@@ -299,15 +307,22 @@ const InvoiceModal = ({ order, isOpen, onClose }) => {
             </div>
 
             <div className="w-full space-y-3 mb-8 border-y border-dashed border-slate-200 py-6 max-h-[40vh] overflow-y-auto pr-2">
+              {order.notes && (
+                <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs p-3 rounded-xl mb-4 text-right">
+                  <strong>⚠️ ملاحظات العميل:</strong> {order.notes}
+                </div>
+              )}
               {(order.cartItems || order.orderItems || order.items || []).map((item, i) => {
                 const qty = item.qty || item.quantity || 1;
                 const price = Number(item.price || 0);
                 const lineTotal = item.lineTotal !== undefined ? Number(item.lineTotal) : (price * qty);
+                const itemNote = item.notes || item.note;
                 return (
                   <div key={i} className="flex justify-between text-sm">
                     <div className="flex flex-col">
                       <span className="font-medium text-slate-700">{qty}x {item.title || item.name}</span>
                       {item.optionsText && <span className="text-[10px] text-slate-400">{item.optionsText}</span>}
+                      {itemNote && <span className="text-[10px] text-amber-600 font-medium">⚠️ {itemNote}</span>}
                     </div>
                     <span className="font-bold">{formatCurrencyArabic(lineTotal)}</span>
                   </div>

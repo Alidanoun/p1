@@ -57,6 +57,9 @@ class AppLocalizationsAr extends AppLocalizations {
   String get logout => 'تسجيل الخروج';
 
   @override
+  String get loginOrRegister => 'تسجيل الدخول / إنشاء حساب';
+
+  @override
   String get home => 'الرئيسية';
 
   @override

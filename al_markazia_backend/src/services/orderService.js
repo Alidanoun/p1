@@ -1813,6 +1813,7 @@ class OrderService {
       const finalOptionsText = validatedOptionNames.length > 0 ? validatedOptionNames.join(', ') : (item.optionsText || null);
       const finalOptionsTextEn = validatedOptionNamesEn.length > 0 ? validatedOptionNamesEn.join(', ') : (item.optionsTextEn || null);
 
+      const itemNotes = item.note || item.notes || null;
       validatedItems.push({
         itemId: dbItem.id,
         itemName: dbItem.title,
@@ -1821,7 +1822,8 @@ class OrderService {
         unitPrice,
         lineTotal,
         selectedOptions: finalOptionsText,
-        selectedOptionsEn: finalOptionsTextEn
+        selectedOptionsEn: finalOptionsTextEn,
+        notes: itemNotes ? xss(itemNotes) : null
       });
     }
 

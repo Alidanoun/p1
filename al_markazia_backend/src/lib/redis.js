@@ -477,6 +477,7 @@ resilientCache.publisher = resilientCache;
 resilientCache.subscriber = resilientPubSub;
 resilientCache.socketSubscriber = resilientPubSub;
 resilientCache.createSubscriber = () => makeResilient(createSubscriber(), 'Sub');
+resilientCache.makeResilient = makeResilient;
 resilientCache.getRedis = () => resilientCache;
 
 // Health Check

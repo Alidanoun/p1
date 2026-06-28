@@ -88,8 +88,8 @@ module.exports = {
         const isBrowserClient = userAgent.includes('Mozilla') || userAgent.includes('Chrome') || userAgent.includes('Safari');
         
         // 📱 تطبيقات الموبايل (Flutter/Dart) لا ترسل cookies ولا تحتاج CSRF
-        // 🌐 المتصفحات يجب أن ترسل cookie + header معاً
-        if (isBrowserClient) {
+        // 🌐 المتصفحات يجب أن ترسل cookie + header معاً (يمكن تخطي الفحص للتطوير المحلي عبر مفتاح DISABLE_SOCKET_CSRF)
+        if (isBrowserClient && process.env.DISABLE_SOCKET_CSRF !== 'true') {
           if (!csrfTokenFromCookie || !csrfTokenFromHeader) {
             logger.security('🔌 [SocketCSRF] Browser connection rejected: missing CSRF cookie or header', {
               ip: socket.handshake.address,

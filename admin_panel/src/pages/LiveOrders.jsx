@@ -50,6 +50,7 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, can
   const [elapsed, setElapsed] = useState('');
   const [isDelayed, setIsDelayed] = useState(false);
   const [showInvoice, setShowInvoice] = useState(false);
+  const hasNotes = order.notes || (order.cartItems || order.orderItems || []).some(item => item.notes || item.note);
 
   useEffect(() => {
     if (forceOpen) setShowInvoice(true);
@@ -133,16 +134,7 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, can
               <span>{order.customerPhone || order.customer?.phone || '—'}</span>
             </div>
 
-            <div className="space-y-1 mb-4">
-              {(order.cartItems || order.orderItems || []).slice(0, 2).map((item, i) => (
-                <div key={i} className="text-xs flex justify-between text-text-muted transition-colors group-hover:text-white">
-                  <span>{item.qty || item.quantity}x {item.title || item.itemName || 'صنف'}</span>
-                </div>
-              ))}
-              {(order.cartItems || order.orderItems || []).length > 2 && (
-                <p className="text-[10px] text-primary font-bold">+{(order.cartItems || order.orderItems).length - 2} أصناف أخرى</p>
-              )}
-            </div>
+            <div className="mb-4"></div>
 
             <div className="flex flex-wrap gap-2 mb-4">
               <div className={cn(
@@ -173,26 +165,30 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, can
                   <span>في الطريق</span>
                 </div>
               )}
+              {hasNotes && (
+                <div className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[9px] font-black flex items-center gap-1 animate-pulse">
+                  <AlertCircle className="w-3 h-3" />
+                  <span>ملاحظة ⚠️</span>
+                </div>
+              )}
 
             </div>
 
             <div className="flex flex-col gap-2 border-t border-white/5 pt-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-1 text-primary font-black">
                   <DollarSign className="w-3 h-3" />
-                  <span className="text-sm">{formatCurrencyArabic(order.total || order.totalPrice)}</span>
-                </div>
-                
-                <div className="flex gap-1.5">
-                  <button
-                    onClick={() => setShowInvoice(true)}
-                    className="p-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-text-muted transition-all"
-                    title="الفاتورة"
-                  >
-                    <Printer className="w-3.5 h-3.5" />
-                  </button>
+                  <span className="text-sm font-bold">{formatCurrencyArabic(order.total || order.totalPrice)}</span>
                 </div>
               </div>
+
+              <button
+                onClick={() => setShowInvoice(true)}
+                className="w-full py-2 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 hover:border-primary/30 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-2 mb-1 shadow-sm active:scale-95"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>عرض تفاصيل الفاتورة والطلب 📄</span>
+              </button>
 
               {/* ⚡ One-Tap Workflow Buttons */}
               <div className="grid grid-cols-2 gap-2 mt-2">

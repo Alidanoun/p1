@@ -18,7 +18,7 @@ const notificationPayloadSchema = z.object({
   priority: z.enum(['low', 'normal', 'high', 'critical']).default('normal'),
   deepLink: z.string().url().optional(),
   data: z.record(z.any()).optional(), // Custom metadata
-  userId: z.number().optional(),
+  userId: z.union([z.number(), z.string()]).optional(),
   topic: z.string().optional()
 }).strict();
 

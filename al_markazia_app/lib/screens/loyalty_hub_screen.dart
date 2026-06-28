@@ -67,6 +67,8 @@ class _LoyaltyHubScreenState extends State<LoyaltyHubScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _buildTierCard(),
+                    const SizedBox(height: 16),
+                    _buildLedgerButton(),
                     const SizedBox(height: 32),
                     Text('المتجر والمكافآت', style: DesignSystem.heading(context).copyWith(fontSize: 20)),
                     const SizedBox(height: 16),
@@ -459,5 +461,207 @@ class _LoyaltyHubScreenState extends State<LoyaltyHubScreen> {
         UIFeedback.showError(context, e.toString().replaceAll('Exception: ', ''));
       }
     }
+  }
+
+  Widget _buildLedgerButton() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return InkWell(
+      onTap: _showLedgerBottomSheet,
+      borderRadius: BorderRadius.circular(DesignSystem.radiusM),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+          borderRadius: BorderRadius.circular(DesignSystem.radiusM),
+          border: Border.all(color: Colors.orange.withOpacity(0.2)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.orange.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            )
+          ],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.history_rounded, color: Colors.orange, size: 22),
+                const SizedBox(width: 12),
+                Text(
+                  'سجل حركة النقاط والمعاملات',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                    color: isDark ? Colors.white : Colors.black,
+                  ),
+                ),
+              ],
+            ),
+            const Icon(Icons.arrow_forward_ios_rounded, color: Colors.orange, size: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showLedgerBottomSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.7,
+          minChildSize: 0.5,
+          maxChildSize: 0.95,
+          builder: (context, scrollController) {
+            final isDark = Theme.of(context).brightness == Brightness.dark;
+            return Container(
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF121212) : Colors.white,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'سجل النقاط والمعاملات',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
+                  ),
+                  const Divider(),
+                  Expanded(
+                    child: FutureBuilder<List<dynamic>>(
+                      future: ApiService.instance.fetchLoyaltyLedger(),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const Center(child: CircularProgressIndicator());
+                        }
+                        if (snapshot.hasError) {
+                          return Center(
+                            child: Text(
+                              'فشل تحميل السجل: ${snapshot.error}',
+                              style: const TextStyle(color: Colors.red),
+                            ),
+                          );
+                        }
+                        final ledger = snapshot.data ?? [];
+                        if (ledger.isEmpty) {
+                          return const Center(
+                            child: Text('لا توجد أي معاملات نقاط مسجلة بعد.'),
+                          );
+                        }
+                        return ListView.separated(
+                          controller: scrollController,
+                          itemCount: ledger.length,
+                          separatorBuilder: (_, __) => const Divider(height: 1),
+                          itemBuilder: (context, index) {
+                            final entry = ledger[index];
+                            final int points = entry['points'] ?? 0;
+                            final String type = entry['type'] ?? 'CREDIT';
+                            final String category = entry['category'] ?? 'ORDER_AWARD';
+                            final String description = entry['description'] ?? '';
+                            final String dateStr = entry['createdAt'] ?? '';
+                            
+                            // Format category in Arabic
+                            String categoryAr = 'مكافأة';
+                            IconData icon = Icons.add_circle_outline_rounded;
+                            Color color = Colors.green;
+                            
+                            if (type == 'DEBIT') {
+                              icon = Icons.remove_circle_outline_rounded;
+                              color = Colors.red;
+                            }
+
+                            switch (category) {
+                              case 'ORDER_AWARD':
+                                categoryAr = 'نقاط الطلب 🍔';
+                                break;
+                              case 'REVIEW_AWARD':
+                                categoryAr = 'نقاط تقييم صنف ⭐️';
+                                break;
+                              case 'SOCIAL_AWARD':
+                                categoryAr = 'نقاط مشاركة المنتج 📤';
+                                break;
+                              case 'REFERRAL_AWARD':
+                                categoryAr = 'نقاط دعوة صديق 👥';
+                                break;
+                              case 'REDEMPTION':
+                                categoryAr = 'استبدال نقاط 🎁';
+                                break;
+                              case 'ADJUSTMENT':
+                                categoryAr = 'تعديل الرصيد 🛠️';
+                                break;
+                            }
+
+                            DateTime? date;
+                            try {
+                              date = DateTime.parse(dateStr);
+                            } catch (_) {}
+
+                            return ListTile(
+                              leading: Icon(icon, color: color, size: 28),
+                              title: Text(
+                                categoryAr,
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                              ),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (description.isNotEmpty)
+                                    Text(description, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                                  if (date != null)
+                                    Text(
+                                      '${date.day}/${date.month}/${date.year} ${date.hour}:${date.minute.toString().padLeft(2, '0')}',
+                                      style: const TextStyle(fontSize: 10, color: Colors.grey),
+                                    ),
+                                ],
+                              ),
+                              trailing: Text(
+                                '${type == 'CREDIT' ? '+' : '-'}$points ن',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 16,
+                                  color: color,
+                                ),
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 }
