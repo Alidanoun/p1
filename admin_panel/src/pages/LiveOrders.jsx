@@ -50,6 +50,7 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, can
   const [elapsed, setElapsed] = useState('');
   const [isDelayed, setIsDelayed] = useState(false);
   const [showInvoice, setShowInvoice] = useState(false);
+  const autoAcceptTriggered = useRef(false);
   const hasNotes = order.notes || (order.cartItems || order.orderItems || []).some(item => item.notes || item.note);
 
   useEffect(() => {
@@ -79,7 +80,10 @@ const OrderCard = ({ order, index, forceOpen, onAdjustTimer, onUpdateStatus, can
       if (order.status === 'pending') {
         const secondsPassed = Math.floor(diffMs / 1000);
         if (secondsPassed >= 30) {
-          onUpdateStatus(order.id, 'preparing', order.version, order.eventSequence);
+          if (!autoAcceptTriggered.current) {
+            autoAcceptTriggered.current = true;
+            onUpdateStatus(order.id, 'preparing', order.version, order.eventSequence);
+          }
         } else {
           setElapsed(`يقبل تلقائياً (${30 - secondsPassed}) ثانية`);
         }
@@ -389,7 +393,7 @@ const LiveOrders = () => {
     const newStatus = COLUMN_TO_STATUS[destination.droppableId];
     if (!newStatus) return;
 
-    const orderToUpdate = orders.find(o => o.id === draggableId);
+    const orderToUpdate = orders.find(o => String(o.id) === String(draggableId));
     if (!orderToUpdate) return;
 
     const currentStatus = orderToUpdate.status;
