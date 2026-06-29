@@ -57,17 +57,30 @@ exports.getMyNotifications = async (req, res) => {
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
     // 🛡️ Consolidated to NotificationLog (Directive #3)
-    // Filter by userId (UUID) directly to ensure ownership
+    // Filter by userId (UUID) directly to ensure ownership, plus include 'all' for broadcasts
     const notifications = await prisma.notificationLog.findMany({
       where: {
-        userId: userUuid,
+        userId: { in: [userUuid, 'all'] },
         createdAt: { gte: thirtyDaysAgo }
       },
       orderBy: { createdAt: 'desc' },
       take: 100
     });
 
-    res.json(notifications);
+    const mappedNotifications = notifications.map(notif => ({
+      id: notif.id,
+      userId: notif.userId,
+      customerId: notif.customerId,
+      orderId: notif.orderId,
+      type: notif.type,
+      title: notif.title,
+      message: notif.body,
+      status: notif.status,
+      isRead: notif.status === 'READ' || notif.readAt !== null,
+      createdAt: notif.createdAt
+    }));
+
+    res.json(mappedNotifications);
   } catch (error) {
     logger.error('Fetch my notifications error', { error: error.message, uuid: req.user.id });
     res.status(500).json({ error: 'Failed to fetch your notifications' });
@@ -93,8 +106,8 @@ exports.markAsRead = async (req, res) => {
       return res.status(404).json({ error: 'التنبيه غير موجود' });
     }
 
-    // 🛡️ SECURITY: Ownership Check (Prevents IDOR)
-    if (req.user.role === 'customer' && logEntry.userId !== req.user.id) {
+    // 🛡️ SECURITY: Ownership Check (Prevents IDOR, permits broadcasts targeting 'all')
+    if (req.user.role === 'customer' && logEntry.userId !== req.user.id && logEntry.userId !== 'all') {
       logger.security('Notification read attempt: Ownership violation', {
         logId,
         attemptedBy: req.user.id,
@@ -103,10 +116,13 @@ exports.markAsRead = async (req, res) => {
       return res.status(403).json({ error: 'غير مصرح لك بالوصول لهذا التنبيه' });
     }
 
-    await prisma.notificationLog.update({
-      where: { id: logId },
-      data: { status: 'READ', readAt: new Date() }
-    });
+    // Skip database write for broadcasts to preserve read status consistency for other users
+    if (logEntry.userId !== 'all') {
+      await prisma.notificationLog.update({
+        where: { id: logId },
+        data: { status: 'READ', readAt: new Date() }
+      });
+    }
 
     // 📡 [REALTIME-SYNC] Notify all active user sessions (Directive #4)
     const { SOCKET_EVENTS, SOCKET_ROOMS } = require('../shared/socketEvents');

@@ -1,12 +1,14 @@
 const { NotificationService } = require('../src/services/notificationService');
+const { getMyNotifications, markAsRead } = require('../src/controllers/notificationController');
 
-// Mock container
-const container = {
+// Mock container (prefixed with mock)
+const mockContainer = {
   prisma: {
     notificationLog: {
       findMany: jest.fn(),
       create: jest.fn(),
-      update: jest.fn()
+      update: jest.fn(),
+      findUnique: jest.fn()
     }
   },
   logger: {
@@ -16,12 +18,38 @@ const container = {
   }
 };
 
+// Mock express req/res
+const mockResponse = () => {
+  const res = {};
+  res.status = jest.fn().mockReturnValue(res);
+  res.json = jest.fn().mockReturnValue(res);
+  return res;
+};
+
+// Mock prisma dependency inside controllers
+jest.mock('../src/lib/prisma', () => ({
+  notificationLog: {
+    findMany: (...args) => mockContainer.prisma.notificationLog.findMany(...args),
+    findUnique: (...args) => mockContainer.prisma.notificationLog.findUnique(...args),
+    update: (...args) => mockContainer.prisma.notificationLog.update(...args)
+  }
+}));
+
+// Mock Socket.io dependency
+jest.mock('../src/socket', () => ({
+  getIO: () => ({
+    to: () => ({
+      emit: () => {}
+    })
+  })
+}));
+
 describe('FCM Broadcast and Reconciler Tests', () => {
   let service;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new NotificationService(container);
+    service = new NotificationService(mockContainer);
   });
 
   test('✅ _mapToSchemaType should support system.broadcast', () => {
@@ -42,7 +70,7 @@ describe('FCM Broadcast and Reconciler Tests', () => {
       retries: 0
     };
 
-    container.prisma.notificationLog.findMany.mockResolvedValue([broadcastNotif]);
+    mockContainer.prisma.notificationLog.findMany.mockResolvedValue([broadcastNotif]);
     
     // Spy on dispatch
     const dispatchSpy = jest.spyOn(service, 'dispatch').mockResolvedValue();
@@ -52,11 +80,95 @@ describe('FCM Broadcast and Reconciler Tests', () => {
     // Verification: dispatch was called with the broadcast notification and placeholder order context
     expect(dispatchSpy).toHaveBeenCalledWith(broadcastNotif, { id: 0 });
     // It should not call update immediately with SENT in the loop (except through dispatch itself)
-    expect(container.prisma.notificationLog.update).not.toHaveBeenCalledWith(
+    expect(mockContainer.prisma.notificationLog.update).not.toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 99 },
         data: { status: 'SENT' }
       })
     );
+  });
+
+  test('✅ getMyNotifications should query broadcasts (all) and map fields correctly', async () => {
+    const req = {
+      user: { id: 'customer-uuid-123', role: 'customer' }
+    };
+    const res = mockResponse();
+
+    const dbLogs = [
+      {
+        id: 1,
+        userId: 'customer-uuid-123',
+        customerId: 12,
+        orderId: 45,
+        type: 'status_change',
+        title: 'Title 1',
+        body: 'Message body 1',
+        status: 'SENT',
+        readAt: null,
+        createdAt: new Date()
+      },
+      {
+        id: 2,
+        userId: 'all',
+        customerId: null,
+        orderId: null,
+        type: 'system.broadcast',
+        title: 'Broadcast Title',
+        body: 'Broadcast message body',
+        status: 'SENT',
+        readAt: null,
+        createdAt: new Date()
+      }
+    ];
+
+    mockContainer.prisma.notificationLog.findMany.mockResolvedValue(dbLogs);
+
+    await getMyNotifications(req, res);
+
+    // Verify findMany was called with 'all' in userId filter
+    expect(mockContainer.prisma.notificationLog.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          userId: { in: ['customer-uuid-123', 'all'] }
+        })
+      })
+    );
+
+    // Verify mapping of isRead and message
+    expect(res.json).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: 1,
+        message: 'Message body 1',
+        isRead: false
+      }),
+      expect.objectContaining({
+        id: 2,
+        message: 'Broadcast message body',
+        isRead: false
+      })
+    ]);
+  });
+
+  test('✅ markAsRead should permit reading broadcast (all) notifications without writing to DB', async () => {
+    const req = {
+      params: { id: '99' },
+      user: { id: 'customer-uuid-123', role: 'customer' }
+    };
+    const res = mockResponse();
+
+    const broadcastLog = {
+      id: 99,
+      userId: 'all',
+      status: 'SENT',
+      readAt: null
+    };
+
+    mockContainer.prisma.notificationLog.findUnique.mockResolvedValue(broadcastLog);
+
+    await markAsRead(req, res);
+
+    expect(res.json).toHaveBeenCalledWith({ success: true });
+    // It should not call update for 'all' targeted notifications
+    expect(mockContainer.prisma.notificationLog.update).not.toHaveBeenCalled();
   });
 });

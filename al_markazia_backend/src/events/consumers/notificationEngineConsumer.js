@@ -65,7 +65,9 @@ const notificationEngineConsumer = new StreamConsumerGroup(
 
       // 4. Persistence: NotificationLog is now the Single Source of Truth (Directive #2)
       // We will create the log record first.
-      const content = payload?.notificationContent || notificationService._generateStatusContent(orderContext || {}, type);
+      const content = target.isBroadcast
+        ? { title: payload?.title || 'إعلان عاجل 🔔', message: payload?.message || payload?.body || '' }
+        : (payload?.notificationContent || notificationService._generateStatusContent(orderContext || {}, type));
       
       const promises = [];
       const logRecords = [];
