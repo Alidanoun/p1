@@ -248,7 +248,20 @@ class FirebaseService {
       notification: { title, body },
       data: stringData,
       token: token.includes(':') ? decrypt(token) : token,
-      android: { priority: 'high' }
+      android: {
+        priority: 'high',
+        notification: {
+          channelId: 'almarkazia_channel',
+          clickAction: 'FLUTTER_NOTIFICATION_CLICK'
+        }
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: 'default'
+          }
+        }
+      }
     };
 
     // Run non-blocking to protect incoming application lifecycle workflows
@@ -273,7 +286,21 @@ class FirebaseService {
     const messagePayload = {
       notification: { title, body },
       data: stringData,
-      tokens: cleanTokens
+      tokens: cleanTokens,
+      android: {
+        priority: 'high',
+        notification: {
+          channelId: 'almarkazia_channel',
+          clickAction: 'FLUTTER_NOTIFICATION_CLICK'
+        }
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: 'default'
+          }
+        }
+      }
     };
 
     try {
@@ -317,7 +344,21 @@ class FirebaseService {
     const messagePayload = {
       notification: { title, body },
       data: stringData,
-      topic
+      topic,
+      android: {
+        priority: 'high',
+        notification: {
+          channelId: 'almarkazia_channel',
+          clickAction: 'FLUTTER_NOTIFICATION_CLICK'
+        }
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: 'default'
+          }
+        }
+      }
     };
 
     try {
