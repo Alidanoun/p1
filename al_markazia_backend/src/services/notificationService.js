@@ -76,7 +76,8 @@ class NotificationService {
     try {
       const type = notif.type;
       
-      const userId = orderContext?.customer?.uuid || notif.userId || orderContext?.customerId || orderContext?.customer?.id;
+      let userId = orderContext?.customer?.uuid || notif.userId || orderContext?.customerId || orderContext?.customer?.id;
+      if (userId === null) userId = undefined;
 
       // 1. Zod Validation (Phase 1)
       const validationResult = notificationPayloadSchema.safeParse({
@@ -156,6 +157,7 @@ class NotificationService {
       'status_change': 'ORDER_STATUS_UPDATE',
       'payment_status': 'PAYMENT_SUCCESS',
       'broadcast': 'PROMOTION',
+      'system.broadcast': 'PROMOTION',
       'system_alert': 'SYSTEM_ALERT'
     };
     return map[type] || 'SYSTEM_ALERT';
@@ -181,7 +183,12 @@ class NotificationService {
       try {
         const orderId = notif.orderId;
         if (!orderId) {
-          await this.prisma.notificationLog.update({ where: { id: notif.id }, data: { status: 'SENT' } });
+          if (notif.type === 'broadcast' || notif.type === 'system.broadcast') {
+            await this.dispatch(notif, { id: 0 });
+            successCount++;
+          } else {
+            await this.prisma.notificationLog.update({ where: { id: notif.id }, data: { status: 'SENT' } });
+          }
           continue;
         }
 

@@ -304,6 +304,7 @@ exports.updateBulkSettings = async (req, res) => {
     const redis = require('../lib/redis');
     await redis.del('system:settings');
     await redis.del('system:config'); // <-- Added this
+    await redis.del('system:announcement'); // <-- Added this
     const memoryCache = require('../lib/memoryCache');
     memoryCache.del('system:settings');
     memoryCache.del('system:config'); // <-- Added this

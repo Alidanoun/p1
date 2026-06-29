@@ -121,9 +121,27 @@ class ConfigService {
     };
   }
 
+  async getAnnouncementText() {
+    try {
+      const cached = await redis.get('system:announcement').catch(() => null);
+      if (cached !== null) return cached;
+
+      const setting = await getPrisma().systemSettings.findUnique({
+        where: { key: 'announcementText' }
+      });
+      const val = setting ? setting.value : '';
+      await redis.set('system:announcement', val, 'EX', 3600).catch(() => {});
+      return val;
+    } catch (err) {
+      logger.error('Failed to get announcement text', { error: err.message });
+      return '';
+    }
+  }
+
   async refreshCache() {
     try {
       await redis.del(this.CACHE_KEY);
+      await redis.del('system:announcement');
       return await this.getFullConfig();
     } catch (err) {
       logger.error('Failed to refresh config cache', { error: err.message });

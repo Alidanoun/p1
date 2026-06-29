@@ -509,10 +509,11 @@ class NotificationService extends ChangeNotifier {
   // --- 🛡️ Guard Helpers ---
   bool _isValidNotificationContent(dynamic data) {
     if (data is! Map) return false;
-    // Must have at least an ID or a notification object
+    // Must have at least an ID, logId, or a notification object
     return data.containsKey('notification') || 
            data.containsKey('notificationId') || 
-           data.containsKey('orderId');
+           data.containsKey('orderId') ||
+           data.containsKey('logId');
   }
 
   final Map<String, List<int>> _rateLimitHistory = {};
@@ -532,7 +533,10 @@ class NotificationService extends ChangeNotifier {
   // --- Helpers ---
   String? _normalizeId(dynamic data) {
     if (data is! Map) return null;
-    return data['notificationId']?.toString() ?? data['id']?.toString() ?? data['messageId']?.toString();
+    return data['notificationId']?.toString() ?? 
+           data['id']?.toString() ?? 
+           data['messageId']?.toString() ?? 
+           data['logId']?.toString();
   }
 
   void _onSelectNotification(NotificationResponse response) {

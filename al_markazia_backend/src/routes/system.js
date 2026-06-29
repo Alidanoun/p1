@@ -14,9 +14,13 @@ const { searchLimiter } = require('../middleware/rateLimiter');
 // Public: Client-safe configuration only (no sensitive data)
 router.get('/config', async (req, res) => {
   try {
-    const config = await configService.getFullConfig();
+    const [config, announcementText] = await Promise.all([
+      configService.getFullConfig(),
+      configService.getAnnouncementText()
+    ]);
     // Strip sensitive/internal fields — return only what the client app needs
     const publicConfig = {
+      announcementText,
       business: {
         taxRate: config.business?.taxRate,
         currency: config.business?.currency,

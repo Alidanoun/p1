@@ -33,6 +33,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isLoading = true;
   String? _errorMessage;
   RestaurantStatus? _status;
+  String _announcementText = '';
 
   String _searchQuery = '';
   bool _isSearching = false;
@@ -126,6 +127,15 @@ class _HomeScreenState extends State<HomeScreen> {
       final activeOrder = await _apiService.fetchActiveOrder();
       final loyalty = await _apiService.fetchLoyaltyStatus();
       
+      // Dynamic Urgent Announcement Text Fetch
+      String announcement = '';
+      try {
+        final config = await _apiService.fetchSystemConfig();
+        announcement = config['announcementText']?.toString() ?? '';
+      } catch (e) {
+        debugPrint('Failed to fetch system config: $e');
+      }
+      
       if (mounted) {
         setState(() {
           _categories = cats;
@@ -133,6 +143,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _status = status;
           _activeOrder = activeOrder;
           _loyaltyStatus = loyalty;
+          _announcementText = announcement;
           _happyHourRemainingSeconds = (loyalty['happyHourStatus']?['remainingSeconds'] ?? 0).toInt();
           _happyHourTargetTimestamp = (DateTime.now().millisecondsSinceEpoch ~/ 1000) + _happyHourRemainingSeconds;
           _isLoading = false;
@@ -388,6 +399,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
               ),
             ),
+            
+            _buildAnnouncementBar(),
             
             // Grid Body Content (Scrollable part)
             Expanded(
@@ -1308,6 +1321,99 @@ class _HomeScreenState extends State<HomeScreen> {
           Text(message, style: const TextStyle(color: Colors.grey)),
         ],
       ),
+    );
+  }
+
+  Widget _buildAnnouncementBar() {
+    if (_announcementText.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      color: Colors.amber.shade700,
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          const SizedBox(width: 16),
+          const Icon(Icons.campaign_rounded, color: Colors.white, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: MarqueeText(
+              text: _announcementText,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
+        ],
+      ),
+    );
+  }
+}
+
+class MarqueeText extends StatefulWidget {
+  final String text;
+  final TextStyle style;
+  final double velocity;
+
+  const MarqueeText({
+    super.key,
+    required this.text,
+    required this.style,
+    this.velocity = 40.0,
+  });
+
+  @override
+  State<MarqueeText> createState() => _MarqueeTextState();
+}
+
+class _MarqueeTextState extends State<MarqueeText> {
+  late ScrollController _scrollController;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController = ScrollController();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _startScrolling();
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _startScrolling() {
+    if (!_scrollController.hasClients) return;
+    
+    _timer = Timer.periodic(const Duration(milliseconds: 30), (timer) {
+      if (!mounted || !_scrollController.hasClients) return;
+      
+      final maxScrollExtent = _scrollController.position.maxScrollExtent;
+      if (maxScrollExtent <= 0) return;
+      
+      double nextOffset = _scrollController.offset + (widget.velocity * 0.03);
+      if (nextOffset >= maxScrollExtent) {
+        _scrollController.jumpTo(0);
+      } else {
+        _scrollController.jumpTo(nextOffset);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      controller: _scrollController,
+      scrollDirection: Axis.horizontal,
+      physics: const NeverScrollableScrollPhysics(),
+      child: Text(widget.text, style: widget.style),
     );
   }
 }
