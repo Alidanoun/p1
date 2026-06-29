@@ -22,8 +22,8 @@ const notificationEngineConsumer = new StreamConsumerGroup(
       
       if (!notificationService) return;
 
-      // 1. Extract context details
-      let orderId = payload?.id || payload?.orderId || null;
+       // 1. Extract context details (accounting for nested order objects in events)
+      let orderId = payload?.order?.id || payload?.id || payload?.orderId || null;
       let orderContext = null;
 
       if (orderId && !isNaN(parseInt(orderId))) {
@@ -63,12 +63,22 @@ const notificationEngineConsumer = new StreamConsumerGroup(
         return; 
       }
 
+      // Resolve the status key from the event type and payload
+      let resolvedStatus = 'pending';
+      if (type === 'order.created' || type === 'order_created') {
+        resolvedStatus = 'pending';
+      } else if (type === 'order.cancelled' || type === 'order_cancelled') {
+        resolvedStatus = 'cancelled';
+      } else if (type === 'order.status.changed' || type === 'status_change') {
+        resolvedStatus = payload?.newStatus || payload?.order?.status || 'pending';
+      }
+
       // 4. Persistence: NotificationLog is now the Single Source of Truth (Directive #2)
       // We will create the log record first.
       const content = target.isBroadcast
         ? { title: payload?.title || 'إعلان عاجل 🔔', message: payload?.message || payload?.body || '' }
-        : (payload?.notificationContent || notificationService._generateStatusContent(orderContext || {}, type));
-      
+        : (payload?.notificationContent || notificationService._generateStatusContent(orderContext || {}, resolvedStatus));
+
       const promises = [];
       const logRecords = [];
 

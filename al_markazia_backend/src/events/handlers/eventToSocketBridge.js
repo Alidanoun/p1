@@ -85,17 +85,19 @@ const handleOrderEvent = async (event) => {
   }
 
   // 4. 🔔 Notification Bell Context (UI Alert)
-  const notificationPayload = {
-    eventId: event.metadata?.eventId || event.id || uuidv4(),
-    title: type === eventTypes.ORDER_CREATED ? 'طلب جديد 🔔' : 'تحديث طلب',
-    message: `الطلب #${order.orderNumber || order.id}`,
-    type: type,
-    data: finalPayload
-  };
-  io.to(SOCKET_ROOMS.MONITOR_GLOBAL).emit(SOCKET_EVENTS.NOTIFICATION_NEW, securityPolicyService.wrapPayload(notificationPayload));
-  if (branchId) {
-    io.to(SOCKET_ROOMS.EXEC_BRANCH(branchId)).emit(SOCKET_EVENTS.NOTIFICATION_NEW, securityPolicyService.wrapPayload(notificationPayload));
-    io.to(SOCKET_ROOMS.MONITOR_BRANCH(branchId)).emit(SOCKET_EVENTS.NOTIFICATION_NEW, securityPolicyService.wrapPayload(notificationPayload));
+  if (type === eventTypes.ORDER_CREATED) {
+    const notificationPayload = {
+      eventId: event.metadata?.eventId || event.id || uuidv4(),
+      title: 'طلب جديد 🔔',
+      message: `الطلب #${order.orderNumber || order.id}`,
+      type: type,
+      data: finalPayload
+    };
+    io.to(SOCKET_ROOMS.MONITOR_GLOBAL).emit(SOCKET_EVENTS.NOTIFICATION_NEW, securityPolicyService.wrapPayload(notificationPayload));
+    if (branchId) {
+      io.to(SOCKET_ROOMS.EXEC_BRANCH(branchId)).emit(SOCKET_EVENTS.NOTIFICATION_NEW, securityPolicyService.wrapPayload(notificationPayload));
+      io.to(SOCKET_ROOMS.MONITOR_BRANCH(branchId)).emit(SOCKET_EVENTS.NOTIFICATION_NEW, securityPolicyService.wrapPayload(notificationPayload));
+    }
   }
 
 

@@ -342,6 +342,11 @@ export const SocketProvider = ({ children }) => {
       const eventId = payload?.eventId || payload?.data?.eventId || payload?.data?._syncMetadata?.eventId;
       if (isDuplicate(eventId)) return;
 
+      // Skip display for customer broadcasts/promotions inside admin context
+      if (notification?.type === 'broadcast' || notification?.type === 'system.broadcast') {
+        return;
+      }
+
       setNotifications(prev => [notification, ...prev]);
       setUnreadCount(prev => prev + 1);
       toast.success(notification.title, {

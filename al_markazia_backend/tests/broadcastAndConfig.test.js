@@ -171,4 +171,62 @@ describe('FCM Broadcast and Reconciler Tests', () => {
     // It should not call update for 'all' targeted notifications
     expect(mockContainer.prisma.notificationLog.update).not.toHaveBeenCalled();
   });
+
+  test('✅ notificationEngineConsumer wildcard handler resolves nested orderId and status', async () => {
+    const notificationEngineConsumer = require('../src/events/consumers/notificationEngineConsumer');
+    const handler = notificationEngineConsumer.handlers['*'];
+    
+    // Mock container dependencies
+    const mockPrisma = {
+      order: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 14,
+          orderNumber: 'AMM-123',
+          customer: { uuid: 'cust-123', fcmToken: 'token-abc' }
+        })
+      },
+      notificationLog: {
+        create: jest.fn().mockResolvedValue({ id: 88 }),
+        update: jest.fn().mockResolvedValue({ id: 88 })
+      }
+    };
+    
+    // Inject mocks into container
+    const container = require('../src/lib/container');
+    container.prisma = mockPrisma;
+    
+    // Spy on prototype method
+    const generateSpy = jest.spyOn(NotificationService.prototype, '_generateStatusContent')
+      .mockReturnValue({ title: 'Test Title', message: 'Test Msg' });
+    
+    // Mock firebaseService
+    const firebaseService = require('../src/services/firebaseService');
+    const sendToTokenSpy = jest.spyOn(firebaseService, 'sendToToken').mockResolvedValue('msg-id-123');
+    
+    // Event payload with nested order ID
+    const event = {
+      type: 'order.status.changed',
+      payload: {
+        order: { id: '14', status: 'preparing' },
+        newStatus: 'preparing',
+        previousStatus: 'pending'
+      }
+    };
+    
+    // Run handler
+    await handler(event);
+    
+    // Verification: findUnique was called with parsed order ID 14
+    expect(mockPrisma.order.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 14 }
+      })
+    );
+    
+    // Verification: _generateStatusContent was called with orderContext and resolvedStatus 'preparing'
+    expect(generateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 14 }),
+      'preparing'
+    );
+  });
 });
