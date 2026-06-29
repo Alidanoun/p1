@@ -524,7 +524,8 @@ class NotificationService extends ChangeNotifier {
     return data.containsKey('notification') || 
            data.containsKey('notificationId') || 
            data.containsKey('orderId') ||
-           data.containsKey('logId');
+           data.containsKey('logId') ||
+           data.containsKey('id');
   }
 
   final Map<String, List<int>> _rateLimitHistory = {};
