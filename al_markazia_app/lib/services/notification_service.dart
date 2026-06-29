@@ -182,6 +182,7 @@ class NotificationService extends ChangeNotifier {
 
   /// 🧠 Central Event Router (Authority-Based + Backpressure)
   void _processIncomingEvent(dynamic rawData, {bool fromSocket = false, bool fromFCM = false}) {
+    print('🚨 [FCM Debug] _processIncomingEvent starting. rawData: $rawData, fromFCM: $fromFCM, fromSocket: $fromSocket');
     var resolvedData = rawData;
     if (resolvedData is Map && resolvedData.containsKey('data') && 
         resolvedData['data'] is Map<String, dynamic>) {
@@ -190,7 +191,7 @@ class NotificationService extends ChangeNotifier {
 
     // 🛡️ [V5 Security] Content Validation
     if (!_isValidNotificationContent(resolvedData)) {
-      print('🚫 [Security] Malformed notification rejected');
+      print('🚫 [Security] Malformed notification rejected. resolvedData: $resolvedData');
       return;
     }
 
@@ -298,6 +299,10 @@ class NotificationService extends ChangeNotifier {
 
       // [V5 Priority 1] Foreground Listener
       _fcmSubscription = FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+        print('🚨 [FCM Debug] Flutter onMessage listener invoked!');
+        print('🚨 [FCM Debug] message.data: ${message.data}');
+        print('🚨 [FCM Debug] message.notification.title: ${message.notification?.title}');
+        print('🚨 [FCM Debug] message.notification.body: ${message.notification?.body}');
         _processIncomingEvent(
           {
             ...message.data,
@@ -413,13 +418,19 @@ class NotificationService extends ChangeNotifier {
     final message = data['notification']?['message']?.toString() ?? 
                     data['notification']?['body']?.toString() ?? '';
 
-    await _localNotifications.show(
-      notificationId,
-      title,
-      message,
-      const NotificationDetails(android: androidDetails),
-      payload: json.encode(data),
-    );
+    print('🚨 [FCM Debug] Calling _localNotifications.show with id: $notificationId, title: $title, message: $message');
+    try {
+      await _localNotifications.show(
+        notificationId,
+        title,
+        message,
+        const NotificationDetails(android: androidDetails),
+        payload: json.encode(data),
+      );
+      print('🚨 [FCM Debug] _localNotifications.show executed successfully.');
+    } catch (e) {
+      print('🚨 [FCM Debug] _localNotifications.show FAILED with error: $e');
+    }
 
     // [PHASE 2] Also show a summary for grouping
     const summaryDetails = AndroidNotificationDetails(

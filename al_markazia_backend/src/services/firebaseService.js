@@ -115,7 +115,9 @@ class FirebaseService {
     }
 
     try {
+      console.log('🚨 [FCM Debug] Sending token message payload:', JSON.stringify(messagePayload, null, 2));
       const responseId = await admin.messaging().send(messagePayload);
+      console.log('🚨 [FCM Debug] Send token response:', responseId);
       this.metrics.sent++;
 
       // ⚡ Record Success
@@ -132,6 +134,7 @@ class FirebaseService {
       logger.info('[FCM Delivery] ✅ Verified push success', { responseId, attempt });
       return responseId;
     } catch (error) {
+      console.log('🚨 [FCM Debug] Send token error:', error);
       const errorCode = error.code || '';
       logger.error('[FCM Delivery] ❌ Error executing transmission', { errorCode, message: error.message, attempt });
 
@@ -318,10 +321,13 @@ class FirebaseService {
     };
 
     try {
+      console.log('🚨 [FCM Debug] Sending topic message payload:', JSON.stringify(messagePayload, null, 2));
       const resp = await admin.messaging().send(messagePayload);
+      console.log('🚨 [FCM Debug] Send topic response:', resp);
       this.metrics.sent++;
       return resp;
     } catch (error) {
+      console.log('🚨 [FCM Debug] Send topic error:', error);
       logger.error(`Topic push failed for destination: ${topic}`, { error: error.message });
       return null;
     }
