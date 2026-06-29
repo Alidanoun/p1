@@ -16,13 +16,27 @@ exports.getAdminNotifications = async (req, res) => {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    // 🛡️ Consolidated to NotificationLog (Directive #3)
+    const filter = {
+      createdAt: { gte: thirtyDaysAgo },
+      userId: { in: ['system', 'admin'] }, // Logical admin context
+      type: { not: 'broadcast' }
+    };
+
+    // If not global admin, enforce branch isolation
+    if (req.user.role !== 'admin' && req.user.branchId) {
+      const branchOrders = await prisma.order.findMany({
+        where: { branchId: req.user.branchId, createdAt: { gte: thirtyDaysAgo } },
+        select: { id: true }
+      });
+      const orderIds = branchOrders.map(o => o.id);
+      filter.OR = [
+        { orderId: { in: orderIds } },
+        { orderId: null } // System-level logs are globally accessible
+      ];
+    }
+
     const notifications = await prisma.notificationLog.findMany({
-      where: {
-        createdAt: { gte: thirtyDaysAgo },
-        userId: { in: ['system', 'admin'] }, // Logical admin context
-        type: { not: 'broadcast' }
-      },
+      where: filter,
       orderBy: { createdAt: 'desc' },
       take: 100
     });

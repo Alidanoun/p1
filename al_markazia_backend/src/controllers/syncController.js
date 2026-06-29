@@ -26,8 +26,7 @@ class SyncController {
       // Fetch latest versions for these IDs
       // Note: We respect Branch Isolation via a helper or query filter
       const SecurityPolicyService = require('../services/securityPolicyService');
-      const securityPolicy = new SecurityPolicyService();
-      const branchFilter = await securityPolicy.getHardenedFilter(req.user, aggregateType);
+      const branchFilter = await SecurityPolicyService.getHardenedFilter(req.user, aggregateType);
 
       const latestStates = await prisma[aggregateType.toLowerCase()].findMany({
         where: {
@@ -67,8 +66,7 @@ class SyncController {
       const { sinceSequence = 0, aggregateType = 'Order', limit = 50 } = req.query;
       
       const SecurityPolicyService = require('../services/securityPolicyService');
-      const securityPolicy = new SecurityPolicyService();
-      const branchFilter = await securityPolicy.getHardenedFilter(req.user, aggregateType);
+      const branchFilter = await SecurityPolicyService.getHardenedFilter(req.user, aggregateType);
 
       const items = await prisma[aggregateType.toLowerCase()].findMany({
         where: {

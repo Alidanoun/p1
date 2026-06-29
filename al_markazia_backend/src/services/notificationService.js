@@ -257,10 +257,38 @@ class NotificationService {
     const firebaseService = require('./firebaseService');
     if (target.isBroadcast) {
       await firebaseService.sendBroadcast(notif.title, notif.body, { type: 'broadcast', logId: String(notif.id) });
-    } else if (target.isToAdmin) {
-      await firebaseService.sendToTopic('staff_orders', notif.title, notif.body, { type: 'order_created', logId: String(notif.id) });
-    } else if (target.isToCustomer && order.customer?.fcmToken) {
-      await firebaseService.sendToToken(order.customer.fcmToken, notif.title, notif.body, { type: notif.type, logId: String(notif.id) });
+    } else {
+      const promises = [];
+      const targets = [];
+      
+      if (target.isToAdmin && notif.userId === 'admin') {
+        promises.push(
+          firebaseService.sendToTopic('staff_orders', notif.title, notif.body, { type: 'order_created', logId: String(notif.id) })
+        );
+        targets.push('admin');
+      }
+      
+      if (target.isToCustomer && notif.userId !== 'admin' && order.customer?.fcmToken) {
+        promises.push(
+          firebaseService.sendToToken(order.customer.fcmToken, notif.title, notif.body, { type: notif.type, logId: String(notif.id) })
+        );
+        targets.push('customer');
+      }
+      
+      if (promises.length > 0) {
+        const results = await Promise.allSettled(promises);
+        const errors = [];
+        results.forEach((res, index) => {
+          if (res.status === 'rejected') {
+            errors.push(`${targets[index]}: ${res.reason?.message || res.reason}`);
+          } else if (res.value === null) {
+            errors.push(`${targets[index]}: Delivery returned null`);
+          }
+        });
+        if (errors.length > 0) {
+          throw new Error(errors.join('; '));
+        }
+      }
     }
   }
 

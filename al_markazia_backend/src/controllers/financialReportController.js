@@ -17,7 +17,7 @@ class FinancialReportController {
 
       // 🛡️ Security Isolation
       const targetBranchId = user.role === 'admin' ? branchId : user.branchId;
-      if (!user.role === 'admin' && branchId && branchId !== user.branchId) {
+      if (user.role !== 'admin' && branchId && branchId !== user.branchId) {
         return res.status(403).json({ success: false, error: 'ACCESS_DENIED' });
       }
 

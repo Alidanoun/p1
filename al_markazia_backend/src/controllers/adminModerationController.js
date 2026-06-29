@@ -57,6 +57,15 @@ class AdminModerationController {
       const { id } = req.params;
       const { status, rejectedReason } = req.body;
 
+      const reviewToUpdate = await prisma.review.findUnique({
+        where: { id: parseInt(id) }
+      });
+      if (!reviewToUpdate) return res.status(404).json({ success: false, message: 'التقييم غير موجود' });
+
+      if (req.user.role !== 'admin' && reviewToUpdate.branchId !== req.user.branchId) {
+        return res.status(403).json({ success: false, message: 'ACCESS_DENIED' });
+      }
+
       const review = await prisma.review.update({
         where: { id: parseInt(id) },
         data: { status, rejectedReason },
@@ -89,6 +98,15 @@ class AdminModerationController {
       const { content } = req.body;
       const authorId = req.user.id;
       const authorRole = req.user.role || 'ADMIN';
+
+      const review = await prisma.review.findUnique({
+        where: { id: parseInt(id) }
+      });
+      if (!review) return res.status(404).json({ success: false, message: 'التقييم غير موجود' });
+
+      if (req.user.role !== 'admin' && review.branchId !== req.user.branchId) {
+        return res.status(403).json({ success: false, message: 'ACCESS_DENIED' });
+      }
 
       const reply = await prisma.reply.create({
         data: {

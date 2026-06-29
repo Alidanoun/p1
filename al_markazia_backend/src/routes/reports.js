@@ -1,10 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const reportController = require('../controllers/reportController');
-const { authenticateToken, hasPermission } = require('../middleware/auth');
+const { authenticateToken, isManager } = require('../middleware/auth');
+const BranchAccessMiddleware = require('../middleware/branchAccessMiddleware');
 
-// Require either MANAGE_SETTINGS or VIEW_REPORTS permission (assume VIEW_REPORTS or admin)
 router.use(authenticateToken);
+router.use(isManager);
+router.use(BranchAccessMiddleware);
 
 router.get('/daily', reportController.getDailyReports);
 router.get('/top-items', reportController.getTopItems);

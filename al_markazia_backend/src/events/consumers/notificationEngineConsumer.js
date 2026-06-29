@@ -67,50 +67,96 @@ const notificationEngineConsumer = new StreamConsumerGroup(
       // We will create the log record first.
       const content = payload?.notificationContent || notificationService._generateStatusContent(orderContext || {}, type);
       
-      const logRecord = await container.prisma.notificationLog.create({
-        data: {
-          userId: orderContext?.customer?.uuid || 'system',
-          customerId: orderContext?.customerId || null,
-          orderId: orderContext?.id || null,
-          type: type,
-          title: content.title,
-          body: content.message,
-          status: 'PENDING'
-        }
-      });
+      const promises = [];
+      const logRecords = [];
 
       try {
-        // 5. 🚀 Synchronous Delivery (Blocking until attempt finishes)
-        // This ensures Redis XACK only happens after this block succeeds.
-        
-        let deliveryResult = null;
         if (target.isBroadcast) {
-          deliveryResult = await firebaseService.sendBroadcast(content.title, content.message, { type: 'broadcast', logId: String(logRecord.id) });
-        } else if (target.isToAdmin) {
-          deliveryResult = await firebaseService.sendToTopic('staff_orders', content.title, content.message, { type: 'order_created', logId: String(logRecord.id) });
-        } else if (target.isToCustomer && orderContext?.customer?.fcmToken) {
-          deliveryResult = await firebaseService.sendToToken(orderContext.customer.fcmToken, content.title, content.message, { type: type, logId: String(logRecord.id) });
+          const logRecord = await container.prisma.notificationLog.create({
+            data: {
+              userId: 'all',
+              type: type,
+              title: content.title,
+              body: content.message,
+              status: 'PENDING'
+            }
+          });
+          promises.push(
+            firebaseService.sendBroadcast(content.title, content.message, { type: 'broadcast', logId: String(logRecord.id) })
+          );
+          logRecords.push({ record: logRecord, target: 'broadcast' });
+        } else {
+          if (target.isToAdmin) {
+            const logRecord = await container.prisma.notificationLog.create({
+              data: {
+                userId: 'admin',
+                customerId: orderContext?.customerId || null,
+                orderId: orderContext?.id || null,
+                type: type,
+                title: content.title,
+                body: content.message,
+                status: 'PENDING'
+              }
+            });
+            promises.push(
+              firebaseService.sendToTopic('staff_orders', content.title, content.message, { type: 'order_created', logId: String(logRecord.id) })
+            );
+            logRecords.push({ record: logRecord, target: 'admin' });
+          }
+          if (target.isToCustomer && orderContext?.customer?.fcmToken) {
+            const logRecord = await container.prisma.notificationLog.create({
+              data: {
+                userId: orderContext?.customer?.uuid || 'system',
+                customerId: orderContext?.customerId || null,
+                orderId: orderContext?.id || null,
+                type: type,
+                title: content.title,
+                body: content.message,
+                status: 'PENDING'
+              }
+            });
+            promises.push(
+              firebaseService.sendToToken(orderContext.customer.fcmToken, content.title, content.message, { type: type, logId: String(logRecord.id) })
+            );
+            logRecords.push({ record: logRecord, target: 'customer' });
+          }
         }
 
-        // 6. Finalize Record Status
-        await container.prisma.notificationLog.update({
-          where: { id: logRecord.id },
-          data: { 
-            status: deliveryResult ? 'SENT' : 'FAILED',
-            sentAt: deliveryResult ? new Date() : null
-          }
-        });
+        if (promises.length === 0) return;
 
-        logger.info(`[NotificationEngine] ✅ Delivery attempt complete for ${type} (Log: ${logRecord.id})`);
-      } catch (err) {
-        // 🚨 CRITICAL: If delivery fails with a retriable error, we THROW.
-        // This prevents the XACK and lets the Stream Backbone/PEL retry the event later.
+        // 5. 🚀 Parallel Delivery (Blocking until all attempts finish)
+        const results = await Promise.allSettled(promises);
         
-        await container.prisma.notificationLog.update({
-          where: { id: logRecord.id },
-          data: { status: 'FAILED', error: err.message }
-        }).catch(() => {});
+        let hasError = false;
+        const errorMsgs = [];
 
+        // 6. Finalize each log record status individually
+        for (let i = 0; i < results.length; i++) {
+          const res = results[i];
+          const log = logRecords[i];
+          const isSuccess = res.status === 'fulfilled' && res.value !== null;
+          
+          await container.prisma.notificationLog.update({
+            where: { id: log.record.id },
+            data: {
+              status: isSuccess ? 'SENT' : 'FAILED',
+              sentAt: isSuccess ? new Date() : null,
+              error: res.status === 'rejected' ? (res.reason?.message || String(res.reason)) : (res.value === null ? 'Delivery returned null' : null)
+            }
+          });
+
+          if (!isSuccess) {
+            hasError = true;
+            errorMsgs.push(`${log.target}: ${res.status === 'rejected' ? (res.reason?.message || String(res.reason)) : 'delivery failed'}`);
+          }
+        }
+
+        if (hasError) {
+          throw new Error(`Notification delivery failed: ${errorMsgs.join(', ')}`);
+        }
+
+        logger.info(`[NotificationEngine] ✅ Delivery attempts complete for ${type}`);
+      } catch (err) {
         logger.error(`[NotificationEngine] ❌ Delivery failure for ${type}. Deferring XACK for retry.`, { error: err.message });
         throw err; // Signal to StreamConsumerGroup to NOT acknowledge
       }

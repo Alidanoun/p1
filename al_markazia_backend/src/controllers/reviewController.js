@@ -244,6 +244,16 @@ exports.toggleApproval = async (req, res) => {
       const realId = parseInt(id.replace('order-', ''));
       if (isNaN(realId)) return res.status(400).json({ error: 'Invalid Order ID' });
       
+      const order = await prisma.order.findUnique({
+        where: { id: realId },
+        select: { branchId: true }
+      });
+      if (!order) return res.status(404).json({ error: 'Order not found' });
+      
+      if (req.user.role !== 'admin' && order.branchId !== req.user.branchId) {
+        return res.status(403).json({ error: 'ACCESS_DENIED' });
+      }
+
       await prisma.order.update({
         where: { id: realId },
         data: { isRatingApproved: Boolean(isApproved) }
@@ -254,6 +264,16 @@ exports.toggleApproval = async (req, res) => {
     // Handle Item Review Approval
     const reviewId = parseInt(id);
     if (isNaN(reviewId)) return res.status(400).json({ error: 'Invalid Review ID' });
+
+    const reviewToUpdate = await prisma.review.findUnique({
+      where: { id: reviewId },
+      select: { branchId: true }
+    });
+    if (!reviewToUpdate) return res.status(404).json({ error: 'Review not found' });
+
+    if (req.user.role !== 'admin' && reviewToUpdate.branchId !== req.user.branchId) {
+      return res.status(403).json({ error: 'ACCESS_DENIED' });
+    }
 
     const review = await prisma.review.update({
       where: { id: reviewId },
@@ -386,6 +406,16 @@ exports.deleteReview = async (req, res) => {
   try {
     const reviewId = parseInt(req.params.id);
     if (isNaN(reviewId)) return res.status(400).json({ error: 'Invalid ID' });
+
+    const reviewToDelete = await prisma.review.findUnique({
+      where: { id: reviewId },
+      select: { branchId: true }
+    });
+    if (!reviewToDelete) return res.status(404).json({ error: 'Review not found' });
+
+    if (req.user.role !== 'admin' && reviewToDelete.branchId !== req.user.branchId) {
+      return res.status(403).json({ error: 'ACCESS_DENIED' });
+    }
 
     const review = await prisma.review.delete({ where: { id: reviewId } });
 

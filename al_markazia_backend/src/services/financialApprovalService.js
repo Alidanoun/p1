@@ -206,14 +206,19 @@ class FinancialApprovalService {
   /**
    * 📊 Get Approval Stats for Widget
    */
-  async getApprovalStats() {
-    const pending = await prisma.financialApproval.count({ where: { status: 'PENDING' } });
+  async getApprovalStats(branchId = null) {
+    const whereClause = { status: 'PENDING' };
+    if (branchId) {
+      whereClause.branchId = branchId;
+    }
+    const pending = await prisma.financialApproval.count({ where: whereClause });
     const highRisk = await prisma.financialApproval.count({
        where: { 
          status: 'PENDING',
-         riskLevel: 'HIGH'
+         riskLevel: 'HIGH',
+         ...(branchId ? { branchId } : {})
        } 
-    });
+     });
 
     return {
       pendingCount: pending,

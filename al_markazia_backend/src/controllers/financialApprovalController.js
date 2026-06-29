@@ -17,7 +17,8 @@ exports.getPendingApprovals = async (req, res) => {
 
 exports.getApprovalStats = async (req, res) => {
   try {
-    const stats = await financialApprovalService.getApprovalStats();
+    const branchId = req.authoritativeBranchId;
+    const stats = await financialApprovalService.getApprovalStats(branchId);
     res.json({ success: true, data: stats });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch stats' });

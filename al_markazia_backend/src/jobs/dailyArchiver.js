@@ -1,12 +1,29 @@
 const cron = require('node-cron');
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../lib/prisma');
+const redis = require('../lib/redis');
 const logger = require('../utils/logger');
 
-const prisma = new PrismaClient();
-
 const runDailyArchiver = async () => {
-  logger.info('[DailyArchiver] Starting EOD archival process...');
+  const lockKey = 'lock:job:daily_archiver';
+  let acquiredLock = false;
+
   try {
+    const lockResult = await redis.set(lockKey, 'locked', 'NX', 'EX', 600).catch(err => {
+      logger.warn('[DailyArchiver] Redis offline, running without lock protection', { error: err.message });
+      return 'bypass';
+    });
+
+    if (lockResult !== 'locked' && lockResult !== 'bypass') {
+      logger.info('[DailyArchiver] Job is already running in another instance. Skipping.');
+      return;
+    }
+
+    if (lockResult === 'locked') {
+      acquiredLock = true;
+    }
+
+    logger.info('[DailyArchiver] Starting EOD archival process...');
+
     const today = new Date();
     today.setHours(0, 0, 0, 0); // Start of today
 
@@ -88,6 +105,14 @@ const runDailyArchiver = async () => {
     logger.info('[DailyArchiver] EOD archival process completed successfully.');
   } catch (error) {
     logger.error(`[DailyArchiver] Error during archival: ${error.message}`, { error });
+  } finally {
+    if (acquiredLock) {
+      try {
+        await redis.del(lockKey);
+      } catch (delErr) {
+        logger.warn('[DailyArchiver] Failed to release Redis lock', { error: delErr.message });
+      }
+    }
   }
 };
 

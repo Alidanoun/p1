@@ -39,6 +39,7 @@ const getDailyReports = async (req, res) => {
 
 const getTopItems = async (req, res) => {
   try {
+    const branchId = req.authoritativeBranchId;
     // A quick aggregation based on recent orders
     const pastDate = new Date();
     pastDate.setDate(pastDate.getDate() - 30); // Last 30 days
@@ -48,7 +49,8 @@ const getTopItems = async (req, res) => {
       where: {
         order: {
           createdAt: { gte: pastDate },
-          status: 'delivered'
+          status: 'delivered',
+          ...(branchId ? { branchId } : {})
         }
       },
       _sum: {
