@@ -364,6 +364,14 @@ export const SocketProvider = ({ children }) => {
       });
     });
 
+    newSocket.on('orders:archived', (payload) => {
+      const branchId = payload?.branchId || activeBranchIdRef.current;
+      if (branchId) {
+        triggerDebouncedInvalidation(branchId, ['orders', 'branchStats']);
+        toast.info('تمت عملية أرشفة الطلبات اليومية بنجاح للفرع.');
+      }
+    });
+
     // 🚫 Access Revoked Handler
     newSocket.on('force:branch:reset', ({ reason, branchId }) => {
       console.error('[Socket] ACCESS REVOKED:', reason);

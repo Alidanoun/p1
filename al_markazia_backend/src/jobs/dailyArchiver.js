@@ -3,8 +3,8 @@ const prisma = require('../lib/prisma');
 const redis = require('../lib/redis');
 const logger = require('../utils/logger');
 
-const runDailyArchiver = async () => {
-  const lockKey = 'lock:job:daily_archiver';
+const runDailyArchiver = async (targetBranchId = null) => {
+  const lockKey = targetBranchId ? `lock:job:daily_archiver:${targetBranchId}` : 'lock:job:daily_archiver';
   let acquiredLock = false;
 
   try {
@@ -22,22 +22,21 @@ const runDailyArchiver = async () => {
       acquiredLock = true;
     }
 
-    logger.info('[DailyArchiver] Starting EOD archival process...');
+    logger.info(`[DailyArchiver] Starting EOD archival process...${targetBranchId ? ` for branch ${targetBranchId}` : ''}`);
 
     const today = new Date();
     today.setHours(0, 0, 0, 0); // Start of today
 
-    // Find all branches
-    const branches = await prisma.branch.findMany({ select: { id: true } });
+    // Find all branches or target branch
+    const branches = targetBranchId
+      ? [{ id: targetBranchId }]
+      : await prisma.branch.findMany({ select: { id: true } });
 
     for (const branch of branches) {
-      // Find completed or cancelled orders for today for this branch
+      // Find all completed or cancelled orders that are not archived yet for this branch
       const orders = await prisma.order.findMany({
         where: {
           branchId: branch.id,
-          createdAt: {
-            gte: today
-          },
           status: {
             in: ['delivered', 'cancelled']
           },
@@ -55,8 +54,8 @@ const runDailyArchiver = async () => {
         let validPrepCount = 0;
 
         for (const o of deliveredOrders) {
-          totalSales += parseFloat(o.totalPrice || 0);
-          taxTotal += parseFloat(o.taxAmount || 0);
+          totalSales += parseFloat(o.total || 0);
+          taxTotal += parseFloat(o.tax || 0);
           if (o.preparationTimeMinutes) {
              totalPrepTime += o.preparationTimeMinutes;
              validPrepCount++;

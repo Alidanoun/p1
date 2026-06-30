@@ -41,7 +41,8 @@ const {
   updatePreparationTime,
   suggestReplacement,
   respondReplacement,
-  requestCoupon
+  requestCoupon,
+  archiveCompletedOrders
 } = require('../controllers/orderController');
 
 const {
@@ -162,6 +163,17 @@ router.post(
   validateId('id'),
   validateId('itemId'),
   requestCoupon
+);
+
+// Manual end-of-day archiving route for Admins/Managers
+router.post(
+  "/archive-completed",
+  authMiddleware,
+  managerMiddleware,
+  BranchAccessMiddleware,
+  enforceIntent('write'),
+  idempotency.guard(true),
+  archiveCompletedOrders
 );
 
 module.exports = router;

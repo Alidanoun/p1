@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import { Clock, CheckCircle, Package, Play, XCircle, Phone, DollarSign, Timer, AlertCircle, Printer, MapPin, Star, Truck, ShoppingBag, Power, Minus, Plus, ShieldCheck } from 'lucide-react';
+import { Clock, CheckCircle, Package, Play, XCircle, Phone, DollarSign, Timer, AlertCircle, Printer, MapPin, Star, Truck, ShoppingBag, Power, Minus, Plus, ShieldCheck, Archive } from 'lucide-react';
 import { toast } from 'sonner';
 import { QRCodeSVG } from 'qrcode.react';
 import Header from '../components/Header';
@@ -283,6 +283,25 @@ const LiveOrders = () => {
   const [emergencyType, setEmergencyType] = useState('timed'); 
   const [emergencyPassword, setEmergencyPassword] = useState('');
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [isArchiving, setIsArchiving] = useState(false);
+
+  const handleArchiveClick = async () => {
+    if (!window.confirm('هل أنت متأكد من رغبتك في إغلاق اليومية وترحيل كافة الطلبات المكتملة والملغاة؟ ستختفي هذه الطلبات من لوحة التحكم الحالية وسترحل للتقارير.')) {
+      return;
+    }
+    
+    setIsArchiving(true);
+    try {
+      await api.post('/orders/archive-completed');
+      queryClient.invalidateQueries({ queryKey: ['orders', selectedBranchId] });
+      queryClient.invalidateQueries({ queryKey: ['branchStats', selectedBranchId] });
+      toast.success('تم ترحيل وأرشفة الطلبات بنجاح وبدء يوم عمل جديد!');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'فشل ترحيل الطلبات');
+    } finally {
+      setIsArchiving(false);
+    }
+  };
 
   // 🔄 All Manual useEffect Fetchers and Socket Listeners REMOVED.
   // Real-time synchronization is now handled by the SocketContext -> Query Invalidation pattern.
@@ -438,25 +457,38 @@ const LiveOrders = () => {
         title="الطلبات الحية"
         subtitle="نظام السحب والإفلات لإدارة حالة الطلبات المباشرة"
         action={
-          can('TOGGLE_RESTAURANT_STATUS') && (
-            <button
-              onClick={() => setShowEmergencyModal(true)}
-              className={cn(
-                "flex items-center gap-2 px-3 py-1.5 rounded-full font-bold transition-all border shadow-sm",
-                restaurantStatus?.isOpen
-                  ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20 hover:bg-emerald-500/20"
-                  : "bg-red-500/10 text-red-500 border-red-500/20 hover:bg-red-500/20"
-              )}
-            >
-              <div className={cn(
-                "w-2.5 h-2.5 rounded-full shadow-[0_0_8px]",
-                restaurantStatus?.isOpen ? "bg-emerald-500 shadow-emerald-500/50" : "bg-red-500 shadow-red-500/50"
-              )} />
-              <span className="text-xs">
-                {restaurantStatus?.isOpen ? 'مفتوح' : 'مغلق'}
-              </span>
-            </button>
-          )
+          <div className="flex items-center gap-2">
+            {can('TOGGLE_RESTAURANT_STATUS') && (
+              <button
+                onClick={() => setShowEmergencyModal(true)}
+                className={cn(
+                  "flex items-center gap-2 px-3 py-1.5 rounded-full font-bold transition-all border shadow-sm",
+                  restaurantStatus?.isOpen
+                    ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20 hover:bg-emerald-500/20"
+                    : "bg-red-500/10 text-red-500 border-red-500/20 hover:bg-red-500/20"
+                )}
+              >
+                <div className={cn(
+                  "w-2.5 h-2.5 rounded-full shadow-[0_0_8px]",
+                  restaurantStatus?.isOpen ? "bg-emerald-500 shadow-emerald-500/50" : "bg-red-500 shadow-red-500/50"
+                )} />
+                <span className="text-xs">
+                  {restaurantStatus?.isOpen ? 'مفتوح' : 'مغلق'}
+                </span>
+              </button>
+            )}
+
+            {can('MANAGE_ORDERS') && (
+              <button
+                onClick={handleArchiveClick}
+                disabled={isArchiving}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-full font-bold transition-all border border-primary/20 text-primary bg-primary/10 hover:bg-primary/20 disabled:opacity-50"
+              >
+                <Archive className="w-4 h-4" />
+                <span className="text-xs">إغلاق الوردية والترحيل</span>
+              </button>
+            )}
+          </div>
         }
       />
 

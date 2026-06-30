@@ -796,3 +796,26 @@ exports.requestCoupon = async (req, res) => {
   }
 };
 
+exports.archiveCompletedOrders = async (req, res) => {
+  try {
+    const { runDailyArchiver } = require('../jobs/dailyArchiver');
+    // If user has a branchId, only archive completed orders for that branch
+    const targetBranchId = req.user.branchId || null;
+    
+    await runDailyArchiver(targetBranchId);
+
+    // Emit live WebSocket update to notify dashboards to refresh
+    const io = require('../socket').getIO();
+    if (io) {
+      const { SOCKET_ROOMS } = require('../shared/socketEvents');
+      const targetRoom = targetBranchId ? SOCKET_ROOMS.EXEC_BRANCH(targetBranchId) : 'room:monitor:global';
+      io.to(targetRoom).emit('orders:archived', { branchId: targetBranchId });
+    }
+
+    res.json({ success: true, message: 'تم ترحيل وأرشفة جميع الطلبات المكتملة بنجاح.' });
+  } catch (error) {
+    logger.error('Manual archiveCompletedOrders error', { error: error.message });
+    return response.error(res, 'فشل ترحيل الطلبات المكتملة', 'ARCHIVE_ERROR', 500);
+  }
+};
+
