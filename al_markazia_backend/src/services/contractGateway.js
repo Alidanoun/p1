@@ -111,8 +111,8 @@ class ContractGateway {
     const orderService = this.container.orderService;
     const orchestrator = require('./orderModificationOrchestrator');
 
-    if (action === 'REQUEST') return await orchestrator.request(orderId, actor.id, context.modifications, context.idempotencyKey, actor);
-    if (action === 'APPLY') return await orchestrator.apply(context.eventId, actor.id, context.idempotencyKey);
+    if (action === 'REQUEST') return await orchestrator.request(orderId, actor, context.modifications, context.idempotencyKey);
+    if (action === 'APPLY') return await orchestrator.apply(context.eventId, actor, context.idempotencyKey);
     if (action === 'APPROVE_CANCEL') return await this.container.orderLifecycleOrchestrator.cancel(orderId, actor, { ...context, source: 'ADMIN_APPROVAL' });
     if (action === 'REJECT_CANCEL') return await orderService.rejectCancellation(orderId, actor, context.rejectionReason);
     if (action === 'UPDATE_TIMER') return await orderService.updateOrderTimer(orderId, context.estimatedReadyAt, actor);

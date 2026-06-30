@@ -26,35 +26,35 @@ enum UserRole {
 /// but exposes a globally unique `uuid` string for secure external API reference, token signatures,
 /// and polymorphic relations (e.g. RefreshTokens, SystemAuditLogs).
 model User {
-  id           Int      @id @default(autoincrement())
-  email        String
-  emailHash    String?  @unique
-  phone        String?  @unique
-  phoneHash    String?  @unique
-  name         String?
+  id                Int       @id @default(autoincrement())
+  email             String
+  emailHash         String?   @unique
+  phone             String?   @unique
+  phoneHash         String?   @unique
+  name              String?
   /// @validate { minLength: 8, pattern: "Complexity Required: 1 Upper, 1 Lower, 1 Number, 1 Special" }
-  password     String
-  role         UserRole @default(STAFF)
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  fcmToken     String?
-  uuid         String   @unique @default(uuid())
-  tokenVersion Int      @default(1)
-  authVersion  Int      @default(1)
-  permissionVersion Int @default(1)
-  sessionEpoch      Int @default(1)
-  failedAttempts Int     @default(0)
-  lockUntil      DateTime?
+  password          String
+  role              UserRole  @default(STAFF)
+  isActive          Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  fcmToken          String?
+  uuid              String    @unique @default(uuid())
+  tokenVersion      Int       @default(1)
+  authVersion       Int       @default(1)
+  permissionVersion Int       @default(1)
+  sessionEpoch      Int       @default(1)
+  failedAttempts    Int       @default(0)
+  lockUntil         DateTime?
 
   // Branch Integration
-  branchId     String?
-  branch       Branch?  @relation(fields: [branchId], references: [id])
-  managedBranches UserBranch[]
+  branchId                String?
+  branch                  Branch?                      @relation(fields: [branchId], references: [id])
+  managedBranches         UserBranch[]
   notificationPreferences UserNotificationPreference[]
-  
-  timezone        String   @default("UTC")
-  quietHoursStart Int      @default(23)
-  quietHoursEnd   Int      @default(7)
+
+  timezone        String  @default("UTC")
+  quietHoursStart Int     @default(23)
+  quietHoursEnd   Int     @default(7)
   pinHash         String?
   plainPin        String?
 
@@ -64,11 +64,11 @@ model User {
 }
 
 model UserNotificationPreference {
-  id        Int      @id @default(autoincrement())
+  id        Int     @id @default(autoincrement())
   userId    Int
-  category  String   // operational, financial, marketing, system
-  isEnabled Boolean  @default(true)
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category  String // operational, financial, marketing, system
+  isEnabled Boolean @default(true)
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, category])
 }
@@ -87,16 +87,16 @@ model UserBranch {
 /// 🛡️ [ARCHITECTURAL-DECISION]: Branch uses a String (UUID) primary key to prevent ID enumeration attacks,
 /// ensure secure multi-tenancy isolation, and support future distributed or offline branch synchronization.
 model Branch {
-  id        String   @id @default(uuid())
-  name      String
-  code      String   @unique
-  address   String?
-  phone     String?
-  isActive  Boolean  @default(true)
-  isDeleted Boolean  @default(false)
-  deletedAt DateTime?
-  country   String?  @default("JO")
-  timezone  String?  @default("Asia/Amman")
+  id                String    @id @default(uuid())
+  name              String
+  code              String    @unique
+  address           String?
+  phone             String?
+  isActive          Boolean   @default(true)
+  isDeleted         Boolean   @default(false)
+  deletedAt         DateTime?
+  country           String?   @default("JO")
+  timezone          String?   @default("Asia/Amman")
   isEmergencyClosed Boolean   @default(false)
   closureReason     String?
   reopenAt          DateTime?
@@ -104,24 +104,24 @@ model Branch {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  visibleInApp      Boolean   @default(true)
-  appDisplayOrder   Int       @default(0)
+  visibleInApp    Boolean @default(true)
+  appDisplayOrder Int     @default(0)
 
-  users     User[]
-  managedUsers UserBranch[]
-  orders    Order[]
-  branchItems BranchItem[]
-  financialLedger FinancialLedger[]
-  happyHours HappyHour[]
-  snapshots      DailyFinancialSnapshot[] @relation("BranchSnapshots")
-  reviews        Review[]
-  metrics        BranchMetric?
-  auditLogs      SystemAuditLog[]
+  users              User[]
+  managedUsers       UserBranch[]
+  orders             Order[]
+  branchItems        BranchItem[]
+  financialLedger    FinancialLedger[]
+  happyHours         HappyHour[]
+  snapshots          DailyFinancialSnapshot[] @relation("BranchSnapshots")
+  reviews            Review[]
+  metrics            BranchMetric?
+  auditLogs          SystemAuditLog[]
   financialApprovals FinancialApproval[]
-  branchVariants BranchVariant[]
-  businessPolicies BusinessPolicy[]
-  permissions   BranchPermissions?
-  dailyReports  DailyReport[]
+  branchVariants     BranchVariant[]
+  businessPolicies   BusinessPolicy[]
+  permissions        BranchPermissions?
+  dailyReports       DailyReport[]
 }
 
 enum PermissionLevel {
@@ -133,42 +133,42 @@ enum PermissionLevel {
 }
 
 model BranchPermissions {
-  id                  String          @id @default(uuid())
-  branchId            String          @unique
-  branch              Branch          @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  id       String @id @default(uuid())
+  branchId String @unique
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
-  liveOrders          PermissionLevel @default(FULL)
-  manageOrders        PermissionLevel @default(FULL)
-  menu                PermissionLevel @default(FULL)
-  notifications       PermissionLevel @default(FULL)
-  reviews             PermissionLevel @default(VIEW)
-  loyalty             PermissionLevel @default(VIEW)
-  rewardsStore        PermissionLevel @default(NONE)
-  advancedAnalytics   PermissionLevel @default(VIEW)
-  financials          PermissionLevel @default(VIEW)
-  deliveryZones       PermissionLevel @default(EDIT_PIN)
-  auditLog            PermissionLevel @default(VIEW)
-  settings            PermissionLevel @default(EDIT_PIN)
+  liveOrders        PermissionLevel @default(FULL)
+  manageOrders      PermissionLevel @default(FULL)
+  menu              PermissionLevel @default(FULL)
+  notifications     PermissionLevel @default(FULL)
+  reviews           PermissionLevel @default(VIEW)
+  loyalty           PermissionLevel @default(VIEW)
+  rewardsStore      PermissionLevel @default(NONE)
+  advancedAnalytics PermissionLevel @default(VIEW)
+  financials        PermissionLevel @default(VIEW)
+  deliveryZones     PermissionLevel @default(EDIT_PIN)
+  auditLog          PermissionLevel @default(VIEW)
+  settings          PermissionLevel @default(EDIT_PIN)
 
-  canToggleLiveMode   Boolean         @default(false)
-  canModifyWorkHours  PermissionLevel @default(EDIT_PIN)
+  canToggleLiveMode  Boolean         @default(false)
+  canModifyWorkHours PermissionLevel @default(EDIT_PIN)
 
-  updatedAt           DateTime        @updatedAt
-  updatedBy           String          // UUID of admin
+  updatedAt DateTime @updatedAt
+  updatedBy String // UUID of admin
 }
 
 model BranchItem {
-  id          String   @id @default(uuid())
+  id          String  @id @default(uuid())
   branchId    String
   itemId      Int
-  isAvailable Boolean  @default(true)
-  stockCount  Int      @default(-1)
+  isAvailable Boolean @default(true)
+  stockCount  Int     @default(-1)
 
-  branch      Branch   @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  item        Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  item   Item   @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([branchId, itemId])
   @@index([branchId])
@@ -177,95 +177,95 @@ model BranchItem {
 }
 
 model BranchVariant {
-  id            Int      @id @default(autoincrement())
-  branchId      String
-  variantId     Int
-  isAvailable   Boolean  @default(true)
-  version       Int      @default(1)
-  
-  branch        Branch      @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  variant       ItemVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  id          Int     @id @default(autoincrement())
+  branchId    String
+  variantId   Int
+  isAvailable Boolean @default(true)
+  version     Int     @default(1)
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  branch  Branch      @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  variant ItemVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([branchId, variantId])
   @@index([branchId])
 }
 
 model Category {
-  id            Int     @id @default(autoincrement())
+  id            Int       @id @default(autoincrement())
   name          String
   nameEn        String?
   description   String?
   descriptionEn String?
   image         String?
-  isActive      Boolean @default(true)
-  isDeleted     Boolean @default(false)
+  isActive      Boolean   @default(true)
+  isDeleted     Boolean   @default(false)
   deletedAt     DateTime?
-  sortOrder     Int     @default(0)
+  sortOrder     Int       @default(0)
   items         Item[]
 }
 
 model Item {
-  id                Int               @id @default(autoincrement())
-  title             String
-  titleEn           String?
-  description       String?
-  descriptionEn     String?
-  basePrice         Decimal           @db.Decimal(10, 2)
-  image             String?
-  categoryId        Int
-  isAvailable       Boolean           @default(true)
-  isFeatured        Boolean           @default(false)
-  preparationTime   Int?
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
-  version           Int               @default(1)
-  cachedAvgRating   Float?            @default(0)
-  cachedReviewCount Int?              @default(0)
-  excludeFromStats  Boolean           @default(false)
-  isDeleted         Boolean           @default(false)
-  deletedAt         DateTime?
-  isGlobal          Boolean           @default(true) // ðŸ§¬ [PHASE 3] If true, appears in all branches. If false, only assigned.
-  availabilitySchedule Json?     // {"mon": ["08:00","14:00"], ...}
-  
-  category          Category          @relation(fields: [categoryId], references: [id])
-  variants          ItemVariant[]
-  modifierGroups    ModifierGroup[]
-  orderItems        OrderItem[]
-  reviews           Review[]
-  branchItems       BranchItem[]
+  id                   Int       @id @default(autoincrement())
+  title                String
+  titleEn              String?
+  description          String?
+  descriptionEn        String?
+  basePrice            Decimal   @db.Decimal(10, 2)
+  image                String?
+  categoryId           Int
+  isAvailable          Boolean   @default(true)
+  isFeatured           Boolean   @default(false)
+  preparationTime      Int?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  version              Int       @default(1)
+  cachedAvgRating      Float?    @default(0)
+  cachedReviewCount    Int?      @default(0)
+  excludeFromStats     Boolean   @default(false)
+  isDeleted            Boolean   @default(false)
+  deletedAt            DateTime?
+  isGlobal             Boolean   @default(true) // ðŸ§¬ [PHASE 3] If true, appears in all branches. If false, only assigned.
+  availabilitySchedule Json? // {"mon": ["08:00","14:00"], ...}
+
+  category       Category        @relation(fields: [categoryId], references: [id])
+  variants       ItemVariant[]
+  modifierGroups ModifierGroup[]
+  orderItems     OrderItem[]
+  reviews        Review[]
+  branchItems    BranchItem[]
 
   @@index([categoryId, isAvailable])
   @@index([isAvailable, createdAt])
 }
 
 model ItemVariant {
-  id          Int      @id @default(autoincrement())
-  itemId      Int
-  name        String   // "Small", "Large"
-  nameEn      String?
-  priceDiff   Decimal  @db.Decimal(10, 2) // +2.00, -1.00
-  isDefault   Boolean  @default(false)
-  isAvailable Boolean  @default(true)
-  item        Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  id             Int             @id @default(autoincrement())
+  itemId         Int
+  name           String // "Small", "Large"
+  nameEn         String?
+  priceDiff      Decimal         @db.Decimal(10, 2) // +2.00, -1.00
+  isDefault      Boolean         @default(false)
+  isAvailable    Boolean         @default(true)
+  item           Item            @relation(fields: [itemId], references: [id], onDelete: Cascade)
   branchVariants BranchVariant[]
 }
 
 model ModifierGroup {
-  id          Int            @id @default(autoincrement())
-  itemId      Int
-  groupName   String
-  groupNameEn String?
-  type        String         @default("SINGLE") // SINGLE, MULTI
-  isRequired  Boolean        @default(false)
-  isActive    Boolean        @default(true)
-  minSelection Int           @default(0)
-  maxSelection Int           @default(1)
-  sortOrder   Int            @default(0)
-  modifiers   ItemModifier[]
-  item        Item           @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  id           Int            @id @default(autoincrement())
+  itemId       Int
+  groupName    String
+  groupNameEn  String?
+  type         String         @default("SINGLE") // SINGLE, MULTI
+  isRequired   Boolean        @default(false)
+  isActive     Boolean        @default(true)
+  minSelection Int            @default(0)
+  maxSelection Int            @default(1)
+  sortOrder    Int            @default(0)
+  modifiers    ItemModifier[]
+  item         Item           @relation(fields: [itemId], references: [id], onDelete: Cascade)
 }
 
 model ItemModifier {
@@ -281,64 +281,64 @@ model ItemModifier {
 }
 
 model Order {
-  id               Int                @id @default(autoincrement())
-  orderNumber      String             @unique
-  customerName     String
-  customerPhone    String
+  id                Int     @id @default(autoincrement())
+  orderNumber       String  @unique
+  customerName      String
+  customerPhone     String
   customerPhoneHash String?
   customerNameHash  String?
-  customerId       Int?
+  customerId        Int?
 
   // Branch Integration
-  branchId         String
-  branch           Branch  @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  orderType        String
-  status           String             @default("pending")
-  paymentStatus    String             @default("unpaid")
-  paymentMethod    String             @default("cash")
-  subtotal         Decimal            @default(0) @db.Decimal(10, 2)
-  deliveryFee      Decimal            @default(0) @db.Decimal(10, 2)
-  discount         Decimal            @default(0) @db.Decimal(10, 2)
-  tax              Decimal            @default(0) @db.Decimal(10, 2)
-  total            Decimal            @default(0) @db.Decimal(10, 2)
-  modificationStatus String           @default("NONE") // NONE, PENDING_CUSTOMER, MODIFIED
-  cancellationFee    Decimal          @default(0) @db.Decimal(10, 2)
+  branchId               String
+  branch                 Branch                @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  orderType              String
+  status                 String                @default("pending")
+  paymentStatus          String                @default("unpaid")
+  paymentMethod          String                @default("cash")
+  subtotal               Decimal               @default(0) @db.Decimal(10, 2)
+  deliveryFee            Decimal               @default(0) @db.Decimal(10, 2)
+  discount               Decimal               @default(0) @db.Decimal(10, 2)
+  tax                    Decimal               @default(0) @db.Decimal(10, 2)
+  total                  Decimal               @default(0) @db.Decimal(10, 2)
+  modificationStatus     String                @default("NONE") // NONE, PENDING_CUSTOMER, MODIFIED
+  cancellationFee        Decimal               @default(0) @db.Decimal(10, 2)
   address                String?
   notes                  String?
   estimatedReadyAt       DateTime?
   estimatedArrivalAt     DateTime?
-  preparationTimeMinutes Int?               @default(20)
-  deliveryTimeMinutes    Int?               @default(15)
+  preparationTimeMinutes Int?                  @default(20)
+  deliveryTimeMinutes    Int?                  @default(15)
   rating                 Int?
   ratingComment          String?
-  isRatingApproved       Boolean            @default(false)
-  createdAt              DateTime           @default(now())
-  updatedAt              DateTime           @updatedAt
-  version          Int                @default(1)
-  eventSequence    Int                @default(1) // ðŸ›¡ï¸ Monotonic scoped sequence for this specific aggregate
-  previousVersion  Int                @default(0) // ðŸ”— Link to previous state for causal tracking
-  causedByEventId  String?                        // ðŸ•µï¸ Traceback to the event that triggered this state
-  snapshotEpoch    Int                @default(1) // ðŸ›ï¸ Resync boundary for major resets
-  isDeleted        Boolean            @default(false)
-  isArchived       Boolean            @default(false)
-  pointsAwarded    Boolean            @default(false)
-  deletedAt        DateTime?
-  deliveryMinOrder Decimal?           @db.Decimal(10, 2)
-  deliveryZoneId   String?
-  deliveryZoneName String?
-  tenantId         String?            @default("default-restaurant")
-  customer         Customer?          @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  source           String             @default("app") // app, manual
-  auditLogs        OrderAuditLog[]
-  cancellation     OrderCancellation?
-  orderItems       OrderItem[]
-  payment          Payment?
-  reviews          Review[]
-  awardedPoints    AwardedLoyaltyPoints?
-  happyHourId      String?
-  happyHourDiscount Decimal?          @default(0) @db.Decimal(10, 2)
-  happyHourMultiplier Decimal?        @default(1.0) @db.Decimal(3, 2)
-  couponRequests   CouponRequest[]
+  isRatingApproved       Boolean               @default(false)
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+  version                Int                   @default(1)
+  eventSequence          Int                   @default(1) // ðŸ›¡ï¸ Monotonic scoped sequence for this specific aggregate
+  previousVersion        Int                   @default(0) // ðŸ”— Link to previous state for causal tracking
+  causedByEventId        String? // ðŸ•µï¸ Traceback to the event that triggered this state
+  snapshotEpoch          Int                   @default(1) // ðŸ›ï¸ Resync boundary for major resets
+  isDeleted              Boolean               @default(false)
+  isArchived             Boolean               @default(false)
+  pointsAwarded          Boolean               @default(false)
+  deletedAt              DateTime?
+  deliveryMinOrder       Decimal?              @db.Decimal(10, 2)
+  deliveryZoneId         String?
+  deliveryZoneName       String?
+  tenantId               String?               @default("default-restaurant")
+  customer               Customer?             @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  source                 String                @default("app") // app, manual
+  auditLogs              OrderAuditLog[]
+  cancellation           OrderCancellation?
+  orderItems             OrderItem[]
+  payment                Payment?
+  reviews                Review[]
+  awardedPoints          AwardedLoyaltyPoints?
+  happyHourId            String?
+  happyHourDiscount      Decimal?              @default(0) @db.Decimal(10, 2)
+  happyHourMultiplier    Decimal?              @default(1.0) @db.Decimal(3, 2)
+  couponRequests         CouponRequest[]
 
   @@index([status, createdAt(sort: Desc)])
   @@index([createdAt, status])
@@ -386,17 +386,17 @@ model OrderItem {
   rejectionReason   String?
   item              Item?           @relation(fields: [itemId], references: [id], onDelete: SetNull)
   order             Order           @relation(fields: [orderId], references: [id])
-  
+
   // Replacement Logic
-  replacedFromId    Int?
-  replacedFrom      OrderItem?      @relation("ItemReplacement", fields: [replacedFromId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  replacements      OrderItem[]     @relation("ItemReplacement")
-  originalPriceAtOrder Decimal?     @db.Decimal(10, 2)
+  replacedFromId       Int?
+  replacedFrom         OrderItem?  @relation("ItemReplacement", fields: [replacedFromId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  replacements         OrderItem[] @relation("ItemReplacement")
+  originalPriceAtOrder Decimal?    @db.Decimal(10, 2)
 
   // New fields for Partial Cancellation & Replacements
   suggestedReplacementItemId Int?
-  resolutionPreference       String?    // DEDUCT_FROM_BILL, COUPON_REQUEST
-  replacementStatus          String?    // PENDING, ACCEPTED, REJECTED
+  resolutionPreference       String? // DEDUCT_FROM_BILL, COUPON_REQUEST
+  replacementStatus          String? // PENDING, ACCEPTED, REJECTED
 
   @@index([orderId])
   @@index([itemId])
@@ -405,72 +405,72 @@ model OrderItem {
 /// 🛡️ [ARCHITECTURAL-DECISION]: Customer uses an Int autoincrement primary key for legacy join performance,
 /// but exposes a globally unique `uuid` string for public API endpoints and polymorphic authentication.
 model Customer {
-  id                  Int                @id @default(autoincrement())
-  name                String
-  phone               String?            @unique
-  phoneHash           String?            @unique
-  nameHash            String?
-  email               String?
-  emailHash           String?            @unique
+  id                      Int                              @id @default(autoincrement())
+  name                    String
+  phone                   String?                          @unique
+  phoneHash               String?                          @unique
+  nameHash                String?
+  email                   String?
+  emailHash               String?                          @unique
   /// @validate { minLength: 8, pattern: "Complexity Required: 1 Upper, 1 Lower, 1 Number, 1 Special" }
-  password            String?
-  address             String?
-  fcmToken            String?
-  points              Int                @default(0)
-  walletBalance       Decimal            @default(0) @db.Decimal(10, 2)
-  totalOrders         Int                @default(0)
-  tier                String             @default("SILVER") // SILVER, GOLD, PLATINUM
-  cancellationCount   Int                @default(0)
-  isBlacklisted       Boolean            @default(false)
-  isDeleted           Boolean            @default(false)
-  deletedAt           DateTime?
-  blacklistedAt       DateTime?
-  blacklistExpiresAt  DateTime?
-  blacklistReason     String?
-  blacklistReasonCode String?
-  blacklistSource     String?
-  blacklistedBy       String?
-  blacklistSeverity   String             @default("LOW")
-  riskScore           Float              @default(0)
-  riskScoreUpdatedAt  DateTime?
-  authVersion         Int                @default(1)
-  permissionVersion   Int                @default(1)
-  sessionEpoch        Int                @default(1)
-  createdAt           DateTime           @default(now())
-  emailVerifiedAt     DateTime?
-  phoneVerifiedAt     DateTime?
-  username            String?            @unique
-  uuid                String             @unique @default(uuid())
-  tokenVersion        Int                @default(1)
-  failedAttempts      Int                @default(0)
-  lockUntil           DateTime?
-  auditLogs           CustomerAuditLog[]
-  orders              Order[]
-  reviews             Review[]
-  customerRewards     CustomerReward[]
-  timezone            String?            @default("Asia/Amman")
-  quietHoursStart     Int                @default(23)
-  quietHoursEnd       Int                @default(7)
+  password                String?
+  address                 String?
+  fcmToken                String?
+  points                  Int                              @default(0)
+  walletBalance           Decimal                          @default(0) @db.Decimal(10, 2)
+  totalOrders             Int                              @default(0)
+  tier                    String                           @default("SILVER") // SILVER, GOLD, PLATINUM
+  cancellationCount       Int                              @default(0)
+  isBlacklisted           Boolean                          @default(false)
+  isDeleted               Boolean                          @default(false)
+  deletedAt               DateTime?
+  blacklistedAt           DateTime?
+  blacklistExpiresAt      DateTime?
+  blacklistReason         String?
+  blacklistReasonCode     String?
+  blacklistSource         String?
+  blacklistedBy           String?
+  blacklistSeverity       String                           @default("LOW")
+  riskScore               Float                            @default(0)
+  riskScoreUpdatedAt      DateTime?
+  authVersion             Int                              @default(1)
+  permissionVersion       Int                              @default(1)
+  sessionEpoch            Int                              @default(1)
+  createdAt               DateTime                         @default(now())
+  emailVerifiedAt         DateTime?
+  phoneVerifiedAt         DateTime?
+  username                String?                          @unique
+  uuid                    String                           @unique @default(uuid())
+  tokenVersion            Int                              @default(1)
+  failedAttempts          Int                              @default(0)
+  lockUntil               DateTime?
+  auditLogs               CustomerAuditLog[]
+  orders                  Order[]
+  reviews                 Review[]
+  customerRewards         CustomerReward[]
+  timezone                String?                          @default("Asia/Amman")
+  quietHoursStart         Int                              @default(23)
+  quietHoursEnd           Int                              @default(7)
   notificationPreferences CustomerNotificationPreference[]
-  loyaltyLedgers      LoyaltyLedger[]
-  notifications       Notification[] @relation("NotificationCustomer")
-  couponRequests      CouponRequest[]
+  loyaltyLedgers          LoyaltyLedger[]
+  notifications           Notification[]                   @relation("NotificationCustomer")
+  couponRequests          CouponRequest[]
 
   // Referral System
-  referralCode        String?            @unique
-  referredById        Int?
-  referredBy          Customer?          @relation("ReferralRelation", fields: [referredById], references: [id])
-  referredByMe        Customer[]         @relation("ReferralRelation")
+  referralCode String?    @unique
+  referredById Int?
+  referredBy   Customer?  @relation("ReferralRelation", fields: [referredById], references: [id])
+  referredByMe Customer[] @relation("ReferralRelation")
 
   @@index([isBlacklisted])
 }
 
 model CustomerNotificationPreference {
-  id        Int      @id @default(autoincrement())
+  id         Int      @id @default(autoincrement())
   customerId Int
-  category  String   // operational, financial, marketing, system
-  isEnabled Boolean  @default(true)
-  customer  Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  category   String // operational, financial, marketing, system
+  isEnabled  Boolean  @default(true)
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   @@unique([customerId, category])
 }
@@ -487,28 +487,28 @@ model Payment {
 }
 
 model Notification {
-  id            Int      @id @default(autoincrement())
+  id            Int       @id @default(autoincrement())
   customerId    Int?
   customer      Customer? @relation("NotificationCustomer", fields: [customerId], references: [id], onDelete: SetNull)
-  customerPhone String?  // @deprecated — kept for backward compatibility during migration
+  customerPhone String? // @deprecated — kept for backward compatibility during migration
   title         String
   titleEn       String?
   message       String
   messageEn     String?
   type          String
-  isRead        Boolean  @default(false)
+  isRead        Boolean   @default(false)
   orderId       Int?
   targetRoute   String?
-  createdAt     DateTime @default(now())
-  fcmSent       Boolean  @default(false)
+  createdAt     DateTime  @default(now())
+  fcmSent       Boolean   @default(false)
   lastError     String?
   metadata      Json?
-  retryCount    Int      @default(0)
-  socketSent    Boolean  @default(false)
-  status        String   @default("PENDING")
-  severity      String   @default("INFO") // INFO, WARN, CRITICAL
-  alertType     String?  // FINANCIAL_HIGH_RISK, TRANSACTION_FAILURE, SECURITY_BREACH
-  updatedAt     DateTime @default(now()) @updatedAt
+  retryCount    Int       @default(0)
+  socketSent    Boolean   @default(false)
+  status        String    @default("PENDING")
+  severity      String    @default("INFO") // INFO, WARN, CRITICAL
+  alertType     String? // FINANCIAL_HIGH_RISK, TRANSACTION_FAILURE, SECURITY_BREACH
+  updatedAt     DateTime  @default(now()) @updatedAt
 
   @@index([customerId])
   @@index([customerPhone])
@@ -518,33 +518,33 @@ model Notification {
 }
 
 model Review {
-  id                 Int              @id @default(autoincrement())
-  itemId             Int
-  rating             Int
-  comment            String?          @db.VarChar(500)
-  status             ModerationStatus @default(PENDING)
-  fingerprint        String?          @db.VarChar(64) // SHA-256 of IP+DeviceID+UA
-  rejectedReason     String?
-  images             String[]         @default([])
-  
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
-  
-  customerId         Int
-  orderId            Int?
-  branchId           String?
-  driverId           Int?
-  
+  id             Int              @id @default(autoincrement())
+  itemId         Int
+  rating         Int
+  comment        String?          @db.VarChar(500)
+  status         ModerationStatus @default(PENDING)
+  fingerprint    String?          @db.VarChar(64) // SHA-256 of IP+DeviceID+UA
+  rejectedReason String?
+  images         String[]         @default([])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customerId Int
+  orderId    Int?
+  branchId   String?
+  driverId   Int?
+
   ipAddress          String?
   userAgent          String?
-  isFlagged          Boolean          @default(false)
-  isVerifiedPurchase Boolean          @default(false)
+  isFlagged          Boolean @default(false)
+  isVerifiedPurchase Boolean @default(false)
 
-  customer           Customer         @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  item               Item             @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  order              Order?           @relation(fields: [orderId], references: [id])
-  branch             Branch?          @relation(fields: [branchId], references: [id])
-  replies            Reply[]
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  item     Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  order    Order?   @relation(fields: [orderId], references: [id])
+  branch   Branch?  @relation(fields: [branchId], references: [id])
+  replies  Reply[]
 
   @@unique([customerId, orderId, itemId]) // One review per item per order
   @@index([itemId, status, createdAt(sort: Desc)])
@@ -554,29 +554,29 @@ model Review {
 }
 
 model Reply {
-  id        Int      @id @default(autoincrement())
-  reviewId  Int
-  authorId  String   // User or Customer UUID
-  authorRole String  // ADMIN, DRIVER
-  content   String   @db.VarChar(500)
-  createdAt DateTime @default(now())
-  
-  review    Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  id         Int      @id @default(autoincrement())
+  reviewId   Int
+  authorId   String // User or Customer UUID
+  authorRole String // ADMIN, DRIVER
+  content    String   @db.VarChar(500)
+  createdAt  DateTime @default(now())
+
+  review Review @relation(fields: [reviewId], references: [id], onDelete: Cascade)
 }
 
 model OrderCancellation {
-  id              Int      @id @default(autoincrement())
-  orderId         Int      @unique
+  id              Int       @id @default(autoincrement())
+  orderId         Int       @unique
   reason          String
   cancelledBy     String
   previousStatus  String
-  status          String   @default("pending")
+  status          String    @default("pending")
   rejectionReason String?
   adminName       String?
-  refundedAmount  Decimal? @default(0) @db.Decimal(10, 2)
+  refundedAmount  Decimal?  @default(0) @db.Decimal(10, 2)
   cancelledAt     DateTime?
-  createdAt       DateTime @default(now())
-  order           Order    @relation(fields: [orderId], references: [id])
+  createdAt       DateTime  @default(now())
+  order           Order     @relation(fields: [orderId], references: [id])
 }
 
 model OrderAuditLog {
@@ -637,7 +637,7 @@ enum NotificationStatus {
 
 model NotificationLog {
   id          Int                @id @default(autoincrement())
-  userId      String?            // Supports generic string User/Customer UUID
+  userId      String? // Supports generic string User/Customer UUID
   customerId  Int?
   orderId     Int?
   type        String
@@ -663,7 +663,7 @@ model CustomerAuditLog {
   customerId       Int
   eventType        String
   eventAction      String
-  changedBy       String
+  changedBy        String
   changedByRole    String
   reason           String?
   previousData     String?
@@ -700,16 +700,16 @@ model DeliveryZone {
 /// of either a User (staff/admin) or a Customer. This enables a unified session table without resorting to
 /// multiple distinct token tables or complex, hard-to-maintain polymorphic relational structures in Prisma.
 model RefreshToken {
-  id        String   @id @default(uuid())
-  token     String   @unique
-  jti       String?  @unique
-  userId    String
-  role      String
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-  updatedAt DateTime @default(now()) @updatedAt
-  isRevoked Boolean  @default(false)
-  isUsed    Boolean  @default(false)
+  id          String   @id @default(uuid())
+  token       String   @unique
+  jti         String?  @unique
+  userId      String
+  role        String
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+  isRevoked   Boolean  @default(false)
+  isUsed      Boolean  @default(false)
   tokenFamily String?
   fingerprint String?
 
@@ -755,22 +755,22 @@ model OtpCode {
 }
 
 model SystemAuditLog {
-  id           String   @id @default(uuid())
-  userId       String?  // Can be User uuid or Customer uuid
-  userEmail    String?
-  userRole     String?
-  action       String   // LOGIN_SUCCESS, PRICE_UPDATE, etc.
-  entityType   String?  // Order, Item, Setting, etc.
-  entityId     String?  // ID or UUID of the entity
-  status       String   @default("SUCCESS") // SUCCESS, FAIL
-  severity     String   @default("INFO")    // INFO, WARN, CRITICAL
-  ip           String?
-  userAgent    String?
-  branchId     String?
-  branch       Branch?  @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  metadata     Json?    // Stores diffs: { before: {}, after: {} }
-  createdAt    DateTime @default(now())
-  isDeleted    Boolean  @default(false)
+  id         String   @id @default(uuid())
+  userId     String? // Can be User uuid or Customer uuid
+  userEmail  String?
+  userRole   String?
+  action     String // LOGIN_SUCCESS, PRICE_UPDATE, etc.
+  entityType String? // Order, Item, Setting, etc.
+  entityId   String? // ID or UUID of the entity
+  status     String   @default("SUCCESS") // SUCCESS, FAIL
+  severity   String   @default("INFO") // INFO, WARN, CRITICAL
+  ip         String?
+  userAgent  String?
+  branchId   String?
+  branch     Branch?  @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  metadata   Json? // Stores diffs: { before: {}, after: {} }
+  createdAt  DateTime @default(now())
+  isDeleted  Boolean  @default(false)
 
   @@index([userId])
   @@index([action])
@@ -794,9 +794,9 @@ model RestaurantSettings {
 
 model WorkingHour {
   id        Int      @id @default(autoincrement())
-  dayOfWeek Int      // 0 (Sunday) to 6 (Saturday)
-  openTime  String   // "HH:mm" e.g., "09:00"
-  closeTime String   // "HH:mm" e.g., "23:00"
+  dayOfWeek Int // 0 (Sunday) to 6 (Saturday)
+  openTime  String // "HH:mm" e.g., "09:00"
+  closeTime String // "HH:mm" e.g., "23:00"
   isClosed  Boolean  @default(false)
   updatedAt DateTime @updatedAt
 
@@ -813,49 +813,50 @@ enum OrderItemStatus {
 }
 
 model LoyaltyConfig {
-  id                      Int      @id @default(1)
-  pointsPerJod            Float    @default(10)
-  tierGoldMinOrders       Int      @default(10)
-  tierPlatinumMinOrders   Int      @default(25)
-  pointsMultiplierGold    Float    @default(1.5)
-  pointsMultiplierPlatinum Float    @default(2.0)
-  reviewPoints            Int      @default(50)
-  referralPoints          Int      @default(100)
-  socialSharePoints       Int      @default(20)
-  happyHourMultiplier     Float    @default(2.0)
-  happyHourStart          String   @default("16:00")
-  happyHourEnd            String   @default("18:00")
-  isHappyHourEnabled      Boolean  @default(false)
-  cancellationCompensationRate Float @default(0.05)
-  pointsToJodRate         Float    @default(100)
-  minPointsToRedeem       Int      @default(500)
-  minCompensationPoints   Int      @default(50)
-  rewardExpiryDays        Int      @default(30)
-  updatedAt               DateTime @updatedAt
+  id                           Int      @id @default(1)
+  pointsPerJod                 Float    @default(10)
+  tierGoldMinOrders            Int      @default(10)
+  tierPlatinumMinOrders        Int      @default(25)
+  pointsMultiplierGold         Float    @default(1.5)
+  pointsMultiplierPlatinum     Float    @default(2.0)
+  reviewPoints                 Int      @default(50)
+  referralPoints               Int      @default(100)
+  socialSharePoints            Int      @default(20)
+  happyHourMultiplier          Float    @default(2.0)
+  happyHourStart               String   @default("16:00")
+  happyHourEnd                 String   @default("18:00")
+  isHappyHourEnabled           Boolean  @default(false)
+  cancellationCompensationRate Float    @default(0.05)
+  pointsToJodRate              Float    @default(100)
+  minPointsToRedeem            Int      @default(500)
+  minCompensationPoints        Int      @default(50)
+  rewardExpiryDays             Int      @default(30)
+  updatedAt                    DateTime @updatedAt
 }
 
 model FinancialLedger {
-  id              Int      @id @default(autoincrement())
-  customerId      Int?
-  orderId         Int?
-  branchId        String
-  type            String   // DEBIT (Money Out), CREDIT (Money In)
-  category        String   // ORDER_PAYMENT, REFUND, WALLET_CREDIT, ADJUSTMENT
-  amount          Decimal  @db.Decimal(10, 2)
-  balanceBefore   Decimal  @db.Decimal(10, 2)
-  balanceAfter    Decimal  @db.Decimal(10, 2)
-  method          String   @default("CASH") // CASH, WALLET, CARD
-  idempotencyKey  String?  @unique
-  referenceId     String?  // Order Number or Transaction ID
-  description     String?
-  metadata        Json?
-  createdAt       DateTime @default(now())
-  isDeleted       Boolean  @default(false)
-  deletedAt       DateTime?
-  deletedBy       String?
+  id             Int       @id @default(autoincrement())
+  customerId     Int?
+  orderId        Int?
+  branchId       String
+  type           String // DEBIT (Money Out), CREDIT (Money In)
+  category       String // ORDER_PAYMENT, REFUND, WALLET_CREDIT, ADJUSTMENT
+  amount         Decimal   @db.Decimal(10, 2)
+  balanceBefore  Decimal   @db.Decimal(10, 2)
+  balanceAfter   Decimal   @db.Decimal(10, 2)
+  method         String    @default("CASH") // CASH, WALLET, CARD
+  idempotencyKey String?   @unique
+  referenceId    String? // Order Number or Transaction ID
+  description    String?
+  metadata       Json?
+  createdAt      DateTime  @default(now())
+  isDeleted      Boolean   @default(false)
+  deletedAt      DateTime?
+  deletedBy      String?
 
-  branch          Branch   @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  approvals       FinancialApproval[]
+  branch    Branch              @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  approvals FinancialApproval[]
+
   @@index([customerId])
   @@index([orderId])
   @@index([branchId])
@@ -865,30 +866,30 @@ model FinancialLedger {
 }
 
 model FinancialApproval {
-  id              String   @id @default(uuid())
-  operationType   String   // REFUND, PRICE_OVERRIDE, CANCELLATION
-  entityId        String   // Order ID or Ledger ID
+  id              String                  @id @default(uuid())
+  operationType   String // REFUND, PRICE_OVERRIDE, CANCELLATION
+  entityId        String // Order ID or Ledger ID
   requestedBy     Int
   requestedByRole String
-  payload         Json     // Stores the intended change
+  payload         Json // Stores the intended change
   status          FinancialApprovalStatus @default(PENDING)
   approvedBy      Int?
   rejectionReason String?
-  amount          Decimal? @db.Decimal(10, 2)
-  riskLevel       String   @default("LOW") // HIGH, MEDIUM, LOW
-  
-  // Traceability Link
-  ledgerEntryId   Int?
-  ledgerEntry     FinancialLedger? @relation(fields: [ledgerEntryId], references: [id])
-  
-  branchId        String?
-  branch          Branch?  @relation(fields: [branchId], references: [id])
+  amount          Decimal?                @db.Decimal(10, 2)
+  riskLevel       String                  @default("LOW") // HIGH, MEDIUM, LOW
 
-  expiresAt       DateTime
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  version         Int      @default(1)
-  eventSequence   Int      @default(0)
+  // Traceability Link
+  ledgerEntryId Int?
+  ledgerEntry   FinancialLedger? @relation(fields: [ledgerEntryId], references: [id])
+
+  branchId String?
+  branch   Branch? @relation(fields: [branchId], references: [id])
+
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  version       Int      @default(1)
+  eventSequence Int      @default(0)
 
   @@index([status])
   @@index([operationType])
@@ -903,34 +904,34 @@ enum FinancialApprovalStatus {
 }
 
 model OrderModificationEvent {
-  id              String   @id @default(uuid())
-  orderId         Int
-  type            String   // REPLACEMENT_REQUESTED, REPLACEMENT_CONFIRMED, REPLACEMENT_REJECTED, PARTIAL_CANCEL
-  status          String   @default("PENDING") // PENDING, COMPLETED, EXPIRED
-  payload         Json     // Stores delta: { removedItems: [], addedItems: [], priceDiff: 0 }
-  adminId         Int?
-  expiresAt       DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id        String    @id @default(uuid())
+  orderId   Int
+  type      String // REPLACEMENT_REQUESTED, REPLACEMENT_CONFIRMED, REPLACEMENT_REJECTED, PARTIAL_CANCEL
+  status    String    @default("PENDING") // PENDING, COMPLETED, EXPIRED
+  payload   Json // Stores delta: { removedItems: [], addedItems: [], priceDiff: 0 }
+  adminId   Int?
+  expiresAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   @@index([orderId])
   @@index([status])
 }
 
 model OutboxEvent {
-  id             String    @id @default(uuid())
-  type           String
-  aggregateId    String?
-  aggregateType  String?
-  version        Int       @default(1)
-  eventSequence  Int       @default(1)
-  payload        Json
-  metadata       Json?
-  status         String    @default("PENDING") // PENDING, DISPATCHED, FAILED
-  error          String?
-  retries        Int       @default(0)
-  processedAt    DateTime?
-  createdAt      DateTime  @default(now())
+  id            String    @id @default(uuid())
+  type          String
+  aggregateId   String?
+  aggregateType String?
+  version       Int       @default(1)
+  eventSequence Int       @default(1)
+  payload       Json
+  metadata      Json?
+  status        String    @default("PENDING") // PENDING, DISPATCHED, FAILED
+  error         String?
+  retries       Int       @default(0)
+  processedAt   DateTime?
+  createdAt     DateTime  @default(now())
 
   @@index([status, createdAt])
 }
@@ -947,41 +948,41 @@ model RestaurantSubscription {
 }
 
 model RewardItem {
-  id              Int      @id @default(autoincrement())
-  title           String
-  titleEn         String?
-  description     String?
-  descriptionEn   String?
-  image           String?
-  pointsCost      Int
-  isActive        Boolean  @default(true)
-  minTier         String   @default("SILVER") // SILVER, GOLD, PLATINUM
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  
+  id            Int      @id @default(autoincrement())
+  title         String
+  titleEn       String?
+  description   String?
+  descriptionEn String?
+  image         String?
+  pointsCost    Int
+  isActive      Boolean  @default(true)
+  minTier       String   @default("SILVER") // SILVER, GOLD, PLATINUM
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
   customerRewards CustomerReward[]
 }
 
 model CustomerReward {
-  id              Int      @id @default(autoincrement())
-  customerId      Int
-  rewardItemId    Int
-  code            String   @unique @default(uuid())
-  status          String   @default("ACTIVE") // ACTIVE, USED, EXPIRED
-  purchasedAt     DateTime @default(now())
-  usedAt          DateTime?
-  expiresAt       DateTime?
-  
-  customer        Customer   @relation(fields: [customerId], references: [id])
-  rewardItem      RewardItem @relation(fields: [rewardItemId], references: [id])
+  id           Int       @id @default(autoincrement())
+  customerId   Int
+  rewardItemId Int
+  code         String    @unique @default(uuid())
+  status       String    @default("ACTIVE") // ACTIVE, USED, EXPIRED
+  purchasedAt  DateTime  @default(now())
+  usedAt       DateTime?
+  expiresAt    DateTime?
+
+  customer   Customer   @relation(fields: [customerId], references: [id])
+  rewardItem RewardItem @relation(fields: [rewardItemId], references: [id])
 
   @@index([customerId, status])
   @@index([code])
 }
 
 model BranchMetric {
-  id            String   @id @default(uuid())
-  branchId      String   @unique
+  id              String   @id @default(uuid())
+  branchId        String   @unique
   totalOrders     Int
   activeOrders    Int
   cancellations   Int
@@ -990,47 +991,48 @@ model BranchMetric {
   version         Int      @default(1)
   eventSequence   Int      @default(1) // ðŸ›¡ï¸ Aggregate-scoped sequence
   previousVersion Int      @default(0) // ðŸ”— Causal link
-  causedByEventId String?  // ðŸ•µï¸ Traceability
+  causedByEventId String? // ðŸ•µï¸ Traceability
   snapshotEpoch   Int      @default(1) // ðŸ›ï¸ Resync boundary
   branch          Branch   @relation(fields: [branchId], references: [id])
 }
 
 model AwardedLoyaltyPoints {
-  id          String   @id @default(uuid())
-  orderId     Int      @unique
-  customerId  Int
-  points      Int
-  multiplier  Float
-  awardedAt   DateTime @default(now())
+  id         String   @id @default(uuid())
+  orderId    Int      @unique
+  customerId Int
+  points     Int
+  multiplier Float
+  awardedAt  DateTime @default(now())
 
-  order       Order    @relation(fields: [orderId], references: [id])
+  order Order @relation(fields: [orderId], references: [id])
+
   @@index([orderId])
   @@index([customerId])
 }
 
 model LoyaltyLedger {
-  id              Int      @id @default(autoincrement())
-  customerId      Int
-  type            String   // CREDIT (Points In), DEBIT (Points Out)
-  category        String   // ORDER_AWARD, REVIEW_AWARD, SOCIAL_AWARD, REDEMPTION, ADJUSTMENT
-  points          Int      // Amount of points (Saturating Integer)
-  balanceBefore   Int      // Snapshot for verification
-  balanceAfter    Int      // Snapshot for verification
-  
+  id            Int    @id @default(autoincrement())
+  customerId    Int
+  type          String // CREDIT (Points In), DEBIT (Points Out)
+  category      String // ORDER_AWARD, REVIEW_AWARD, SOCIAL_AWARD, REDEMPTION, ADJUSTMENT
+  points        Int // Amount of points (Saturating Integer)
+  balanceBefore Int // Snapshot for verification
+  balanceAfter  Int // Snapshot for verification
+
   // ðŸ›¡ï¸ [INTEGRITY] Unique Idempotency Key
   // Format: source_type:aggregate_id:action_hash
-  idempotencyKey  String   @unique 
-  
+  idempotencyKey String @unique
+
   // ðŸ”— [TRACEABILITY] Causal Links
-  referenceId     String?  // OrderNumber, ReviewId, or ActionUUID
-  description     String?
-  metadata        Json?    // { ip: "...", device: "...", version: 1 }
-  
-  createdAt       DateTime @default(now())
-  isDeleted       Boolean  @default(false)
-  deletedAt       DateTime?
-  
-  customer        Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  referenceId String? // OrderNumber, ReviewId, or ActionUUID
+  description String?
+  metadata    Json? // { ip: "...", device: "...", version: 1 }
+
+  createdAt DateTime  @default(now())
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
 
   @@index([customerId, createdAt(sort: Desc)])
   @@index([category])
@@ -1039,48 +1041,48 @@ model LoyaltyLedger {
 }
 
 model DailyFinancialSnapshot {
-  id              String   @id @default(uuid())
-  date            DateTime // The day this snapshot represents
-  branchId        String
-  totalRevenue    Decimal  @db.Decimal(10, 2)
-  netRevenue      Decimal  @db.Decimal(10, 2)
-  taxTotal        Decimal  @db.Decimal(10, 2)
-  discountTotal   Decimal  @db.Decimal(10, 2)
-  orderCount      Int
-  cancelledCount  Int
-  lossTotal       Decimal  @db.Decimal(10, 2)
-  isFrozen        Boolean  @default(true) // Snapshots are immutable by default
-  createdAt       DateTime @default(now())
+  id             String   @id @default(uuid())
+  date           DateTime // The day this snapshot represents
+  branchId       String
+  totalRevenue   Decimal  @db.Decimal(10, 2)
+  netRevenue     Decimal  @db.Decimal(10, 2)
+  taxTotal       Decimal  @db.Decimal(10, 2)
+  discountTotal  Decimal  @db.Decimal(10, 2)
+  orderCount     Int
+  cancelledCount Int
+  lossTotal      Decimal  @db.Decimal(10, 2)
+  isFrozen       Boolean  @default(true) // Snapshots are immutable by default
+  createdAt      DateTime @default(now())
 
-  branch          Branch   @relation("BranchSnapshots", fields: [branchId], references: [id], onDelete: Restrict)
-  
+  branch Branch @relation("BranchSnapshots", fields: [branchId], references: [id], onDelete: Restrict)
+
   @@unique([date, branchId])
   @@index([date])
   @@index([branchId])
 }
 
 model HappyHour {
-  id                    String         @id @default(uuid())
-  branchId              String
-  branch                Branch         @relation(fields: [branchId], references: [id])
-  dayOfWeek             Int            // 0-6
-  startTime             String         // HH:MM
-  endTime               String         // HH:MM
-  discount              Int            // percentage
-  description           String?
-  status                String         @default("active") // active/inactive
-  timezone              String?        @default("Asia/Amman")
-  eligibilityCriteria   String?        @default("ALL") // ALL, LOYALTY_TIER, TARGETED
-  loyaltyTierRequired   String?        // SILVER, GOLD, PLATINUM
-  targetCustomerIds     String[]       @default([])
-  discountType          String?        @default("PERCENTAGE") // PERCENTAGE, FIXED
-  discountValue         Decimal?       @default(0) @db.Decimal(5, 2)
-  rewardMultiplier      Decimal?       @default(1.0) @db.Decimal(3, 2)
-  daysOfWeek            Int[]          @default([])
-  isActive              Boolean        @default(true)
-  createdAt             DateTime       @default(now())
-  updatedAt             DateTime       @updatedAt
-  logs                  HappyHourLog[]
+  id                  String         @id @default(uuid())
+  branchId            String
+  branch              Branch         @relation(fields: [branchId], references: [id])
+  dayOfWeek           Int // 0-6
+  startTime           String // HH:MM
+  endTime             String // HH:MM
+  discount            Int // percentage
+  description         String?
+  status              String         @default("active") // active/inactive
+  timezone            String?        @default("Asia/Amman")
+  eligibilityCriteria String?        @default("ALL") // ALL, LOYALTY_TIER, TARGETED
+  loyaltyTierRequired String? // SILVER, GOLD, PLATINUM
+  targetCustomerIds   String[]       @default([])
+  discountType        String?        @default("PERCENTAGE") // PERCENTAGE, FIXED
+  discountValue       Decimal?       @default(0) @db.Decimal(5, 2)
+  rewardMultiplier    Decimal?       @default(1.0) @db.Decimal(3, 2)
+  daysOfWeek          Int[]          @default([])
+  isActive            Boolean        @default(true)
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  logs                HappyHourLog[]
 
   @@index([branchId, isActive])
   @@index([timezone])
@@ -1088,14 +1090,14 @@ model HappyHour {
 }
 
 model HappyHourLog {
-  id               String   @id @default(uuid())
-  happyHourId      String
-  happyHour        HappyHour @relation(fields: [happyHourId], references: [id])
-  branchId         String
-  startTime        DateTime
-  endTime          DateTime
-  discount         Int
-  createdAt        DateTime @default(now())
+  id          String    @id @default(uuid())
+  happyHourId String
+  happyHour   HappyHour @relation(fields: [happyHourId], references: [id])
+  branchId    String
+  startTime   DateTime
+  endTime     DateTime
+  discount    Int
+  createdAt   DateTime  @default(now())
 
   @@index([happyHourId])
   @@index([branchId])
@@ -1103,27 +1105,27 @@ model HappyHourLog {
 }
 
 model UserBranchPreference {
-  id               String   @id @default(uuid())
-  userId           String   // UUID of User or Customer
-  branchId         String
-  notifications    Boolean  @default(true)
-  createdAt        DateTime @default(now())
+  id            String   @id @default(uuid())
+  userId        String // UUID of User or Customer
+  branchId      String
+  notifications Boolean  @default(true)
+  createdAt     DateTime @default(now())
 
   @@unique([userId, branchId])
 }
 
 model BusinessPolicy {
   id          String   @id @default(uuid())
-  branchId    String?  // NULL means Global Policy
-  key         String   // e.g., 'SLA_PREP_TIME', 'DELIVERY_BASE_FEE'
-  value       Json     // { val: 20, unit: 'minutes' }
-  category    String   // SLA, PRICING, CANCELLATION, SYSTEM, SECURITY, LOYALTY
+  branchId    String? // NULL means Global Policy
+  key         String // e.g., 'SLA_PREP_TIME', 'DELIVERY_BASE_FEE'
+  value       Json // { val: 20, unit: 'minutes' }
+  category    String // SLA, PRICING, CANCELLATION, SYSTEM, SECURITY, LOYALTY
   description String?
   isActive    Boolean  @default(true)
   updatedAt   DateTime @updatedAt
   updatedBy   String?
 
-  branch      Branch?  @relation(fields: [branchId], references: [id])
+  branch Branch? @relation(fields: [branchId], references: [id])
 
   @@unique([key, branchId])
   @@index([category])
@@ -1136,20 +1138,20 @@ model IdempotencyKey {
   operation       String
   responsePayload Json?
   status          String   @default("PENDING") // PENDING, COMPLETED, FAILED
-  userId          String?  // Changed to String to match UUID
+  userId          String? // Changed to String to match UUID
   createdAt       DateTime @default(now())
   expiresAt       DateTime
-  
+
   @@index([key])
 }
 
 model BiometricDevice {
   id        String   @id @default(uuid())
-  userId    String   // Supports User or Customer string UUID mapping
+  userId    String // Supports User or Customer string UUID mapping
   deviceId  String   @unique // Physical hardware device identifier
   token     String   @unique // Long-lived symmetric encrypted biometric refresh credential
   isActive  Boolean  @default(true)
-  metadata  Json?    // Client telemetry context
+  metadata  Json? // Client telemetry context
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1160,9 +1162,9 @@ model BiometricDevice {
 model SystemSettings {
   id                      Int      @id @default(autoincrement())
   key                     String   @default("GLOBAL")
-  value                   Json?    // Legacy support
-  businessConfig          Json?    // { slaPrepTime: 20, ... }
-  securityConfig          Json?    // { maxLoginAttempts: 5, ... }
+  value                   Json? // Legacy support
+  businessConfig          Json? // { slaPrepTime: 20, ... }
+  securityConfig          Json? // { maxLoginAttempts: 5, ... }
   freeCancelWindowMinutes Int      @default(5)
   spamCancelLimit         Int      @default(3)
   spamTimeWindowMinutes   Int      @default(60)
@@ -1173,35 +1175,35 @@ model SystemSettings {
 }
 
 model CouponRequest {
-  id          String   @id @default(uuid())
-  orderId     Int
-  customerId  Int
-  itemId      Int
-  itemPrice   Decimal  @db.Decimal(10, 2)
-  status      String   @default("PENDING") // PENDING, RESOLVED, REJECTED
-  adminNotes  String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id         String   @id @default(uuid())
+  orderId    Int
+  customerId Int
+  itemId     Int
+  itemPrice  Decimal  @db.Decimal(10, 2)
+  status     String   @default("PENDING") // PENDING, RESOLVED, REJECTED
+  adminNotes String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  order       Order    @relation(fields: [orderId], references: [id])
-  customer    Customer @relation(fields: [customerId], references: [id])
+  order    Order    @relation(fields: [orderId], references: [id])
+  customer Customer @relation(fields: [customerId], references: [id])
 
   @@index([status])
 }
 
 model DailyReport {
-  id              String   @id @default(uuid())
-  date            DateTime // Date of the report
-  branchId        String
-  totalSales      Decimal  @default(0) @db.Decimal(10, 2)
-  orderCount      Int      @default(0)
-  cancelledCount  Int      @default(0)
-  avgPrepTime     Int      @default(0) // in minutes
-  taxTotal        Decimal  @default(0) @db.Decimal(10, 2)
-  createdAt       DateTime @default(now())
+  id             String   @id @default(uuid())
+  date           DateTime // Date of the report
+  branchId       String
+  totalSales     Decimal  @default(0) @db.Decimal(10, 2)
+  orderCount     Int      @default(0)
+  cancelledCount Int      @default(0)
+  avgPrepTime    Int      @default(0) // in minutes
+  taxTotal       Decimal  @default(0) @db.Decimal(10, 2)
+  createdAt      DateTime @default(now())
 
-  branch          Branch   @relation(fields: [branchId], references: [id])
-  
+  branch Branch @relation(fields: [branchId], references: [id])
+
   @@unique([date, branchId])
   @@index([date])
   @@index([branchId])
@@ -1226,53 +1228,53 @@ enum TargetScope {
 }
 
 model DiscountCampaign {
-  id              String        @id @default(uuid())
-  title           String        
-  description     String?
-  type            DiscountType  
-  value           Decimal       @db.Decimal(10, 2)
-  
-  minOrderValue   Decimal       @default(0.00) @db.Decimal(10, 2)
-  maxDiscount     Decimal?      @db.Decimal(10, 2)
-  targetScope     TargetScope   @default(GLOBAL)
-  targetId        String?       // Branch ID, Item ID, or Tier Name depending on TargetScope
-  
-  startDate       DateTime
-  endDate         DateTime
-  isActive        Boolean       @default(true)
-  
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  coupons         Coupon[]
+  id          String       @id @default(uuid())
+  title       String
+  description String?
+  type        DiscountType
+  value       Decimal      @db.Decimal(10, 2)
+
+  minOrderValue Decimal     @default(0.00) @db.Decimal(10, 2)
+  maxDiscount   Decimal?    @db.Decimal(10, 2)
+  targetScope   TargetScope @default(GLOBAL)
+  targetId      String? // Branch ID, Item ID, or Tier Name depending on TargetScope
+
+  startDate DateTime
+  endDate   DateTime
+  isActive  Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  coupons   Coupon[]
 }
 
 model Coupon {
-  id                String             @id @default(uuid())
-  code              String             @unique 
-  campaignId        String
-  campaign          DiscountCampaign   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  
-  globalUsageLimit  Int?               
-  usedCount         Int                @default(0)
-  userUsageLimit    Int                @default(1) 
-  
-  version           Int                @default(1) // Optimistic Locking field
-  
-  createdAt         DateTime           @default(now())
-  usages            DiscountUsage[]
+  id         String           @id @default(uuid())
+  code       String           @unique
+  campaignId String
+  campaign   DiscountCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  globalUsageLimit Int?
+  usedCount        Int  @default(0)
+  userUsageLimit   Int  @default(1)
+
+  version Int @default(1) // Optimistic Locking field
+
+  createdAt DateTime        @default(now())
+  usages    DiscountUsage[]
 }
 
 model DiscountUsage {
   id          String   @id @default(uuid())
   couponId    String
   coupon      Coupon   @relation(fields: [couponId], references: [id])
-  customerId  Int      // Referencing Customer.id (Int)
+  customerId  Int // Referencing Customer.id (Int)
   orderId     Int      @unique // Referencing Order.id (Int)
   savedAmount Decimal  @db.Decimal(10, 2)
   usedAt      DateTime @default(now())
   status      String   @default("APPLIED") // APPLIED, REVERSED
-  
-  @@unique([couponId, customerId, orderId]) 
+
+  @@unique([couponId, customerId, orderId])
   @@index([customerId])
   @@index([couponId])
 }

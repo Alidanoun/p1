@@ -222,6 +222,24 @@ module.exports = {
 
       const { id: userId, role, branchId } = socket.user;
       
+      // ⏱️ Background Lease Verification for Idle Connections
+      let leaseInterval;
+      if (process.env.NODE_ENV !== 'test') {
+        leaseInterval = setInterval(async () => {
+          try {
+            if (socket.connected && Date.now() > socket.data.leaseExpiresAt) {
+              await socket.recalculateRooms();
+            }
+          } catch (err) {
+            logger.error('Background socket lease check failed', { userId: socket.user?.id, error: err.message });
+          }
+        }, 30000);
+
+        socket.on('disconnect', () => {
+          clearInterval(leaseInterval);
+        });
+      }
+      
       // 🛡️ [SDS 2.0] Authorization Lease Middleware (Efficient Continuous Validation)
       socket.use(async ([event, ...args], next) => {
         try {

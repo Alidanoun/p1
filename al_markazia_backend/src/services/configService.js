@@ -176,7 +176,12 @@ class ConfigService {
 
   async refreshCache() {
     try {
-      await redis.del(this.CACHE_KEY);
+      // Deletes both system:config and branch-specific keys like system:config:branchId
+      // Note: redis.keys() is a blocking command. For high-volume environments, SCAN is preferred.
+      const configKeys = await redis.keys(`${this.CACHE_KEY}*`);
+      if (configKeys && configKeys.length > 0) {
+        await redis.del(...configKeys);
+      }
       await redis.del('system:settings');
       await redis.del('system:announcement');
       try {

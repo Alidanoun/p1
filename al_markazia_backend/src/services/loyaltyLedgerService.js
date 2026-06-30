@@ -87,6 +87,12 @@ class LoyaltyLedgerService {
         metadata
       }
     });
+    
+    // Update Customer points projection transactionally within the same tx
+    await tx.customer.update({
+      where: { id: customerId },
+      data: { points: balanceAfter }
+    });
 
     logger.info(`[LoyaltyLedger] Mutation successful: ${type} ${mutation} points for customer ${customerId}.`);
 

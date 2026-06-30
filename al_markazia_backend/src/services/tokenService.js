@@ -251,6 +251,17 @@ class TokenService {
       // Fetch the token again to get the tokenFamily for the new generation
       const savedToken = await prisma.refreshToken.findUnique({ where: { jti } });
 
+      // Verify device fingerprint consistency during rotation
+      const resolvedFingerprint =
+        typeof fingerprint === 'object' && fingerprint !== null
+          ? fingerprint.hash
+          : (fingerprint || null);
+
+      if (savedToken.fingerprint && resolvedFingerprint && savedToken.fingerprint !== resolvedFingerprint) {
+        logger.security('[TokenService] Device fingerprint mismatch during token rotation', { userId, jti });
+        throw new Error('INVALID_TOKEN');
+      }
+
       const user =
         (await prisma.user.findUnique({ where: { uuid: userId } })) ||
         (await prisma.customer.findUnique({ where: { uuid: userId } }));

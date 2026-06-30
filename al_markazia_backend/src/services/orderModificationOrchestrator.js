@@ -35,7 +35,7 @@ class OrderModificationOrchestrator {
     };
   }
 
-  async request(orderId, adminId, modifications, idempotencyKey, user) {
+  async request(orderId, user, modifications, idempotencyKey) {
     const pricingService = require('./pricingService');
     const policyEngine = require('./orderModificationPolicyEngine');
     const modificationService = require('./orderModificationService');
@@ -54,14 +54,14 @@ class OrderModificationOrchestrator {
     const newSummary = pricingService.calculateOrder(newItems, order.deliveryFee, order.discount);
     const delta = pricingService.calculateDelta(oldSummary, newSummary);
 
-    return await modificationService.requestModification(orderId, adminId, {
+    return await modificationService.requestModification(orderId, user, {
       ...modifications, oldSummary, newSummary, delta
     });
   }
 
-  async apply(eventId, actorId, idempotencyKey) {
+  async apply(eventId, actor, idempotencyKey) {
     const modificationService = require('./orderModificationService');
-    return await modificationService.applyModification(eventId, actorId);
+    return await modificationService.applyModification(eventId, actor);
   }
 
   async _getOrderSnapshot(orderId) {

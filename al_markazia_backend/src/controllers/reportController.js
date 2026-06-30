@@ -3,7 +3,8 @@ const logger = require('../utils/logger');
 
 const getDailyReports = async (req, res) => {
   try {
-    const { branchId, days = 7 } = req.query;
+    const branchId = req.authoritativeBranchId;
+    const { days = 7 } = req.query;
     
     let whereClause = {};
     if (branchId) {
