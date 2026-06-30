@@ -40,7 +40,21 @@ exports.getAdminNotifications = async (req, res) => {
       orderBy: { createdAt: 'desc' },
       take: 100
     });
-    res.json(notifications);
+
+    const mappedNotifications = notifications.map(notif => ({
+      id: notif.id,
+      userId: notif.userId,
+      customerId: notif.customerId,
+      orderId: notif.orderId,
+      type: notif.type,
+      title: notif.title,
+      message: notif.body,
+      status: notif.status,
+      isRead: notif.status === 'READ' || notif.readAt !== null,
+      createdAt: notif.createdAt
+    }));
+
+    res.json(mappedNotifications);
   } catch (error) {
     logger.error('Fetch admin notifications error', { error: error.message });
     res.status(500).json({ error: 'Failed to fetch notifications' });
