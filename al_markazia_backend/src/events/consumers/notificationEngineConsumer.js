@@ -37,13 +37,11 @@ const notificationEngineConsumer = new StreamConsumerGroup(
       const EXEC_EVENTS = [
         'order.created', 'order_created', 
         'order.cancelled', 'order_cancelled', 
-        'order.status.changed', 'status_change', 'order_updated', 
         'order_assigned'
       ];
       const MONITOR_EVENTS = [
         'order.created', 'order_created', 
-        'order.cancelled', 'order_cancelled', 
-        'order.status.changed', 'status_change', 'order_updated'
+        'order.cancelled', 'order_cancelled'
       ];
       const CUSTOMER_EVENTS = [
         'order.created', 'order_created', 

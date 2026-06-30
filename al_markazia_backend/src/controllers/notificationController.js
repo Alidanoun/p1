@@ -22,8 +22,8 @@ exports.getAdminNotifications = async (req, res) => {
       type: { not: 'broadcast' }
     };
 
-    // If not global admin, enforce branch isolation
-    if (req.user.role !== 'admin' && req.user.branchId) {
+    // Enforce branch isolation for any user assigned to a branch
+    if (req.user.branchId) {
       const branchOrders = await prisma.order.findMany({
         where: { branchId: req.user.branchId, createdAt: { gte: thirtyDaysAgo } },
         select: { id: true }

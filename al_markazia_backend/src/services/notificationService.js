@@ -353,7 +353,9 @@ class NotificationService {
   }
 
   _generateStatusContent(order, status) {
-    const num = order.orderNumber || order.id;
+    const rawNum = order.orderNumber || String(order.id);
+    const shortNum = rawNum.replace(/^AMM-\d+-/, '').replace(/-FB$/, '');
+    const num = `#${shortNum}`;
     const map = {
       pending: { title: 'طلب جديد 🔔', message: `تم استلام طلبك رقم ${num}` },
       preparing: { title: 'جاري التحضير 👨‍🍳', message: `طلبك رقم ${num} قيد التحضير الآن` },
