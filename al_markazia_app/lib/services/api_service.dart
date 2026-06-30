@@ -4,31 +4,37 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/menu_item.dart';
 import '../models/order_model.dart';
+import '../models/restaurant_status.dart';
+import '../models/branch_model.dart';
+import '../features/checkout/models/delivery_zone.dart';
+import '../core/errors/app_exception.dart';
 import 'api/auth_api.dart';
 import 'api/order_api.dart';
+import 'api/loyalty_api.dart';
+import 'api/menu_api.dart';
 import 'session_service.dart';
 import 'storage_service.dart';
 import 'app_events.dart';
-import '../models/restaurant_status.dart';
-import '../features/checkout/models/delivery_zone.dart';
-import '../models/branch_model.dart';
 import 'package:uuid/uuid.dart';
 
 /// 🏥 Enterprise API Service (Intelligent Interceptor & Resilience Layer)
+/// Orchestrates sub-APIs and owns the JWT retry/refresh cycle.
 class ApiService {
   final _authApi = AuthApi();
   final _orderApi = OrderApi();
+  final _loyaltyApi = LoyaltyApi();
+  final _menuApi = MenuApi();
   
   // 🕒 Silent Refresh Management
   Timer? _silentRefreshTimer;
 
   static String get baseUrl {
-    return const String.fromEnvironment('API_URL', defaultValue: 'http://10.216.143.143:5000/api/v1');
+    return const String.fromEnvironment('API_URL', defaultValue: 'http://192.168.1.117:5000/api/v1');
   }
 
   /// 🔌 Socket Base URL (without /api/v1 prefix — Socket.IO connects to root)
   static String get socketUrl {
-    return const String.fromEnvironment('SOCKET_URL', defaultValue: 'http://10.216.143.143:5000');
+    return const String.fromEnvironment('SOCKET_URL', defaultValue: 'http://192.168.1.117:5000');
   }
 
   /// 🏥 Fetch Restaurant Operational Status
@@ -56,14 +62,7 @@ class ApiService {
   Future<Map<String, dynamic>> fetchLoyaltyStatus() async {
     return _withRetry(() async {
       final heads = await _headers;
-      final response = await http.get(Uri.parse('$baseUrl/loyalty/status'), headers: heads)
-          .timeout(const Duration(seconds: 8));
-      
-      if (response.statusCode == 200) {
-        final decoded = json.decode(utf8.decode(response.bodyBytes));
-        return decoded['data'] ?? {};
-      }
-      return {'isHappyHourEnabled': false};
+      return _loyaltyApi.fetchLoyaltyStatus(heads);
     }, maxAttempts: 2);
   }
 
@@ -121,59 +120,95 @@ class ApiService {
 
   Future<bool>? _refreshFuture;
 
+  /// 📊 Request Logger: logs method, URL, status code, and duration.
+  void _logRequest(String method, String url, int statusCode, Duration elapsed) {
+    final emoji = statusCode >= 200 && statusCode < 300 ? '✅' : statusCode >= 500 ? '🔴' : '🟡';
+    debugPrint(
+      '$emoji [API] $method $url → $statusCode (${elapsed.inMilliseconds}ms)',
+    );
+  }
+
   /// 🔐 JWT SECURITY LAYER: SINGLETON AUTO REFRESH & RETRY
-  /// Handles 401 errors by attempting a token refresh and retrying the action.
-  Future<T> _withRetry<T>(Future<T> Function() action, {int maxAttempts = 3, int refreshAttempts = 0}) async {
+  ///
+  /// Error handling strategy:
+  /// - 401/AuthException  → atomic singleton token refresh → retry once → logout
+  /// - NetworkException   → exponential backoff retry up to [maxAttempts]
+  /// - 5xx ServerException → no retry (server-side fault, not transient)
+  /// - other              → rethrow immediately
+  Future<T> _withRetry<T>(
+    Future<T> Function() action, {
+    int maxAttempts = 3,
+    int refreshAttempts = 0,
+  }) async {
     int attempts = 0;
     while (true) {
       attempts++;
       try {
         return await action();
-      } catch (e) {
-        final errorStr = e.toString();
-        
-        // 1. Detect Authentication Errors (401)
-        if (errorStr.contains('401') || errorStr.contains('SESSION_EXPIRED') || errorStr.contains('TOKEN_EXPIRED')) {
-          
-          // 🛡️ Loop Guard: Prevent infinite refresh loops
-          if (refreshAttempts >= 1) {
-            debugPrint('🚨 [Auth] Refresh loop detected. Session unrecoverable.');
-            _triggerLogout();
-            rethrow;
-          }
-
-          debugPrint('🔐 [Auth] Token Invalidation. Starting atomic refresh...');
-          
-          // 🥇 Atomic Singleton Refresh: All concurrent 401s will wait for this single future
-          _refreshFuture ??= _attemptTokenRefresh();
-          
-          final isSuccess = await _refreshFuture;
-          _refreshFuture = null; // Clear for next potential cycle
-
-          if (isSuccess == true) {
-            debugPrint('✅ [Auth] Session Restored. Retrying request...');
-            return _withRetry(action, maxAttempts: maxAttempts, refreshAttempts: refreshAttempts + 1);
-          } else {
-            debugPrint('❌ [Auth] Refresh failed. Session unrecoverable.');
-            _triggerLogout();
-            rethrow;
-          }
-        }
-
-        // 2. Detect Network Errors (Retry logic)
-        if (attempts >= maxAttempts) {
-          debugPrint('❌ [API] Max attempts reached: $errorStr');
+      } on AuthException {
+        // ── Auth failure path ──────────────────────────────────────────────
+        if (refreshAttempts >= 1) {
+          debugPrint('🚨 [Auth] Refresh loop detected. Session unrecoverable.');
+          _triggerLogout();
           rethrow;
         }
-
-        // Only retry on network issues, not client/server errors (except 401 handled above)
-        if (errorStr.contains('Exception: Failed') || errorStr.contains('timeout') || errorStr.contains('Connection')) {
+        debugPrint('🔐 [Auth] Token invalidated. Starting atomic refresh...');
+        _refreshFuture ??= _attemptTokenRefresh();
+        final isSuccess = await _refreshFuture;
+        _refreshFuture = null;
+        if (isSuccess == true) {
+          debugPrint('✅ [Auth] Session restored. Retrying request...');
+          return _withRetry(action, maxAttempts: maxAttempts, refreshAttempts: refreshAttempts + 1);
+        } else {
+          debugPrint('❌ [Auth] Refresh failed. Session unrecoverable.');
+          _triggerLogout();
+          rethrow;
+        }
+      } on NetworkException {
+        // ── Network failure path (retry with backoff) ──────────────────────
+        if (attempts >= maxAttempts) {
+          debugPrint('❌ [API] Max retry attempts ($maxAttempts) reached. Giving up.');
+          rethrow;
+        }
+        final delay = Duration(seconds: attempts * 2);
+        debugPrint('⚠️ [API] Network blip. Retrying in ${delay.inSeconds}s ($attempts/$maxAttempts)...');
+        await Future.delayed(delay);
+        continue;
+      } on ServerException {
+        // ── Server 5xx: do not retry, surface immediately ──────────────────
+        debugPrint('🔴 [API] Server error. Not retrying.');
+        rethrow;
+      } catch (e) {
+        // ── Legacy string-based detection (fallback for http.* exceptions) ──
+        final errorStr = e.toString();
+        final isAuthError = errorStr.contains('401') ||
+            errorStr.contains('SESSION_EXPIRED') ||
+            errorStr.contains('TOKEN_EXPIRED');
+        if (isAuthError) {
+          if (refreshAttempts >= 1) {
+            _triggerLogout();
+            rethrow;
+          }
+          _refreshFuture ??= _attemptTokenRefresh();
+          final ok = await _refreshFuture;
+          _refreshFuture = null;
+          if (ok == true) {
+            return _withRetry(action, maxAttempts: maxAttempts, refreshAttempts: refreshAttempts + 1);
+          }
+          _triggerLogout();
+          rethrow;
+        }
+        final isNetworkError = errorStr.contains('SocketException') ||
+            errorStr.contains('TimeoutException') ||
+            errorStr.contains('Connection refused') ||
+            errorStr.contains('Failed host lookup') ||
+            errorStr.contains('timeout');
+        if (isNetworkError && attempts < maxAttempts) {
           final delay = Duration(seconds: attempts * 2);
-          debugPrint('⚠️ [API] Network blip. Retrying in ${delay.inSeconds}s (Attempt $attempts)...');
+          debugPrint('⚠️ [API] Network blip. Retrying in ${delay.inSeconds}s...');
           await Future.delayed(delay);
           continue;
         }
-        
         rethrow;
       }
     }
@@ -226,25 +261,11 @@ class ApiService {
       }
       _categoryCache = null;
       _categoryCacheTime = null;
-
       final heads = await _headers;
-      final response = await http.get(Uri.parse('$baseUrl/categories'), headers: heads).timeout(const Duration(seconds: 10));
-      
-      if (response.statusCode == 401) throw Exception('401');
-      if (response.statusCode == 200) {
-        final decoded = json.decode(utf8.decode(response.bodyBytes));
-        final List data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : (decoded is List ? decoded : []);
-        final categories = data.map((json) {
-          if (json['image'] != null && json['image'].toString().startsWith('/')) {
-            json['image'] = '$baseUrl${json['image']}';
-          }
-          return Category.fromJson(json);
-        }).toList();
-        _categoryCache = categories;
-        _categoryCacheTime = DateTime.now();
-        return categories;
-      }
-      throw Exception('Failed to load categories');
+      final result = await _menuApi.fetchCategories(heads);
+      _categoryCache = result;
+      _categoryCacheTime = DateTime.now();
+      return result;
     });
   }
 
@@ -255,25 +276,11 @@ class ApiService {
       }
       _menuItemCache = null;
       _menuItemCacheTime = null;
-
       final heads = await _headers;
-      final response = await http.get(Uri.parse('$baseUrl/items'), headers: heads).timeout(const Duration(seconds: 10));
-      
-      if (response.statusCode == 401) throw Exception('401');
-      if (response.statusCode == 200) {
-        final decoded = json.decode(utf8.decode(response.bodyBytes));
-        final List data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : (decoded is List ? decoded : []);
-        final items = data.map((json) {
-          if (json['image'] != null && json['image'].toString().startsWith('/')) {
-            json['image'] = '$baseUrl${json['image']}';
-          }
-          return MenuItem.fromJson(json);
-        }).toList();
-        _menuItemCache = items;
-        _menuItemCacheTime = DateTime.now();
-        return items;
-      }
-      throw Exception('Failed to load menu items');
+      final result = await _menuApi.fetchMenuItems(heads);
+      _menuItemCache = result;
+      _menuItemCacheTime = DateTime.now();
+      return result;
     });
   }
 
@@ -284,37 +291,18 @@ class ApiService {
       }
       _deliveryZoneCache = null;
       _deliveryZoneCacheTime = null;
-
       final heads = await _headers;
-      final response = await http.get(Uri.parse('$baseUrl/delivery-zones/active'), headers: heads).timeout(const Duration(seconds: 10));
-      
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> body = json.decode(utf8.decode(response.bodyBytes));
-        if (body['success'] == true) {
-          final List data = body['data'] ?? [];
-          final zones = data.map((z) => DeliveryZone.fromJson(z)).toList();
-          _deliveryZoneCache = zones;
-          _deliveryZoneCacheTime = DateTime.now();
-          return zones;
-        }
-      }
-      throw Exception('Failed to load delivery zones');
+      final result = await _menuApi.fetchDeliveryZones(heads);
+      _deliveryZoneCache = result;
+      _deliveryZoneCacheTime = DateTime.now();
+      return result;
     });
   }
 
   Future<List<BranchModel>> fetchBranches() async {
     return _withRetry(() async {
       final heads = await _headers;
-      final response = await http.get(Uri.parse('$baseUrl/branch'), headers: heads).timeout(const Duration(seconds: 10));
-      
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> body = json.decode(utf8.decode(response.bodyBytes));
-        if (body['success'] == true) {
-          final List data = body['data'] ?? [];
-          return data.map((b) => BranchModel.fromJson(b)).toList();
-        }
-      }
-      throw Exception('Failed to load branches');
+      return _menuApi.fetchBranches(heads);
     });
   }
 
@@ -495,110 +483,57 @@ class ApiService {
   }
 
   Future<List<MenuItem>> searchItems(String query) async {
-    final response = await http.get(
-      Uri.parse('$baseUrl/items/search?q=${Uri.encodeComponent(query)}'),
-      headers: {'Accept': 'application/json'},
-    ).timeout(const Duration(seconds: 8));
-
-    if (response.statusCode == 200) {
-      final decoded = json.decode(utf8.decode(response.bodyBytes));
-      final List data = (decoded is Map && decoded.containsKey('data')) ? decoded['data'] : (decoded is List ? decoded : []);
-      return data.map((json) {
-        if (json['image'] != null && json['image'].toString().startsWith('/')) {
-          json['image'] = '$baseUrl${json['image']}';
-        }
-        return MenuItem.fromJson(json);
-      }).toList();
-    }
-    throw Exception('Search failed');
+    return _withRetry(() => _menuApi.searchItems(query));
   }
 
-  // --- 🎁 REWARDS STORE ---
+  // --- 🎁 REWARDS STORE & LOYALTY (delegated to LoyaltyApi) ---
 
   Future<List<dynamic>> fetchRewardsStore() async {
-    final response = await http.get(
-      Uri.parse('$baseUrl/loyalty/store'), 
-      headers: await _headers
-    ).timeout(const Duration(seconds: 10));
-    
-    if (response.statusCode == 200) {
-      final decoded = json.decode(utf8.decode(response.bodyBytes));
-      return decoded['data'] ?? [];
-    }
-    throw Exception('Failed to fetch rewards store');
+    return _withRetry(() async {
+      final heads = await _headers;
+      return _loyaltyApi.fetchRewardsStore(heads);
+    });
   }
 
   Future<Map<String, dynamic>> fetchLoyaltyProfile() async {
-    final response = await http.get(
-      Uri.parse('$baseUrl/loyalty/profile'), 
-      headers: await _headers
-    ).timeout(const Duration(seconds: 10));
-    
-    if (response.statusCode == 200) {
-      final decoded = json.decode(utf8.decode(response.bodyBytes));
-      return decoded['data'];
-    }
-    throw Exception('Failed to fetch loyalty profile');
+    return _withRetry(() async {
+      final heads = await _headers;
+      return _loyaltyApi.fetchLoyaltyProfile(heads);
+    });
   }
 
   Future<List<dynamic>> fetchLoyaltyLedger() async {
-    final response = await http.get(
-      Uri.parse('$baseUrl/loyalty/ledger'), 
-      headers: await _headers
-    ).timeout(const Duration(seconds: 10));
-    
-    if (response.statusCode == 200) {
-      final decoded = json.decode(utf8.decode(response.bodyBytes));
-      return decoded['data'] ?? [];
-    }
-    throw Exception('Failed to fetch loyalty ledger');
+    return _withRetry(() async {
+      final heads = await _headers;
+      return _loyaltyApi.fetchLoyaltyLedger(heads);
+    });
   }
 
   Future<Map<String, dynamic>> fetchSystemConfig() async {
-    final response = await http.get(
-      Uri.parse('$baseUrl/system/config'), 
-      headers: await _headers
-    ).timeout(const Duration(seconds: 10));
-    
-    if (response.statusCode == 200) {
-      final decoded = json.decode(utf8.decode(response.bodyBytes));
-      return decoded['data'];
-    }
-    throw Exception('Failed to fetch system config');
+    return _withRetry(() async {
+      final heads = await _headers;
+      final response = await http
+          .get(Uri.parse('$baseUrl/system/config'), headers: heads)
+          .timeout(const Duration(seconds: 10));
+      if (response.statusCode == 401) throw const AuthException();
+      if (response.statusCode == 200) {
+        final decoded = json.decode(utf8.decode(response.bodyBytes));
+        return decoded['data'] as Map<String, dynamic>;
+      }
+      throw ServerException('فشل تحميل إعدادات النظام.', response.statusCode);
+    });
   }
 
   Future<Map<String, dynamic>> claimReward(int rewardId) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/loyalty/store/claim'), 
-      headers: await _headers,
-      body: json.encode({'rewardId': rewardId})
-    ).timeout(const Duration(seconds: 10));
-    
-    if (response.statusCode == 200) {
-      final decoded = json.decode(utf8.decode(response.bodyBytes));
-      if (decoded['success'] == true) {
-        return decoded['data'];
-      }
-      throw Exception(decoded['error'] ?? 'فشل الاستبدال');
-    } else {
-      final decoded = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(decoded['error'] ?? 'حدث خطأ غير متوقع');
-    }
+    return _withRetry(() async {
+      final heads = await _headers;
+      return _loyaltyApi.claimReward(rewardId, heads);
+    });
   }
 
   Future<Map<String, dynamic>?> triggerSocialShareReward() async {
-    try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/loyalty/share-product'), 
-        headers: await _headers
-      ).timeout(const Duration(seconds: 10));
-      if (response.statusCode == 200) {
-        return json.decode(utf8.decode(response.bodyBytes));
-      }
-    } catch (e) {
-      debugPrint('Social share reward failed: $e');
-    }
-    return null;
+    final heads = await _headers;
+    return _loyaltyApi.triggerSocialShareReward(heads);
   }
 
   // --- SINGLETON & TOKEN REFRESH ---
@@ -678,18 +613,23 @@ class ApiService {
       final uri = Uri.parse(endpoint.startsWith('http') ? endpoint : '$baseUrl$endpoint');
       final encodedBody = body != null ? json.encode(body) : null;
 
+      final stopwatch = Stopwatch()..start();
+      http.Response response;
       switch (method.toUpperCase()) {
         case 'POST':
-          return await http.post(uri, headers: finalHeaders, body: encodedBody).timeout(const Duration(seconds: 12));
+          response = await http.post(uri, headers: finalHeaders, body: encodedBody).timeout(const Duration(seconds: 12));
         case 'PUT':
-          return await http.put(uri, headers: finalHeaders, body: encodedBody).timeout(const Duration(seconds: 12));
+          response = await http.put(uri, headers: finalHeaders, body: encodedBody).timeout(const Duration(seconds: 12));
         case 'PATCH':
-          return await http.patch(uri, headers: finalHeaders, body: encodedBody).timeout(const Duration(seconds: 12));
+          response = await http.patch(uri, headers: finalHeaders, body: encodedBody).timeout(const Duration(seconds: 12));
         case 'DELETE':
-          return await http.delete(uri, headers: finalHeaders, body: encodedBody).timeout(const Duration(seconds: 12));
+          response = await http.delete(uri, headers: finalHeaders, body: encodedBody).timeout(const Duration(seconds: 12));
         default:
-          return await http.get(uri, headers: finalHeaders).timeout(const Duration(seconds: 12));
+          response = await http.get(uri, headers: finalHeaders).timeout(const Duration(seconds: 12));
       }
+      stopwatch.stop();
+      _logRequest(method.toUpperCase(), uri.toString(), response.statusCode, stopwatch.elapsed);
+      return response;
     });
   }
 }

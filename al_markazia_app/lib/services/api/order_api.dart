@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../../models/order_model.dart';
 import '../api_service.dart';
@@ -76,7 +77,7 @@ class OrderApi {
        if (errorData['error'] != null && errorData['error'] is Map) {
          errorMsg = errorData['error']['message'] ?? errorMsg;
        }
-       print('❌ API Fetch Orders failure: $errorMsg');
+       debugPrint('❌ API Fetch Orders failure: $errorMsg');
     }
     return [];
   }

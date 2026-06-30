@@ -50,6 +50,9 @@ dependencies:
   geolocator: ^11.0.0
   share_plus: ^7.2.1
 
+  # Network connectivity monitoring (triggers offline queue sync on reconnect)
+  connectivity_plus: ^6.1.0
+
   uuid: any
 dev_dependencies:
   flutter_test:
