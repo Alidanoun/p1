@@ -408,6 +408,9 @@ class NotificationService extends ChangeNotifier {
       category: AndroidNotificationCategory.message,
       groupKey: 'almarkazia_orders',
       setAsGroupSummary: false,
+      largeIcon: DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
+      color: Color(0xFFDCA965),
+      styleInformation: BigTextStyleInformation(''),
       actions: <AndroidNotificationAction>[
         AndroidNotificationAction('track_order', '🔍 تتبع الطلب', showsUserInterface: true),
         AndroidNotificationAction('call_branch', '📞 اتصال بالفرع'),

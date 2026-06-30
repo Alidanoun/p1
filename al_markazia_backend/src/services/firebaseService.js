@@ -252,7 +252,9 @@ class FirebaseService {
         priority: 'high',
         notification: {
           channelId: 'almarkazia_channel',
-          clickAction: 'FLUTTER_NOTIFICATION_CLICK'
+          clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+          color: '#DCA965',
+          icon: 'ic_launcher'
         }
       },
       apns: {
@@ -291,7 +293,9 @@ class FirebaseService {
         priority: 'high',
         notification: {
           channelId: 'almarkazia_channel',
-          clickAction: 'FLUTTER_NOTIFICATION_CLICK'
+          clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+          color: '#DCA965',
+          icon: 'ic_launcher'
         }
       },
       apns: {
@@ -349,7 +353,9 @@ class FirebaseService {
         priority: 'high',
         notification: {
           channelId: 'almarkazia_channel',
-          clickAction: 'FLUTTER_NOTIFICATION_CLICK'
+          clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+          color: '#DCA965',
+          icon: 'ic_launcher'
         }
       },
       apns: {
