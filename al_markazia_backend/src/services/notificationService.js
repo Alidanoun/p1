@@ -110,7 +110,7 @@ class NotificationService {
       const target = {
         isToAdmin: EXEC_EVENTS.includes(type) || MONITOR_EVENTS.includes(type),
         isToCustomer: CUSTOMER_EVENTS.includes(type),
-        isBroadcast: type === 'broadcast'
+        isBroadcast: type === 'broadcast' || type === 'system.broadcast'
       };
 
       await this._attemptFCMPush(notif, orderContext, target);

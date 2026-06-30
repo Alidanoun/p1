@@ -40,6 +40,7 @@ router.get('/config', async (req, res) => {
         timezone: config.restaurant?.timezone,
       },
       workingHours: config.workingHours || [],
+      loyalty: config.loyalty,
     };
     res.json({ success: true, data: publicConfig });
   } catch (err) {

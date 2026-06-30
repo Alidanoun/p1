@@ -1,6 +1,7 @@
 const loyaltyService = require('../services/loyaltyService');
 const redis = require('../lib/redis');
 const prisma = require('../lib/prisma');
+const logger = require('../utils/logger');
 
 /**
  * 🎁 Loyalty Controller
@@ -42,12 +43,11 @@ class LoyaltyController {
     }
   }
 
-  /**
-   * 🚀 Start Happy Hour Now (Manual Trigger)
-   */
   async startNow(req, res) {
     try {
       const config = await loyaltyService.startNow();
+      const configService = require('../services/configService');
+      await configService.refreshCache().catch(err => logger.error('Cache refresh failed', { error: err.message }));
       res.json({ success: true, data: config });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
@@ -60,6 +60,8 @@ class LoyaltyController {
   async stopNow(req, res) {
     try {
       const config = await loyaltyService.stopNow();
+      const configService = require('../services/configService');
+      await configService.refreshCache().catch(err => logger.error('Cache refresh failed', { error: err.message }));
       res.json({ success: true, data: config });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
@@ -72,6 +74,8 @@ class LoyaltyController {
   async updateSettings(req, res) {
     try {
       const config = await loyaltyService.updateConfig(req.body);
+      const configService = require('../services/configService');
+      await configService.refreshCache().catch(() => {});
       res.json({ success: true, data: config });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });

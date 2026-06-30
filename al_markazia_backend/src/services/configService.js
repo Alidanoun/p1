@@ -83,6 +83,22 @@ class ConfigService {
           pointsPerJod: loyaltyConfig?.pointsPerJod ?? policyMap['LOYALTY_POINTS_PER_JOD']?.val ?? 10,
           minPointsToRedeem: loyaltyConfig?.minPointsToRedeem ?? policyMap['LOYALTY_MIN_REDEEM']?.val ?? 500,
           pointsToJodRate: loyaltyConfig?.pointsToJodRate ?? policyMap['LOYALTY_POINTS_TO_JOD_RATE']?.val ?? 100,
+          tierGoldMinOrders: loyaltyConfig?.tierGoldMinOrders ?? 10,
+          tierPlatinumMinOrders: loyaltyConfig?.tierPlatinumMinOrders ?? 25,
+          pointsMultiplierGold: loyaltyConfig?.pointsMultiplierGold ?? 1.5,
+          pointsMultiplierPlatinum: loyaltyConfig?.pointsMultiplierPlatinum ?? 2.0,
+          happyHourMultiplier: loyaltyConfig?.happyHourMultiplier ?? 2.0,
+          happyHourStart: loyaltyConfig?.happyHourStart ?? "16:00",
+          happyHourEnd: loyaltyConfig?.happyHourEnd ?? "18:00",
+          isHappyHourEnabled: loyaltyConfig?.isHappyHourEnabled ?? false,
+          cancellationCompensationRate: loyaltyConfig?.cancellationCompensationRate ?? 0.05,
+          minCompensationPoints: loyaltyConfig?.minCompensationPoints ?? 50,
+          rewardExpiryDays: loyaltyConfig?.rewardExpiryDays ?? 30,
+          engagement: {
+            REVIEW: loyaltyConfig?.reviewPoints ?? policyMap['LOYALTY_REVIEW_POINTS']?.val ?? 50,
+            REFERRAL: loyaltyConfig?.referralPoints ?? policyMap['LOYALTY_REFERRAL_POINTS']?.val ?? 100,
+            SOCIAL_SHARE: loyaltyConfig?.socialSharePoints ?? policyMap['LOYALTY_SOCIAL_SHARE_POINTS']?.val ?? 20
+          }
         }
       };
 
@@ -117,7 +133,27 @@ class ConfigService {
     return {
       business: { taxRate: 0.16, maxCancellationReasonLength: 500, maxRating: 5, defaultDeliveryFee: 1.0, freeCancelWindowMinutes: 5, slaPrepTimeMinutes: 30, slaDeliveryTimeMinutes: 30, peakMultiplier: isPeak ? this.DEFAULT_PEAK_MULTIPLIER : 1.0, isPeakHour: isPeak },
       security: { maxLoginAttempts: 5, lockDurationMinutes: 15, timingDelayMs: 300, passwordMinLength: 8 },
-      loyalty: { pointsPerJod: 10, minPointsToRedeem: 500, pointsToJodRate: 100 }
+      loyalty: {
+        pointsPerJod: 10,
+        minPointsToRedeem: 500,
+        pointsToJodRate: 100,
+        tierGoldMinOrders: 10,
+        tierPlatinumMinOrders: 25,
+        pointsMultiplierGold: 1.5,
+        pointsMultiplierPlatinum: 2.0,
+        happyHourMultiplier: 2.0,
+        happyHourStart: "16:00",
+        happyHourEnd: "18:00",
+        isHappyHourEnabled: false,
+        cancellationCompensationRate: 0.05,
+        minCompensationPoints: 50,
+        rewardExpiryDays: 30,
+        engagement: {
+          REVIEW: 50,
+          REFERRAL: 100,
+          SOCIAL_SHARE: 20
+        }
+      }
     };
   }
 
@@ -141,7 +177,17 @@ class ConfigService {
   async refreshCache() {
     try {
       await redis.del(this.CACHE_KEY);
+      await redis.del('system:settings');
       await redis.del('system:announcement');
+      try {
+        const memoryCache = require('../lib/memoryCache');
+        if (memoryCache && typeof memoryCache.del === 'function') {
+          memoryCache.del('system:settings');
+          memoryCache.del('system:config');
+        }
+      } catch (cacheErr) {
+        logger.warn('[ConfigService] MemoryCache invalidation bypassed', { error: cacheErr.message });
+      }
       return await this.getFullConfig();
     } catch (err) {
       logger.error('Failed to refresh config cache', { error: err.message });

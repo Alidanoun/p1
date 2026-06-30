@@ -55,7 +55,7 @@ const notificationEngineConsumer = new StreamConsumerGroup(
       const target = {
         isToAdmin: EXEC_EVENTS.includes(type) || MONITOR_EVENTS.includes(type),
         isToCustomer: CUSTOMER_EVENTS.includes(type),
-        isBroadcast: type === 'broadcast' || type === 'system.broadcast'
+        isBroadcast: type === 'broadcast' || type === 'system.broadcast' || type === 'loyalty.happy_hour_activated'
       };
 
       // 3. Skip if no valid target to avoid record pollution

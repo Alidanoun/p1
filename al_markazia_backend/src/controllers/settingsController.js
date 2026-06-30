@@ -178,6 +178,9 @@ exports.updateSetting = async (req, res) => {
       create: { key, value: String(value) }
     });
 
+    const configService = require('../services/configService');
+    await configService.refreshCache().catch(err => logger.error('Cache refresh failed', { error: err.message }));
+
     res.json(setting);
   } catch (error) {
     logger.error('Update setting error', { error: error.message, key: req.body?.key });
