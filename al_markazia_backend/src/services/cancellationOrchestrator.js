@@ -235,6 +235,29 @@ class CancellationOrchestrator {
       }
     }
 
+    // 4. 🎟️ Coupon Reversal
+    if (order.customerId) {
+      const discountUsage = await tx.discountUsage.findUnique({
+        where: { orderId: order.id }
+      });
+      if (discountUsage && discountUsage.status === 'APPLIED') {
+        // Reverse Discount Usage
+        await tx.discountUsage.update({
+          where: { id: discountUsage.id },
+          data: { status: 'REVERSED' }
+        });
+        // Decrement coupon usedCount
+        await tx.coupon.update({
+          where: { id: discountUsage.couponId },
+          data: {
+            usedCount: { decrement: 1 },
+            version: { increment: 1 }
+          }
+        });
+        await this._logAtomicAudit(tx, order.id, actor, { action: 'COUPON_REVERSED', details: { couponId: discountUsage.couponId } });
+      }
+    }
+
     return deltas;
   }
 

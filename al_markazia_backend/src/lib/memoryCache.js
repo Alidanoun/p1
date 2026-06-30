@@ -15,7 +15,7 @@ class MemoryCacheService {
       maxKeys: 5000 // Limit total keys to prevent memory bloat
     });
 
-    this.MEMORY_LIMIT_MB = 128;
+    this.MEMORY_LIMIT_MB = parseInt(process.env.MEMORY_CACHE_LIMIT_MB, 10) || 512;
     this.stats = { hits: 0, misses: 0 };
   }
 

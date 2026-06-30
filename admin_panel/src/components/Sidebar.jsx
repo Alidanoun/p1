@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, ListOrdered, MenuSquare, LogOut, Utensils, Settings, BarChart2, TrendingUp, Send, Star, XCircle, Stars, MapPin, Moon, Sun, Gift, ShieldCheck, Building2, User } from 'lucide-react';
+import { LayoutDashboard, ListOrdered, MenuSquare, LogOut, Utensils, Settings, BarChart2, TrendingUp, Send, Star, XCircle, Stars, MapPin, Moon, Sun, Gift, ShieldCheck, Building2, User, Tag } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useTheme } from '../hooks/useTheme';
 import { cn } from '../lib/utils';
@@ -40,6 +40,7 @@ const Sidebar = () => {
         { name: 'إدارة العملاء', icon: User, path: '/customers', show: isAdmin },
         { name: 'برنامج الولاء', icon: Stars, path: '/loyalty', show: isAdmin || isAuthorized('loyalty') },
         { name: 'متجر المكافآت', icon: Gift, path: '/rewards-store', show: isAdmin || isAuthorized('rewardsStore') },
+        { name: 'الخصومات والعروض', icon: Tag, path: '/discounts', show: isAdmin },
         { name: 'إشعارات وعروض', icon: Send, path: '/broadcast', show: isAdmin || isAuthorized('notifications') },
       ]
     },

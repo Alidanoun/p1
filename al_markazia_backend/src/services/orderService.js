@@ -1192,7 +1192,8 @@ class OrderService {
       notes,
       cartItems,
       branch,
-      deliveryZoneId
+      deliveryZoneId,
+      couponCode
     } = data;
 
     // 0. 🛡️ BUG-011: Ghost Order Protection
@@ -1296,10 +1297,36 @@ class OrderService {
     // 🛡️ Pricing Logic: Unify via Canonical Pricing Engine
     const pricingService = require('./pricingService');
     const systemConfig = await configService.getFullConfig();
+
+    let couponDiscountAmount = 0;
+    let validatedCoupon = null;
+
+    if (couponCode) {
+      const DiscountService = require('./discountService');
+      try {
+        const targetTier = resolvedCustomer.tier || 'SILVER';
+        const validation = await DiscountService.validateCouponForCart(
+          couponCode,
+          resolvedCustomer.id,
+          subtotal,
+          targetBranchId,
+          targetTier
+        );
+        validatedCoupon = validation.coupon;
+        
+        couponDiscountAmount = DiscountService.calculateDiscountAmount(validation.campaign, subtotal);
+        if (validation.campaign.type === 'FREE_SHIPPING') {
+          deliveryDetails.fee = 0;
+        }
+      } catch (err) {
+        throw new Error(`COUPON_ERROR: ${err.message}`);
+      }
+    }
+
     const financials = pricingService.calculateOrderTotals(
       validatedItems, 
       deliveryDetails.fee, 
-      pointsDiscount,
+      pointsDiscount + couponDiscountAmount,
       systemConfig.business.taxRate
     );
 
@@ -1365,6 +1392,38 @@ class OrderService {
         },
         include: ORDER_INCLUDE_FULL
       });
+
+      // 🔥 Atomic Coupon Deduction & Usage Record
+      if (validatedCoupon) {
+        const updateResult = await tx.coupon.updateMany({
+          where: { 
+            id: validatedCoupon.id, 
+            version: validatedCoupon.version,
+            OR: [
+              { globalUsageLimit: null },
+              { usedCount: { lt: validatedCoupon.globalUsageLimit } }
+            ]
+          },
+          data: {
+            usedCount: { increment: 1 },
+            version: { increment: 1 }
+          }
+        });
+
+        if (updateResult.count === 0) {
+          throw new Error('COUPON_ERROR: فشل تطبيق الكوبون بسبب تغير حالته أثناء محاولة الدفع');
+        }
+
+        await tx.discountUsage.create({
+          data: {
+            couponId: validatedCoupon.id,
+            customerId: resolvedCustomer.id,
+            orderId: order.id,
+            savedAmount: couponDiscountAmount,
+            status: 'APPLIED'
+          }
+        });
+      }
 
       // Admin Internal Notification
       await tx.notification.create({

@@ -23,6 +23,7 @@ import AuditLog from './pages/AuditLog';
 import BranchMenu from './pages/BranchMenu';
 import BranchManager from './pages/BranchManager';
 import CustomerManager from './pages/CustomerManager';
+import DiscountsManager from './pages/DiscountsManager';
 import ProtectedRoute from './components/ProtectedRoute';
 import PinGuard from './components/PinGuard';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -179,6 +180,11 @@ function App() {
             <Route path="/branches" element={
               <ProtectedRoute requiredRole="admin">
                 <BranchManager />
+              </ProtectedRoute>
+            } />
+            <Route path="/discounts" element={
+              <ProtectedRoute requiredRole={['admin']}>
+                <DiscountsManager />
               </ProtectedRoute>
             } />
           </Route>

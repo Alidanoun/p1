@@ -38,6 +38,7 @@ const auditRoutes = require('./audit');
 const notificationAdminRoutes = require('./notificationAdmin');
 const adminRatingsRoutes = require('./adminRatings');
 const syncRoutes = require('./sync');
+const discountRoutes = require('./discounts');
 
 // ─── Route Mounting ─────────────────────────────────────────
 // Core Business
@@ -67,6 +68,7 @@ router.use('/analytics', analyticsRoutes);
 router.use('/financial', financialRoutes);
 router.use('/loyalty', loyaltyRoutes);
 router.use('/happyhour', happyHourRoutes);
+router.use('/discounts', discountRoutes);
 
 // System & Admin
 const path = require('path');

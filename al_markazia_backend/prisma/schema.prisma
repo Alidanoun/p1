@@ -1206,3 +1206,73 @@ model DailyReport {
   @@index([date])
   @@index([branchId])
 }
+
+// ─────────────────────────────────────────────────────────────
+// 💰 Discounts & Promotions System (Phase 4)
+// ─────────────────────────────────────────────────────────────
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+  FREE_SHIPPING
+}
+
+enum TargetScope {
+  GLOBAL
+  BRANCH_SPECIFIC
+  ITEM_SPECIFIC
+  CUSTOMER_TIER
+  NEW_CUSTOMER
+}
+
+model DiscountCampaign {
+  id              String        @id @default(uuid())
+  title           String        
+  description     String?
+  type            DiscountType  
+  value           Decimal       @db.Decimal(10, 2)
+  
+  minOrderValue   Decimal       @default(0.00) @db.Decimal(10, 2)
+  maxDiscount     Decimal?      @db.Decimal(10, 2)
+  targetScope     TargetScope   @default(GLOBAL)
+  targetId        String?       // Branch ID, Item ID, or Tier Name depending on TargetScope
+  
+  startDate       DateTime
+  endDate         DateTime
+  isActive        Boolean       @default(true)
+  
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  coupons         Coupon[]
+}
+
+model Coupon {
+  id                String             @id @default(uuid())
+  code              String             @unique 
+  campaignId        String
+  campaign          DiscountCampaign   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  
+  globalUsageLimit  Int?               
+  usedCount         Int                @default(0)
+  userUsageLimit    Int                @default(1) 
+  
+  version           Int                @default(1) // Optimistic Locking field
+  
+  createdAt         DateTime           @default(now())
+  usages            DiscountUsage[]
+}
+
+model DiscountUsage {
+  id          String   @id @default(uuid())
+  couponId    String
+  coupon      Coupon   @relation(fields: [couponId], references: [id])
+  customerId  Int      // Referencing Customer.id (Int)
+  orderId     Int      @unique // Referencing Order.id (Int)
+  savedAmount Decimal  @db.Decimal(10, 2)
+  usedAt      DateTime @default(now())
+  status      String   @default("APPLIED") // APPLIED, REVERSED
+  
+  @@unique([couponId, customerId, orderId]) 
+  @@index([customerId])
+  @@index([couponId])
+}
