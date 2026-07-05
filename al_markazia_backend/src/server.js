@@ -313,6 +313,14 @@ async function startServer() {
             logger.error('Rehydration Failed', { error: e.message });
           }
 
+          // 🏭 Start Stream Consumer Group Workers (after rehydration)
+          try {
+            const { startWorkers } = require('./workers/workerRegistry');
+            await startWorkers();
+          } catch (e) {
+            logger.error('[WorkerRegistry] Failed to start workers', { error: e.message });
+          }
+
           // 🚀 Deferred Warmup to ensure instant API availability
           setTimeout(() => {
             warmupService.run().catch(e => logger.error('Warmup Error', { error: e.message }));
@@ -389,8 +397,14 @@ async function shutdown(signal) {
       redis.quitAll(),
       new Promise(resolve => setTimeout(resolve, 1500)) // Final grace period
     ]);
+
+    // 5. Stop stream workers cleanly
+    try {
+      const { stopWorkers } = require('./workers/workerRegistry');
+      stopWorkers();
+    } catch (e) { /* Workers may not have started yet */ }
     
-    logger.info('All services (DB, Cache, HappyHour, Audit, Redis) disconnected safely.');
+    logger.info('All services (DB, Cache, HappyHour, Audit, Redis, Workers) disconnected safely.');
 
     clearTimeout(timeoutGuard);
     process.exit(0);

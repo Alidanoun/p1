@@ -32,7 +32,12 @@ const PERMISSIONS = {
   
   // الفروع
   BRANCH_MANAGE: 'branch:manage',
-  BRANCH_VIEW: 'branch:view'
+  BRANCH_VIEW: 'branch:view',
+
+  // إدارة علاقات العملاء (CRM)
+  CRM_VIEW: 'crm:view',
+  CRM_EDIT: 'crm:edit',
+  CRM_MANAGE: 'crm:manage'
 };
 
 /**
@@ -49,7 +54,9 @@ const ROLE_PERMISSIONS = {
     PERMISSIONS.ORDER_PARTIAL_CANCEL,
     PERMISSIONS.CATALOG_VIEW,
     PERMISSIONS.BRANCH_VIEW,
-    PERMISSIONS.SYSTEM_VIEW_LOGS
+    PERMISSIONS.SYSTEM_VIEW_LOGS,
+    PERMISSIONS.CRM_VIEW,
+    PERMISSIONS.CRM_EDIT
   ],
 
   'manager': [
