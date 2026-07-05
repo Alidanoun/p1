@@ -93,7 +93,11 @@ const BranchAccessMiddleware = async (req, res, next) => {
     const { traceContext } = require('../utils/context');
     const store = traceContext.getStore() || {};
     
-    traceContext.run({ ...store, branchId: authoritativeBranchId }, () => {
+    traceContext.run({ 
+        ...store, 
+        branchId: authoritativeBranchId,
+        isAdmin: isGlobalAdmin // Propagate admin status so Prisma RLS bypasses for global views
+    }, () => {
        next();
     });
   } catch (error) {
