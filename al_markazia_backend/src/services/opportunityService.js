@@ -81,8 +81,7 @@ class OpportunityService {
           changedById: actor?.id || null,
           changedByRole: actor?.role || 'system',
           previousData: null,
-          newData: JSON.stringify({ stage: 'NEW', title }),
-          reason: null
+          newData: JSON.stringify({ stage: 'NEW', title })
         }
       });
 
@@ -150,8 +149,9 @@ class OpportunityService {
           changedById: actor?.id || null,
           changedByRole: actor?.role || 'system',
           previousData: JSON.stringify({ stage: opportunity.stage }),
-          newData: JSON.stringify({ stage: targetStage }),
-          reason: targetStage === 'LOST' ? (lossReason || 'No reason provided') : null
+          newData: JSON.stringify({ stage: targetStage, lossReason }),
+          fromStage: opportunity.stage,
+          toStage: targetStage
         }
       });
 
@@ -201,8 +201,7 @@ class OpportunityService {
           changedById: actor?.id || null,
           changedByRole: actor?.role || 'system',
           previousData: JSON.stringify({ assignedToId: opportunity.assignedToId }),
-          newData: JSON.stringify({ assignedToId: newAssignedToId }),
-          reason: null
+          newData: JSON.stringify({ assignedToId: newAssignedToId })
         }
       });
 
@@ -222,7 +221,7 @@ class OpportunityService {
    * (offset pagination is replaced for scale)
    */
   async getPipeline(branchId, { stage, assignedToId, cursor, page = 1, limit = 20 } = {}) {
-    const where = { branchId };
+    const where = { branchId, isDeleted: false };
     if (stage) where.stage = stage;
     if (assignedToId) where.assignedToId = parseInt(assignedToId);
 
@@ -273,6 +272,7 @@ class OpportunityService {
   async searchOpportunities(branchId, query, { stage, page = 1, limit = 20 } = {}) {
     const where = {
       branchId,
+      isDeleted: false,
       ...(query && { title: { contains: query, mode: 'insensitive' } }),
       ...(stage && { stage })
     };
@@ -281,6 +281,46 @@ class OpportunityService {
       prisma.opportunity.count({ where })
     ]);
     return { opportunities, total, page, limit, pages: Math.ceil(total / limit) };
+  }
+
+  /**
+   * Soft delete an Opportunity
+   */
+  async deleteOpportunity(opportunityId, actor) {
+    const opportunity = await prisma.opportunity.findUnique({ where: { id: opportunityId } });
+    if (!opportunity) throw Object.assign(new Error('OPPORTUNITY_NOT_FOUND'), { statusCode: 404 });
+    if (TERMINAL_STAGES.includes(opportunity.stage)) {
+      throw Object.assign(new Error('CANNOT_DELETE_TERMINAL'), { statusCode: 409, message: 'لا يمكن حذف صفقة مغلقة.' });
+    }
+
+    return await prisma.$transaction(async (tx) => {
+      await tx.opportunity.update({
+        where: { id: opportunityId },
+        data: { isDeleted: true, deletedAt: new Date(), version: { increment: 1 } }
+      });
+
+      await tx.opportunityAuditLog.create({
+        data: {
+          opportunityId,
+          eventType: 'DELETED',
+          eventAction: 'SOFT_DELETED',
+          changedById: actor?.id || null,
+          changedByRole: actor?.role || 'system',
+          previousData: null,
+          newData: JSON.stringify({ isDeleted: true })
+        }
+      });
+
+      await publishEvent({
+        type: 'OPPORTUNITY_DELETED',
+        aggregateId: opportunityId,
+        payload: { opportunityId, branchId: opportunity.branchId },
+        metadata: { tx, aggregateType: 'Opportunity', actorId: actor?.id }
+      });
+
+      logger.info('[OpportunityService] Opportunity soft-deleted', { opportunityId });
+      return { success: true, opportunityId };
+    });
   }
 }
 

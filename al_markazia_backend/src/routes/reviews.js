@@ -5,6 +5,7 @@ const { authenticateToken, isManager } = require('../middleware/auth');
 const { checkPermission } = require('../middleware/permissionMiddleware');
 const { reviewLimiter, flagLimiter } = require('../middleware/rateLimiter');
 const { validateOrderRating } = require('../middleware/orderValidation');
+const BranchAccessMiddleware = require('../middleware/branchAccessMiddleware');
 
 // 📖 Public: Read approved reviews for an item
 router.get('/item/:itemId', reviewController.getItemReviews);
@@ -17,10 +18,10 @@ router.patch('/:id', authenticateToken, reviewLimiter, reviewController.updateRe
 router.post('/:id/flag', authenticateToken, flagLimiter, reviewController.flagReview);
 
 // 👮 Admin/Manager: Consolidated review management
-router.get('/stats', authenticateToken, isManager, checkPermission('reviews', 'VIEW'), reviewController.getReviewStats);
-router.get('/', authenticateToken, isManager, checkPermission('reviews', 'VIEW'), reviewController.getAllReviews);
-router.put('/:id/approve', authenticateToken, isManager, checkPermission('reviews', 'EDIT_PIN'), reviewController.toggleApproval);
-router.delete('/:id', authenticateToken, isManager, checkPermission('reviews', 'EDIT_PIN'), reviewController.deleteReview);
+router.get('/stats', authenticateToken, isManager, checkPermission('reviews', 'VIEW'), BranchAccessMiddleware, reviewController.getReviewStats);
+router.get('/', authenticateToken, isManager, checkPermission('reviews', 'VIEW'), BranchAccessMiddleware, reviewController.getAllReviews);
+router.put('/:id/approve', authenticateToken, isManager, checkPermission('reviews', 'EDIT_PIN'), BranchAccessMiddleware, reviewController.toggleApproval);
+router.delete('/:id', authenticateToken, isManager, checkPermission('reviews', 'EDIT_PIN'), BranchAccessMiddleware, reviewController.deleteReview);
 
 module.exports = router;
 

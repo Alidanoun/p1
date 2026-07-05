@@ -248,6 +248,34 @@ class LeadService {
   async getLeads(branchId, filters = {}) {
     return this.searchLeads(branchId, filters);
   }
+
+  /**
+   * Soft delete a Lead
+   */
+  async deleteLead(leadId, branchId, actor) {
+    const lead = await prisma.lead.findFirst({ where: { id: leadId, branchId } });
+    if (!lead) throw Object.assign(new Error('LEAD_NOT_FOUND'), { statusCode: 404 });
+    if (lead.status === 'CONVERTED') {
+      throw Object.assign(new Error('CANNOT_DELETE_CONVERTED'), { statusCode: 409, message: 'لا يمكن حذف عميل محتمل تم تحويله.' });
+    }
+
+    return await prisma.$transaction(async (tx) => {
+      const deleted = await tx.lead.update({
+        where: { id: leadId },
+        data: { isDeleted: true, deletedAt: new Date() }
+      });
+
+      await publishEvent({
+        type: 'LEAD_DELETED',
+        aggregateId: leadId,
+        payload: { leadId, branchId },
+        metadata: { tx, aggregateType: 'Lead', actorId: actor?.id }
+      });
+
+      logger.info('[LeadService] Lead soft-deleted', { leadId, branchId });
+      return { success: true, leadId };
+    });
+  }
 }
 
 module.exports = new LeadService();

@@ -65,6 +65,13 @@ router.patch(
   leadController.updateLead
 );
 
+router.delete(
+  '/leads/:id',
+  authMiddleware, hasPermission(PERMISSIONS.CRM_EDIT), BranchAccessMiddleware,
+  validateId(),
+  leadController.deleteLead
+);
+
 router.post(
   '/leads/:id/convert',
   authMiddleware, hasPermission(PERMISSIONS.CRM_EDIT), BranchAccessMiddleware,
@@ -110,6 +117,13 @@ router.patch(
   idempotency.guard(true),
   validateId(),
   opportunityController.reassign
+);
+
+router.delete(
+  '/opportunities/:id',
+  authMiddleware, hasPermission(PERMISSIONS.CRM_EDIT), BranchAccessMiddleware,
+  validateId(),
+  opportunityController.deleteOpportunity
 );
 
 // ─── Sales Activities ─────────────────────────────────────────────────────────

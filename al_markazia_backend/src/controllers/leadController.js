@@ -88,6 +88,22 @@ const leadController = {
       logger.error('[LeadController] convertLead error', { error: err.message });
       return response.error(res, 'حدث خطأ أثناء تحويل العميل', 'INTERNAL_ERROR', 500);
     }
+  },
+
+  async deleteLead(req, res) {
+    try {
+      const { id } = req.params;
+      const branchId = req.authoritativeBranchId;
+      const actor = req.user;
+      
+      const result = await leadService.deleteLead(parseInt(id), branchId, actor);
+      return response.success(res, result, 'تم حذف العميل المحتمل بنجاح');
+    } catch (err) {
+      if (err.message === 'LEAD_NOT_FOUND') return response.error(res, 'العميل المحتمل غير موجود', 'NOT_FOUND', 404);
+      if (err.message === 'CANNOT_DELETE_CONVERTED') return response.error(res, err.message, 'CONFLICT', 409);
+      logger.error('[LeadController] deleteLead error', { error: err.message });
+      return response.error(res, 'حدث خطأ أثناء حذف العميل المحتمل', 'INTERNAL_ERROR', 500);
+    }
   }
 };
 

@@ -45,6 +45,14 @@ const Sidebar = () => {
       ]
     },
     {
+      label: 'المبيعات و CRM',
+      show: isAdmin || isBranchManager,
+      items: [
+        { name: 'العملاء المحتملين', icon: User, path: '/crm/leads', show: isAdmin || isBranchManager },
+        { name: 'مسار المبيعات', icon: TrendingUp, path: '/crm/pipeline', show: isAdmin || isBranchManager },
+      ]
+    },
+    {
       label: 'التحليل والمالية',
       show: isAdmin || isBranchManager,
       items: [

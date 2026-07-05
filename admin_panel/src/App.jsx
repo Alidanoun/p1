@@ -24,6 +24,8 @@ import BranchMenu from './pages/BranchMenu';
 import BranchManager from './pages/BranchManager';
 import CustomerManager from './pages/CustomerManager';
 import DiscountsManager from './pages/DiscountsManager';
+import CRMLeads from './pages/CRMLeads';
+import CRMPipeline from './pages/CRMPipeline';
 import ProtectedRoute from './components/ProtectedRoute';
 import PinGuard from './components/PinGuard';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -185,6 +187,16 @@ function App() {
             <Route path="/discounts" element={
               <ProtectedRoute requiredRole={['admin']}>
                 <DiscountsManager />
+              </ProtectedRoute>
+            } />
+            <Route path="/crm/leads" element={
+              <ProtectedRoute requiredRole={['admin', 'manager', 'branch_manager']}>
+                <CRMLeads />
+              </ProtectedRoute>
+            } />
+            <Route path="/crm/pipeline" element={
+              <ProtectedRoute requiredRole={['admin', 'manager', 'branch_manager']}>
+                <CRMPipeline />
               </ProtectedRoute>
             } />
           </Route>

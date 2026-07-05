@@ -1006,10 +1006,10 @@ model BranchMetric {
   revenue         Decimal  @db.Decimal(10, 2)
   updatedAt       DateTime @updatedAt
   version         Int      @default(1)
-  eventSequence   Int      @default(1) // ðŸ›¡ï¸ Aggregate-scoped sequence
-  previousVersion Int      @default(0) // ðŸ”— Causal link
-  causedByEventId String? // ðŸ•µï¸ Traceability
-  snapshotEpoch   Int      @default(1) // ðŸ›ï¸ Resync boundary
+  eventSequence   Int      @default(1) // 🛡️ Aggregate-scoped sequence
+  previousVersion Int      @default(0) // 🔗 Causal link
+  causedByEventId String? // 🕵️ Traceability
+  snapshotEpoch   Int      @default(1) // 🏔️ Resync boundary
   branch          Branch   @relation(fields: [branchId], references: [id])
 }
 
@@ -1036,11 +1036,11 @@ model LoyaltyLedger {
   balanceBefore Int // Snapshot for verification
   balanceAfter  Int // Snapshot for verification
 
-  // ðŸ›¡ï¸ [INTEGRITY] Unique Idempotency Key
+  // 🛡️ [INTEGRITY] Unique Idempotency Key
   // Format: source_type:aggregate_id:action_hash
   idempotencyKey String @unique
 
-  // ðŸ”— [TRACEABILITY] Causal Links
+  // 🔗 [TRACEABILITY] Causal Links
   referenceId String? // OrderNumber, ReviewId, or ActionUUID
   description String?
   metadata    Json? // { ip: "...", device: "...", version: 1 }
@@ -1313,6 +1313,7 @@ model Lead {
   email     String?
   emailHash String? @unique
   source    String? // e.g., "Facebook", "Walk-in", "Website"
+  notes     String? @db.Text
   status    String  @default("NEW") // NEW, CONTACTED, QUALIFIED, LOST
 
   // Branch Isolation
@@ -1398,6 +1399,8 @@ model OpportunityAuditLog {
   opportunityId Int
   eventType     String // e.g., "STAGE_CHANGE", "ASSIGNMENT_CHANGE"
   eventAction   String // e.g., "MOVED_TO_NEGOTIATION"
+  fromStage     String?
+  toStage       String?
 
   // User making the change (Proper Int relation to User)
   changedById   Int?

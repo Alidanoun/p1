@@ -88,6 +88,20 @@ const opportunityController = {
       logger.error('[OpportunityController] getHistory error', { error: err.message });
       return response.error(res, 'حدث خطأ أثناء جلب سجل الصفقة', 'INTERNAL_ERROR', 500);
     }
+  },
+
+  async deleteOpportunity(req, res) {
+    try {
+      const { id } = req.params;
+      const actor = req.user;
+      const result = await opportunityService.deleteOpportunity(parseInt(id), actor);
+      return response.success(res, result, 'تم حذف الصفقة بنجاح');
+    } catch (err) {
+      if (err.message === 'OPPORTUNITY_NOT_FOUND') return response.error(res, 'الصفقة غير موجودة', 'NOT_FOUND', 404);
+      if (err.message === 'CANNOT_DELETE_TERMINAL') return response.error(res, err.message, 'CONFLICT', 409);
+      logger.error('[OpportunityController] deleteOpportunity error', { error: err.message });
+      return response.error(res, 'حدث خطأ أثناء حذف الصفقة', 'INTERNAL_ERROR', 500);
+    }
   }
 };
 

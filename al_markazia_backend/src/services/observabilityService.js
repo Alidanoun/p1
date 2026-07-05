@@ -163,12 +163,16 @@ class ObservabilityService {
   async updateBusinessSLOs(nextState) {
     try {
       const oneHourAgo = new Date(Date.now() - 3600000);
+      const { traceContext } = require('../utils/context');
+      
       const [orders, errorCount] = await Promise.all([
-        prisma.order.groupBy({
-          by: ['status'],
-          where: { createdAt: { gte: oneHourAgo } },
-          _count: true
-        }),
+        traceContext.run({ bypassRls: true }, () => 
+          prisma.order.groupBy({
+            by: ['status'],
+            where: { createdAt: { gte: oneHourAgo } },
+            _count: true
+          })
+        ),
         redis.get('stats:errors:1h')
       ]);
 
