@@ -35,12 +35,20 @@ export default function ReportsDashboard() {
     try {
       setLoading(true);
       const [reportsRes, itemsRes] = await Promise.all([
-        api.get(`/reports/daily?days=${days}`),
+        api.get(`/financial/reports/historical?days=${days}`),
         api.get('/reports/top-items')
       ]);
       
-      const formattedReports = (reportsRes.data || []).map(r => ({
+      const snapshotData = reportsRes.data?.data || reportsRes.data || [];
+      const formattedReports = snapshotData.map(r => ({
         ...r,
+        totalRevenue: Number(r.totalRevenue || 0),
+        baseRevenue: Number(r.baseRevenue || 0),
+        netRevenue: Number(r.netRevenue || 0),
+        taxTotal: Number(r.taxTotal || 0),
+        deliveryTotal: Number(r.deliveryTotal || 0),
+        discountTotal: Number(r.discountTotal || 0),
+        lossTotal: Number(r.lossTotal || 0),
         displayDate: new Date(r.date).toLocaleDateString('ar-IQ', { weekday: 'short', month: 'short', day: 'numeric' })
       }));
       
