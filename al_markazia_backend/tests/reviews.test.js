@@ -11,20 +11,38 @@ describe('⭐ Reviews System - Integration Test', () => {
   let testCustomerToken, testAdminToken;
 
   beforeAll(async () => {
-    // Clean up any stale refresh tokens from previous failed runs
+    // Clean up any stale data from previous failed runs
     await prisma.refreshToken.deleteMany({
       where: {
         token: { in: ['test_customer_refresh_token', 'test_admin_refresh_token'] }
       }
     });
+    // Remove stale data from failed previous runs (cascade order: reviews → orderItems → orders → items → branches)
+    const staleItems = await prisma.item.findMany({ where: { title: 'Test Burger' }, select: { id: true } });
+    if (staleItems.length > 0) {
+      const staleItemIds = staleItems.map(i => i.id);
+      await prisma.review.deleteMany({ where: { itemId: { in: staleItemIds } } });
+      await prisma.orderItem.deleteMany({ where: { itemId: { in: staleItemIds } } });
+      await prisma.item.deleteMany({ where: { id: { in: staleItemIds } } });
+    }
+    await prisma.branch.deleteMany({ where: { name: 'Test Reviews Branch' } });
 
-    // 0. Create Test Category to avoid foreign key errors
-    testCategory = await prisma.category.create({
-      data: {
-        name: 'Test Reviews Category',
-        isActive: true
+    // 0. Create or find Test Category to avoid foreign key errors
+    testCategory = await prisma.category.findFirst({ where: { name: 'Test Reviews Category' } });
+    if (!testCategory) {
+      try {
+        testCategory = await prisma.category.create({
+          data: {
+            name: 'Test Reviews Category',
+            isActive: true
+          }
+        });
+      } catch (err) {
+        // Fallback if sequence is broken
+        testCategory = await prisma.category.findFirst();
+        if (!testCategory) throw err;
       }
-    });
+    }
 
     // 0.5. Create Test Branch to avoid branchId constraint errors
     testBranch = await prisma.branch.create({

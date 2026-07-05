@@ -35,8 +35,9 @@ exports.submitReview = async (req, res) => {
       return res.status(400).json({ error: 'البيانات المرسلة غير صحيحة' });
     }
 
-    // 3. Verified Purchase Check
-    const purchasedOrder = await prisma.order.findFirst({
+    const { runAsSystemAdmin } = require('../utils/context');
+    // 3. Verified Purchase Check (Run as system admin because it's a cross-branch customer query)
+    const purchasedOrder = await runAsSystemAdmin(async () => await prisma.order.findFirst({
       where: {
         customerId: customer.id,
         status: 'delivered',
@@ -44,7 +45,7 @@ exports.submitReview = async (req, res) => {
       },
       orderBy: { createdAt: 'desc' },
       select: { id: true }
-    });
+    }));
 
     if (!purchasedOrder) {
       return res.status(403).json({ 
@@ -176,7 +177,8 @@ exports.getAllReviews = async (req, res) => {
       }
     }
 
-    const [itemReviews, orderRatings] = await Promise.all([
+    const { runAsSystemAdmin } = require('../utils/context');
+    const [itemReviews, orderRatings] = await runAsSystemAdmin(async () => await Promise.all([
       prisma.review.findMany({
         where: reviewFilter,
         include: {
@@ -188,7 +190,7 @@ exports.getAllReviews = async (req, res) => {
         where: orderFilter,
         include: ORDER_INCLUDE_FULL
       })
-    ]);
+    ]));
 
     const mappedItemReviews = itemReviews.map(r => ({
       ...r,
@@ -244,20 +246,21 @@ exports.toggleApproval = async (req, res) => {
       const realId = parseInt(id.replace('order-', ''));
       if (isNaN(realId)) return res.status(400).json({ error: 'Invalid Order ID' });
       
-      const order = await prisma.order.findUnique({
+      const { runAsSystemAdmin } = require('../utils/context');
+      const order = await runAsSystemAdmin(async () => await prisma.order.findUnique({
         where: { id: realId },
         select: { branchId: true }
-      });
+      }));
       if (!order) return res.status(404).json({ error: 'Order not found' });
       
       if (req.user.role !== 'admin' && order.branchId !== req.user.branchId) {
         return res.status(403).json({ error: 'ACCESS_DENIED' });
       }
 
-      await prisma.order.update({
+      await runAsSystemAdmin(async () => await prisma.order.update({
         where: { id: realId },
         data: { isRatingApproved: Boolean(isApproved) }
-      });
+      }));
       return res.json({ success: true });
     }
 
@@ -446,7 +449,8 @@ exports.getReviewStats = async (req, res) => {
       }
     }
 
-    const [itemStats, orderStats] = await Promise.all([
+    const { runAsSystemAdmin } = require('../utils/context');
+    const [itemStats, orderStats] = await runAsSystemAdmin(async () => await Promise.all([
       prisma.review.groupBy({
         by: ['rating'],
         where: reviewWhere,
@@ -457,7 +461,7 @@ exports.getReviewStats = async (req, res) => {
         where: orderWhere,
         _count: { id: true }
       })
-    ]);
+    ]));
 
     const distribution = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
     

@@ -113,18 +113,40 @@ class InMemoryRedisFallback {
   }
 
   async set(key, value, ...args) {
+    const uppercaseArgs = args.map(a => String(a).toUpperCase());
+    
+    const hasNX = uppercaseArgs.includes('NX');
+    const hasXX = uppercaseArgs.includes('XX');
+    
+    const exists = this.store.has(key) && !this._isExpired(key);
+    
+    if (hasNX && exists) {
+      return null;
+    }
+    if (hasXX && !exists) {
+      return null;
+    }
+    
     this.store.set(key, String(value));
     
-    // Parse EX/PX
-    if (args && args.length >= 2) {
-      const option = String(args[0]).toUpperCase();
-      const val = parseInt(args[1], 10);
-      if (option === 'EX') {
-        this.expirations.set(key, Date.now() + val * 1000);
-      } else if (option === 'PX') {
-        this.expirations.set(key, Date.now() + val);
+    // Parse EX
+    const exIndex = uppercaseArgs.indexOf('EX');
+    if (exIndex !== -1 && exIndex + 1 < args.length) {
+      const seconds = parseInt(args[exIndex + 1], 10);
+      if (!isNaN(seconds)) {
+        this.expirations.set(key, Date.now() + seconds * 1000);
       }
     }
+    
+    // Parse PX
+    const pxIndex = uppercaseArgs.indexOf('PX');
+    if (pxIndex !== -1 && pxIndex + 1 < args.length) {
+      const ms = parseInt(args[pxIndex + 1], 10);
+      if (!isNaN(ms)) {
+        this.expirations.set(key, Date.now() + ms);
+      }
+    }
+    
     return 'OK';
   }
 

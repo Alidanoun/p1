@@ -17,7 +17,8 @@ const BRANCH_ISOLATED_MODELS = new Set([
   'BranchVariant',
   'OrderCancellation',
   'OrderAuditLogArchive',
-  'OrderModificationEvent'
+  'OrderModificationEvent',
+  'OpportunityAuditLog'
 ]);
 
 module.exports = {

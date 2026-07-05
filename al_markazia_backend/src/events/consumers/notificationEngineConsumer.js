@@ -1,6 +1,7 @@
 const StreamConsumerGroup = require('../streamConsumerGroup');
 const container = require('../../lib/container');
 const logger = require('../../utils/logger');
+const { runAsSystemAdmin } = require('../../utils/context');
 
 /**
  * 🥇 Priority 1 Stream Consumer: Notification Engine
@@ -27,10 +28,10 @@ const notificationEngineConsumer = new StreamConsumerGroup(
       let orderContext = null;
 
       if (orderId && !isNaN(parseInt(orderId))) {
-        orderContext = await container.prisma.order.findUnique({
+        orderContext = await runAsSystemAdmin(async () => await container.prisma.order.findUnique({
           where: { id: parseInt(orderId) },
           include: { customer: true }
-        });
+        }));
       }
 
       // 2. Map evaluation target mapping

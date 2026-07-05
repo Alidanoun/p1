@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { authenticateToken: authMiddleware } = require('../middleware/auth');
 const { hasPermission } = require('../middleware/auth');
+const { checkPermission } = require('../middleware/permissionMiddleware');
 const { PERMISSIONS } = require('../config/permissions');
 const BranchAccessMiddleware = require('../middleware/branchAccessMiddleware');
 const markAdminBypass = require('../middleware/markAdminBypass');
@@ -38,20 +39,20 @@ const crmLeadLimiter = rateLimit({
 
 router.get(
   '/leads',
-  authMiddleware, hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware,
+  authMiddleware, checkPermission('crm', 'VIEW'), hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware,
   leadController.getLeads
 );
 
 router.get(
   '/leads/:id',
-  authMiddleware, hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware,
+  authMiddleware, checkPermission('crm', 'VIEW'), hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware,
   validateId(),
   leadController.getLeadById
 );
 
 router.post(
   '/leads',
-  authMiddleware, hasPermission(PERMISSIONS.CRM_EDIT), BranchAccessMiddleware,
+  authMiddleware, checkPermission('crm', 'EDIT_PIN'), hasPermission(PERMISSIONS.CRM_EDIT), BranchAccessMiddleware,
   crmLeadLimiter,
   idempotency.guard(true),
   leadController.createLead
@@ -59,7 +60,7 @@ router.post(
 
 router.patch(
   '/leads/:id',
-  authMiddleware, hasPermission(PERMISSIONS.CRM_EDIT), BranchAccessMiddleware,
+  authMiddleware, checkPermission('crm', 'EDIT_PIN'), hasPermission(PERMISSIONS.CRM_EDIT), BranchAccessMiddleware,
   idempotency.guard(true),
   validateId(),
   leadController.updateLead
@@ -67,14 +68,14 @@ router.patch(
 
 router.delete(
   '/leads/:id',
-  authMiddleware, hasPermission(PERMISSIONS.CRM_EDIT), BranchAccessMiddleware,
+  authMiddleware, checkPermission('crm', 'EDIT_PIN'), hasPermission(PERMISSIONS.CRM_EDIT), BranchAccessMiddleware,
   validateId(),
   leadController.deleteLead
 );
 
 router.post(
   '/leads/:id/convert',
-  authMiddleware, hasPermission(PERMISSIONS.CRM_EDIT), BranchAccessMiddleware,
+  authMiddleware, checkPermission('crm', 'EDIT_PIN'), hasPermission(PERMISSIONS.CRM_EDIT), BranchAccessMiddleware,
   idempotency.guard(true),
   validateId(),
   leadController.convertLead
@@ -84,27 +85,27 @@ router.post(
 
 router.get(
   '/opportunities',
-  authMiddleware, hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware,
+  authMiddleware, checkPermission('crm', 'VIEW'), hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware,
   opportunityController.getPipeline
 );
 
 router.get(
   '/opportunities/:id/history',
-  authMiddleware, hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware,
+  authMiddleware, checkPermission('crm', 'VIEW'), hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware,
   validateId(),
   opportunityController.getHistory
 );
 
 router.post(
   '/opportunities',
-  authMiddleware, hasPermission(PERMISSIONS.CRM_EDIT), BranchAccessMiddleware,
+  authMiddleware, checkPermission('crm', 'EDIT_PIN'), hasPermission(PERMISSIONS.CRM_EDIT), BranchAccessMiddleware,
   idempotency.guard(true),
   opportunityController.createOpportunity
 );
 
 router.patch(
   '/opportunities/:id/stage',
-  authMiddleware, hasPermission(PERMISSIONS.CRM_EDIT), BranchAccessMiddleware,
+  authMiddleware, checkPermission('crm', 'EDIT_PIN'), hasPermission(PERMISSIONS.CRM_EDIT), BranchAccessMiddleware,
   conflictDetection('opportunity'),    // First line of defense (header check)
   idempotency.guard(true),
   validateId(),
@@ -113,7 +114,7 @@ router.patch(
 
 router.patch(
   '/opportunities/:id/reassign',
-  authMiddleware, hasPermission(PERMISSIONS.CRM_EDIT), BranchAccessMiddleware,
+  authMiddleware, checkPermission('crm', 'EDIT_PIN'), hasPermission(PERMISSIONS.CRM_EDIT), BranchAccessMiddleware,
   idempotency.guard(true),
   validateId(),
   opportunityController.reassign
@@ -121,7 +122,7 @@ router.patch(
 
 router.delete(
   '/opportunities/:id',
-  authMiddleware, hasPermission(PERMISSIONS.CRM_EDIT), BranchAccessMiddleware,
+  authMiddleware, checkPermission('crm', 'EDIT_PIN'), hasPermission(PERMISSIONS.CRM_EDIT), BranchAccessMiddleware,
   validateId(),
   opportunityController.deleteOpportunity
 );
@@ -130,13 +131,13 @@ router.delete(
 
 router.get(
   '/activities',
-  authMiddleware, hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware,
+  authMiddleware, checkPermission('crm', 'VIEW'), hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware,
   salesActivityController.getActivities
 );
 
 router.post(
   '/activities',
-  authMiddleware, hasPermission(PERMISSIONS.CRM_EDIT), BranchAccessMiddleware,
+  authMiddleware, checkPermission('crm', 'EDIT_PIN'), hasPermission(PERMISSIONS.CRM_EDIT), BranchAccessMiddleware,
   idempotency.guard(true),
   salesActivityController.logActivity
 );
@@ -144,7 +145,7 @@ router.post(
 // Lead timeline (all activities + opportunities for a lead)
 router.get(
   '/leads/:id/timeline',
-  authMiddleware, hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware,
+  authMiddleware, checkPermission('crm', 'VIEW'), hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware,
   validateId(),
   salesActivityController.getLeadTimeline
 );
@@ -152,14 +153,14 @@ router.get(
 // Customer 360° view
 router.get(
   '/customers/:id/360',
-  authMiddleware, hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware,
+  authMiddleware, checkPermission('crm', 'VIEW'), hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware,
   validateId(),
   salesActivityController.getCustomer360
 );
 
 // ─── Analytics (Admin sees all branches, Manager sees own) ────────────────────
 
-router.get('/analytics/pipeline', authMiddleware, hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware, async (req, res) => {
+router.get('/analytics/pipeline', authMiddleware, checkPermission('crm', 'VIEW'), hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware, async (req, res) => {
   try {
     const branchId = req.authoritativeBranchId;
     const { startDate, endDate } = req.query;
@@ -170,7 +171,7 @@ router.get('/analytics/pipeline', authMiddleware, hasPermission(PERMISSIONS.CRM_
   }
 });
 
-router.get('/analytics/performance', authMiddleware, hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware, async (req, res) => {
+router.get('/analytics/performance', authMiddleware, checkPermission('crm', 'VIEW'), hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware, async (req, res) => {
   try {
     const branchId = req.authoritativeBranchId;
     const { startDate, endDate } = req.query;
@@ -181,7 +182,7 @@ router.get('/analytics/performance', authMiddleware, hasPermission(PERMISSIONS.C
   }
 });
 
-router.get('/analytics/sources', authMiddleware, hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware, async (req, res) => {
+router.get('/analytics/sources', authMiddleware, checkPermission('crm', 'VIEW'), hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware, async (req, res) => {
   try {
     const branchId = req.authoritativeBranchId;
     const { startDate, endDate } = req.query;
@@ -192,7 +193,7 @@ router.get('/analytics/sources', authMiddleware, hasPermission(PERMISSIONS.CRM_V
   }
 });
 
-router.get('/analytics/activities', authMiddleware, hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware, async (req, res) => {
+router.get('/analytics/activities', authMiddleware, checkPermission('crm', 'VIEW'), hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware, async (req, res) => {
   try {
     const branchId = req.authoritativeBranchId;
     const { startDate, endDate } = req.query;

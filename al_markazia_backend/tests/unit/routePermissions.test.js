@@ -14,7 +14,9 @@ const PERMISSION_TO_MODULE = {
   'system:config_manage': 'settings',
   'system:view_logs': 'settings',
   'branch:manage': 'branch',
-  'branch:view': 'branch'
+  'branch:view': 'branch',
+  'crm:view': 'crm',
+  'crm:edit': 'crm'
 };
 
 function flattenRoutes(router, prefix = '') {

@@ -163,10 +163,10 @@ class ObservabilityService {
   async updateBusinessSLOs(nextState) {
     try {
       const oneHourAgo = new Date(Date.now() - 3600000);
-      const { traceContext } = require('../utils/context');
+      const { runAsSystemAdmin } = require('../utils/context');
       
       const [orders, errorCount] = await Promise.all([
-        traceContext.run({ bypassRls: true }, () => 
+        runAsSystemAdmin(() => 
           prisma.order.groupBy({
             by: ['status'],
             where: { createdAt: { gte: oneHourAgo } },

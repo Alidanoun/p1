@@ -2,6 +2,7 @@ const { Queue, Worker } = require('bullmq');
 const { redisBullMQ } = require('../lib/redis');
 const logger = require('../utils/logger');
 const prisma = require('../lib/prisma');
+const { runAsSystemAdmin } = require('../utils/context');
 
 /**
  * 📦 Order Lifecycle Queue (BullMQ)
@@ -29,7 +30,7 @@ const initOrderWorker = (container) => {
     logger.info(`[OrderWorker] Processing job: ${job.name}`, { orderId, type });
 
     if (job.name === 'auto-timeout') {
-      const order = await prisma.order.findUnique({ where: { id: orderId } });
+      const order = await runAsSystemAdmin(async () => await prisma.order.findUnique({ where: { id: orderId } }));
       
       // Only timeout if still PENDING or WAITING_CANCELLATION
       if (order && (order.status === 'pending' || order.status === 'waiting_cancellation')) {
@@ -46,9 +47,9 @@ const initOrderWorker = (container) => {
 
     if (job.name === 'replacement-timeout') {
       const { itemId } = job.data;
-      const orderItem = await prisma.orderItem.findUnique({
+      const orderItem = await runAsSystemAdmin(async () => await prisma.orderItem.findUnique({
         where: { id: itemId }
-      });
+      }));
       
       if (orderItem && orderItem.status === 'pending_replacement_approval') {
         const contractGateway = require('../services/contractGateway');

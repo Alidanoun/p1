@@ -161,6 +161,7 @@ model BranchPermissions {
   deliveryZones     PermissionLevel @default(EDIT_PIN)
   auditLog          PermissionLevel @default(VIEW)
   settings          PermissionLevel @default(EDIT_PIN)
+  crm               PermissionLevel @default(FULL)
 
   canToggleLiveMode  Boolean         @default(false)
   canModifyWorkHours PermissionLevel @default(EDIT_PIN)

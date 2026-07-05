@@ -2,6 +2,7 @@ const cron = require('node-cron');
 const prisma = require('../lib/prisma');
 const redis = require('../lib/redis');
 const logger = require('../utils/logger');
+const { runAsBranch, runAsSystemAdmin } = require('../utils/context');
 
 const runDailyArchiver = async (targetBranchId = null) => {
   const lockKey = targetBranchId ? `lock:job:daily_archiver:${targetBranchId}` : 'lock:job:daily_archiver';
@@ -13,12 +14,12 @@ const runDailyArchiver = async (targetBranchId = null) => {
       return 'bypass';
     });
 
-    if (lockResult !== 'locked' && lockResult !== 'bypass') {
+    if (lockResult !== 'OK' && lockResult !== 'locked' && lockResult !== 'bypass') {
       logger.info('[DailyArchiver] Job is already running in another instance. Skipping.');
       return;
     }
 
-    if (lockResult === 'locked') {
+    if (lockResult === 'OK' || lockResult === 'locked') {
       acquiredLock = true;
     }
 
@@ -30,75 +31,77 @@ const runDailyArchiver = async (targetBranchId = null) => {
     // Find all branches or target branch
     const branches = targetBranchId
       ? [{ id: targetBranchId }]
-      : await prisma.branch.findMany({ select: { id: true } });
+      : await runAsSystemAdmin(() => prisma.branch.findMany({ select: { id: true } }));
 
     for (const branch of branches) {
-      // Find all completed or cancelled orders that are not archived yet for this branch
-      const orders = await prisma.order.findMany({
-        where: {
-          branchId: branch.id,
-          status: {
-            in: ['delivered', 'cancelled']
-          },
-          isArchived: false
+      await runAsBranch(branch.id, async () => {
+        // Find all completed or cancelled orders that are not archived yet for this branch
+        const orders = await prisma.order.findMany({
+          where: {
+            branchId: branch.id,
+            status: {
+              in: ['delivered', 'cancelled']
+            },
+            isArchived: false
+          }
+        });
+
+        if (orders.length > 0) {
+          const deliveredOrders = orders.filter(o => o.status === 'delivered');
+          const cancelledOrders = orders.filter(o => o.status === 'cancelled');
+          
+          let totalSales = 0;
+          let taxTotal = 0;
+          let totalPrepTime = 0;
+          let validPrepCount = 0;
+
+          for (const o of deliveredOrders) {
+            totalSales += parseFloat(o.total || 0);
+            taxTotal += parseFloat(o.tax || 0);
+            if (o.preparationTimeMinutes) {
+               totalPrepTime += o.preparationTimeMinutes;
+               validPrepCount++;
+            }
+          }
+
+          const avgPrepTime = validPrepCount > 0 ? Math.round(totalPrepTime / validPrepCount) : 0;
+
+          // Upsert DailyReport
+          await prisma.dailyReport.upsert({
+            where: {
+              date_branchId: {
+                date: today,
+                branchId: branch.id
+              }
+            },
+            update: {
+              totalSales,
+              orderCount: deliveredOrders.length,
+              cancelledCount: cancelledOrders.length,
+              avgPrepTime,
+              taxTotal
+            },
+            create: {
+              date: today,
+              branchId: branch.id,
+              totalSales,
+              orderCount: deliveredOrders.length,
+              cancelledCount: cancelledOrders.length,
+              avgPrepTime,
+              taxTotal
+            }
+          });
+
+          // Archive the orders so they don't show up in LiveOrders tomorrow (or whenever)
+          const orderIds = orders.map(o => o.id);
+          await prisma.order.updateMany({
+            where: { id: { in: orderIds } },
+            data: { isArchived: true }
+          });
+
+          logger.info(`[DailyArchiver] Branch ${branch.id}: Archived ${orders.length} orders.`);
         }
       });
-
-      if (orders.length > 0) {
-        const deliveredOrders = orders.filter(o => o.status === 'delivered');
-        const cancelledOrders = orders.filter(o => o.status === 'cancelled');
-        
-        let totalSales = 0;
-        let taxTotal = 0;
-        let totalPrepTime = 0;
-        let validPrepCount = 0;
-
-        for (const o of deliveredOrders) {
-          totalSales += parseFloat(o.total || 0);
-          taxTotal += parseFloat(o.tax || 0);
-          if (o.preparationTimeMinutes) {
-             totalPrepTime += o.preparationTimeMinutes;
-             validPrepCount++;
-          }
-        }
-
-        const avgPrepTime = validPrepCount > 0 ? Math.round(totalPrepTime / validPrepCount) : 0;
-
-        // Upsert DailyReport
-        await prisma.dailyReport.upsert({
-          where: {
-            date_branchId: {
-              date: today,
-              branchId: branch.id
-            }
-          },
-          update: {
-            totalSales,
-            orderCount: deliveredOrders.length,
-            cancelledCount: cancelledOrders.length,
-            avgPrepTime,
-            taxTotal
-          },
-          create: {
-            date: today,
-            branchId: branch.id,
-            totalSales,
-            orderCount: deliveredOrders.length,
-            cancelledCount: cancelledOrders.length,
-            avgPrepTime,
-            taxTotal
-          }
-        });
-
-        // Archive the orders so they don't show up in LiveOrders tomorrow (or whenever)
-        const orderIds = orders.map(o => o.id);
-        await prisma.order.updateMany({
-          where: { id: { in: orderIds } },
-          data: { isArchived: true }
-        });
-
-        logger.info(`[DailyArchiver] Branch ${branch.id}: Archived ${orders.length} orders.`);
-      }
     }
     
     logger.info('[DailyArchiver] EOD archival process completed successfully.');
