@@ -1330,12 +1330,18 @@ model Lead {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Soft Delete
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+
   opportunities Opportunity[]
   activities    SalesActivity[]
 
   @@index([branchId])
   @@index([status])
   @@index([assignedToId])
+  @@index([branchId, isDeleted, status])
+  @@index([branchId, status, assignedToId, createdAt], map: "idx_lead_branch_status_assigned")
 }
 
 /// 🛡️ [ARCHITECTURAL-DECISION]: Opportunity represents the Sales Pipeline Kanban card.
@@ -1368,6 +1374,10 @@ model Opportunity {
   updatedAt         DateTime  @updatedAt
   expectedCloseDate DateTime?
 
+  // Soft Delete
+  isDeleted         Boolean   @default(false)
+  deletedAt         DateTime?
+
   auditLogs  OpportunityAuditLog[]
   activities SalesActivity[]
 
@@ -1376,6 +1386,7 @@ model Opportunity {
   @@index([assignedToId])
   @@index([leadId])
   @@index([customerId])
+  @@index([branchId, stage, assignedToId, updatedAt], map: "idx_opportunity_branch_stage")
 }
 
 /// 🛡️ [ARCHITECTURAL-DECISION]: Enforces a strict State Machine for the Sales Pipeline.
@@ -1438,4 +1449,6 @@ model SalesActivity {
   @@index([leadId])
   @@index([customerId])
   @@index([opportunityId])
+  @@index([leadId, activityDate], map: "idx_activity_lead")
+  @@index([customerId, activityDate], map: "idx_activity_customer")
 }

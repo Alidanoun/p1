@@ -50,6 +50,12 @@ const prisma = basePrisma.$extends({
     branch: {
       phone: { needs: { phone: true }, compute(b) { try { return decrypt(b.phone); } catch { logger.error('[Prisma] Decryption failed for branch.phone — returning raw value'); return b.phone; } } },
       name: { needs: { name: true }, compute(b) { try { return decrypt(b.name); } catch { logger.error('[Prisma] Decryption failed for branch.name — returning raw value'); return b.name; } } }
+    },
+    // 🔒 CRM: Lead PII decryption (phone/email/name encrypted at rest via write extension)
+    lead: {
+      phone: { needs: { phone: true }, compute(l) { try { return l.phone ? decrypt(l.phone) : null; } catch { logger.error('[Prisma] Decryption failed for lead.phone — returning null'); return null; } } },
+      email: { needs: { email: true }, compute(l) { try { return l.email ? decrypt(l.email) : null; } catch { logger.error('[Prisma] Decryption failed for lead.email — returning null'); return null; } } },
+      name: { needs: { name: true }, compute(l) { try { return decrypt(l.name); } catch { logger.error('[Prisma] Decryption failed for lead.name — returning null'); return null; } } }
     }
   },
   query: {

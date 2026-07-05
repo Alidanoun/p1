@@ -8,17 +8,18 @@ const opportunityController = {
     try {
       const actor = req.user;
       const branchId = req.authoritativeBranchId || req.body.branchId;
-      const { title, leadId, customerId, assignedToId, estimatedValue, expectedCloseDate } = req.body;
+      const { title, leadId, customerId, assignedToId, value, expectedCloseDate } = req.body;
 
       if (!title) return response.error(res, 'عنوان الصفقة مطلوب', 'VALIDATION_ERROR', 400);
       if (!leadId && !customerId) return response.error(res, 'يجب ربط الصفقة بعميل محتمل أو عميل مسجل', 'VALIDATION_ERROR', 400);
 
       const opportunity = await opportunityService.createOpportunity(
-        { title, leadId, customerId, branchId, assignedToId, estimatedValue, expectedCloseDate },
+        { title, leadId, customerId, branchId, assignedToId, value, expectedCloseDate },
         actor
       );
       return response.success(res, opportunity, 'تم إنشاء الصفقة بنجاح', 201);
     } catch (err) {
+      if (err.message === 'INVALID_ASSIGNMENT') return response.error(res, err.message, 'INVALID_ASSIGNMENT', 400);
       logger.error('[OpportunityController] createOpportunity error', { error: err.message });
       return response.error(res, 'حدث خطأ أثناء إنشاء الصفقة', 'INTERNAL_ERROR', 500);
     }
@@ -57,6 +58,24 @@ const opportunityController = {
       }
       logger.error('[OpportunityController] changeStage error', { error: err.message });
       return response.error(res, 'حدث خطأ أثناء تحديث المرحلة', 'INTERNAL_ERROR', 500);
+    }
+  },
+
+  async reassign(req, res) {
+    try {
+      const { id } = req.params;
+      const { assignedToId } = req.body;
+      const actor = req.user;
+
+      if (!assignedToId) return response.error(res, 'assignedToId مطلوب', 'VALIDATION_ERROR', 400);
+
+      const result = await opportunityService.reassign(parseInt(id), parseInt(assignedToId), actor);
+      return response.success(res, result, 'تم إعادة التعيين بنجاح');
+    } catch (err) {
+      if (err.message === 'INVALID_ASSIGNMENT') return response.error(res, err.message, 'INVALID_ASSIGNMENT', 400);
+      if (err.message === 'OPPORTUNITY_NOT_FOUND') return response.error(res, 'الصفقة غير موجودة', 'NOT_FOUND', 404);
+      logger.error('[OpportunityController] reassign error', { error: err.message });
+      return response.error(res, 'حدث خطأ أثناء إعادة التعيين', 'INTERNAL_ERROR', 500);
     }
   },
 

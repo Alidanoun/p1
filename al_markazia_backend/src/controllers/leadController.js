@@ -38,6 +38,36 @@ const leadController = {
     }
   },
 
+  async getLeadById(req, res) {
+    try {
+      const { id } = req.params;
+      const branchId = req.authoritativeBranchId;
+      const lead = await leadService.getLeadById(parseInt(id), branchId);
+      return response.success(res, lead);
+    } catch (err) {
+      if (err.message === 'LEAD_NOT_FOUND') return response.error(res, 'العميل المحتمل غير موجود', 'NOT_FOUND', 404);
+      logger.error('[LeadController] getLeadById error', { error: err.message });
+      return response.error(res, 'حدث خطأ', 'INTERNAL_ERROR', 500);
+    }
+  },
+
+  async updateLead(req, res) {
+    try {
+      const { id } = req.params;
+      const actor = req.user;
+      const { status, assignedToId, notes } = req.body;
+      const updated = await leadService.updateLead(parseInt(id), { status, assignedToId, notes }, actor);
+      return response.success(res, updated, 'تم تحديث العميل المحتمل');
+    } catch (err) {
+      if (err instanceof ConcurrencyError) return response.error(res, err.message, err.code, 409);
+      if (['LEAD_NOT_FOUND', 'CANNOT_UPDATE_CONVERTED', 'INVALID_STATUS', 'INVALID_ASSIGNMENT'].includes(err.message)) {
+        return response.error(res, err.message, err.message, err.statusCode || 400);
+      }
+      logger.error('[LeadController] updateLead error', { error: err.message });
+      return response.error(res, 'حدث خطأ أثناء تحديث العميل المحتمل', 'INTERNAL_ERROR', 500);
+    }
+  },
+
   async convertLead(req, res) {
     try {
       const { id } = req.params;

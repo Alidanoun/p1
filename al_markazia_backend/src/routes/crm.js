@@ -1,51 +1,73 @@
 const express = require('express');
 const router = express.Router();
 const { authenticateToken: authMiddleware } = require('../middleware/auth');
-const { checkPermission } = require('../middleware/permissionMiddleware');
 const { hasPermission } = require('../middleware/auth');
 const { PERMISSIONS } = require('../config/permissions');
 const BranchAccessMiddleware = require('../middleware/branchAccessMiddleware');
+const markAdminBypass = require('../middleware/markAdminBypass');
+const { isAdmin: isAdminMiddleware } = require('../middleware/auth');
 const conflictDetection = require('../middleware/conflictDetection');
 const idempotency = require('../services/idempotencyService');
 const { validateId } = require('../utils/security');
+const rateLimit = require('express-rate-limit');
 
 const leadController = require('../controllers/leadController');
 const opportunityController = require('../controllers/opportunityController');
+const salesActivityController = require('../controllers/salesActivityController');
+const crmAnalyticsService = require('../services/crmAnalyticsService');
+const response = require('../utils/response');
 
 /**
- * 🎯 CRM Routes
+ * 🎯 CRM Routes (Enterprise-Grade)
  * All routes enforce:
- *  - Authentication (authMiddleware)
+ *  - Authentication
  *  - Permission check (CRM_VIEW / CRM_EDIT)
- *  - Branch isolation (BranchAccessMiddleware → sets req.authoritativeBranchId + RLS context)
- *  - Idempotency (idempotency.guard) on all mutating operations
- *  - Optimistic locking (conflictDetection) on stage changes
+ *  - Branch isolation (BranchAccessMiddleware → RLS context)
+ *  - Idempotency on all mutating operations
+ *  - Dual optimistic locking (conflictDetection + DB version check) on stage changes
  */
+
+// Rate limiter for lead creation (prevent spam)
+const crmLeadLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  message: { error: 'RATE_LIMIT', message: 'تجاوزت الحد المسموح به من الطلبات. يرجى المحاولة بعد دقيقة.' }
+});
 
 // ─── Leads ───────────────────────────────────────────────────────────────────
 
 router.get(
   '/leads',
-  authMiddleware,
-  hasPermission(PERMISSIONS.CRM_VIEW),
-  BranchAccessMiddleware,
+  authMiddleware, hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware,
   leadController.getLeads
+);
+
+router.get(
+  '/leads/:id',
+  authMiddleware, hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware,
+  validateId(),
+  leadController.getLeadById
 );
 
 router.post(
   '/leads',
-  authMiddleware,
-  hasPermission(PERMISSIONS.CRM_EDIT),
-  BranchAccessMiddleware,
+  authMiddleware, hasPermission(PERMISSIONS.CRM_EDIT), BranchAccessMiddleware,
+  crmLeadLimiter,
   idempotency.guard(true),
   leadController.createLead
 );
 
+router.patch(
+  '/leads/:id',
+  authMiddleware, hasPermission(PERMISSIONS.CRM_EDIT), BranchAccessMiddleware,
+  idempotency.guard(true),
+  validateId(),
+  leadController.updateLead
+);
+
 router.post(
   '/leads/:id/convert',
-  authMiddleware,
-  hasPermission(PERMISSIONS.CRM_EDIT),
-  BranchAccessMiddleware,
+  authMiddleware, hasPermission(PERMISSIONS.CRM_EDIT), BranchAccessMiddleware,
   idempotency.guard(true),
   validateId(),
   leadController.convertLead
@@ -55,39 +77,116 @@ router.post(
 
 router.get(
   '/opportunities',
-  authMiddleware,
-  hasPermission(PERMISSIONS.CRM_VIEW),
-  BranchAccessMiddleware,
+  authMiddleware, hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware,
   opportunityController.getPipeline
+);
+
+router.get(
+  '/opportunities/:id/history',
+  authMiddleware, hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware,
+  validateId(),
+  opportunityController.getHistory
 );
 
 router.post(
   '/opportunities',
-  authMiddleware,
-  hasPermission(PERMISSIONS.CRM_EDIT),
-  BranchAccessMiddleware,
+  authMiddleware, hasPermission(PERMISSIONS.CRM_EDIT), BranchAccessMiddleware,
   idempotency.guard(true),
   opportunityController.createOpportunity
 );
 
 router.patch(
   '/opportunities/:id/stage',
-  authMiddleware,
-  hasPermission(PERMISSIONS.CRM_EDIT),
-  BranchAccessMiddleware,
-  conflictDetection('opportunity'), // Read-then-compare (first line of defense)
+  authMiddleware, hasPermission(PERMISSIONS.CRM_EDIT), BranchAccessMiddleware,
+  conflictDetection('opportunity'),    // First line of defense (header check)
   idempotency.guard(true),
   validateId(),
-  opportunityController.changeStage   // Atomic DB version check (second line of defense)
+  opportunityController.changeStage   // Second line of defense (DB version check)
 );
 
-router.get(
-  '/opportunities/:id/history',
-  authMiddleware,
-  hasPermission(PERMISSIONS.CRM_VIEW),
-  BranchAccessMiddleware,
+router.patch(
+  '/opportunities/:id/reassign',
+  authMiddleware, hasPermission(PERMISSIONS.CRM_EDIT), BranchAccessMiddleware,
+  idempotency.guard(true),
   validateId(),
-  opportunityController.getHistory
+  opportunityController.reassign
 );
+
+// ─── Sales Activities ─────────────────────────────────────────────────────────
+
+router.get(
+  '/activities',
+  authMiddleware, hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware,
+  salesActivityController.getActivities
+);
+
+router.post(
+  '/activities',
+  authMiddleware, hasPermission(PERMISSIONS.CRM_EDIT), BranchAccessMiddleware,
+  idempotency.guard(true),
+  salesActivityController.logActivity
+);
+
+// Lead timeline (all activities + opportunities for a lead)
+router.get(
+  '/leads/:id/timeline',
+  authMiddleware, hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware,
+  validateId(),
+  salesActivityController.getLeadTimeline
+);
+
+// Customer 360° view
+router.get(
+  '/customers/:id/360',
+  authMiddleware, hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware,
+  validateId(),
+  salesActivityController.getCustomer360
+);
+
+// ─── Analytics (Admin sees all branches, Manager sees own) ────────────────────
+
+router.get('/analytics/pipeline', authMiddleware, hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware, async (req, res) => {
+  try {
+    const branchId = req.authoritativeBranchId;
+    const { startDate, endDate } = req.query;
+    const data = await crmAnalyticsService.getPipelineSummary(branchId, { startDate, endDate });
+    return response.success(res, data);
+  } catch (err) {
+    return response.error(res, 'حدث خطأ', 'INTERNAL_ERROR', 500);
+  }
+});
+
+router.get('/analytics/performance', authMiddleware, hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware, async (req, res) => {
+  try {
+    const branchId = req.authoritativeBranchId;
+    const { startDate, endDate } = req.query;
+    const data = await crmAnalyticsService.getSalesPerformance(branchId, { startDate, endDate });
+    return response.success(res, data);
+  } catch (err) {
+    return response.error(res, 'حدث خطأ', 'INTERNAL_ERROR', 500);
+  }
+});
+
+router.get('/analytics/sources', authMiddleware, hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware, async (req, res) => {
+  try {
+    const branchId = req.authoritativeBranchId;
+    const { startDate, endDate } = req.query;
+    const data = await crmAnalyticsService.getLeadSources(branchId, { startDate, endDate });
+    return response.success(res, data);
+  } catch (err) {
+    return response.error(res, 'حدث خطأ', 'INTERNAL_ERROR', 500);
+  }
+});
+
+router.get('/analytics/activities', authMiddleware, hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware, async (req, res) => {
+  try {
+    const branchId = req.authoritativeBranchId;
+    const { startDate, endDate } = req.query;
+    const data = await crmAnalyticsService.getActivitySummary(branchId, { startDate, endDate });
+    return response.success(res, data);
+  } catch (err) {
+    return response.error(res, 'حدث خطأ', 'INTERNAL_ERROR', 500);
+  }
+});
 
 module.exports = router;
