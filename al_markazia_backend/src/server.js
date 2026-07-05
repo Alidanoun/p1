@@ -301,11 +301,14 @@ async function startServer() {
             logger.info('[BackgroundSync] Starting system rehydration...');
             const rehydrationStart = Date.now();
             
-            await orderProjection.replay();
-            await new Promise(resolve => setTimeout(resolve, 500));
-            await analyticsProjection.replay();
-            await new Promise(resolve => setTimeout(resolve, 500));
-            await SecurityPolicyService.warmupSecurityCache();
+            const { traceContext } = require('./utils/context');
+            await traceContext.run({ bypassRls: true }, async () => {
+              await orderProjection.replay();
+              await new Promise(resolve => setTimeout(resolve, 500));
+              await analyticsProjection.replay();
+              await new Promise(resolve => setTimeout(resolve, 500));
+              await SecurityPolicyService.warmupSecurityCache();
+            });
             
             logger.info(`🚀 [Rehydration] Total: ${Date.now() - rehydrationStart}ms`);
             logger.info('✅ Background rehydration complete — system fully primed.');

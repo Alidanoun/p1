@@ -121,7 +121,8 @@ class StreamConsumerGroup {
       const contextIds = {
         requestId: metadata.requestId || messageId,
         correlationId: metadata.correlationId || metadata.requestId || messageId,
-        traceId: metadata.traceId
+        traceId: metadata.traceId,
+        bypassRls: true // Background workers operate system-wide and must bypass RLS
       };
 
       // 📡 OpenTelemetry Trace Continuation
