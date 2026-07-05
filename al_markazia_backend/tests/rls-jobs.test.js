@@ -103,4 +103,23 @@ describe('RLS Integration - Background Jobs', () => {
     }));
     expect(unarchivedOrdersB.length).toBe(1); // Branch B should NOT be archived
   });
+
+  it('should run dailyArchiver without targetBranchId, processing all branches and isolating contexts', async () => {
+    // Reset orders back to unarchived state for both branches to test the full path
+    await runAsSystemAdmin(async () => {
+      await prisma.order.updateMany({
+        where: { branchId: { in: [branchA.id, branchB.id] } },
+        data: { isArchived: false }
+      });
+    });
+
+    // Run without targetBranchId (entire multi-branch loop)
+    await expect(runDailyArchiver()).resolves.not.toThrow();
+
+    // Verify both branch A and branch B orders are archived
+    const archivedOrders = await runAsSystemAdmin(async () => prisma.order.findMany({
+      where: { branchId: { in: [branchA.id, branchB.id] }, isArchived: true }
+    }));
+    expect(archivedOrders.length).toBe(2);
+  });
 });

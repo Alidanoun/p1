@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const babelParser = require('@babel/parser');
 
 const DIRECTORIES_TO_CHECK = [
   'src/jobs',
@@ -8,11 +9,7 @@ const DIRECTORIES_TO_CHECK = [
   'src/queues'
 ];
 
-const RLS_MODELS = ['Order', 'Lead', 'Opportunity', 'SalesActivity'];
-
-// Simple regex to catch direct prisma.[model] usage
-// This is a static analysis heuristic.
-const prismaUsageRegex = new RegExp(`prisma\\.\\s*(${RLS_MODELS.join('|')})`, 'gi');
+const RLS_MODELS = ['order', 'lead', 'opportunity', 'salesActivity'];
 
 let hasError = false;
 
@@ -31,26 +28,106 @@ const walkSync = (dir, filelist = []) => {
   return filelist;
 };
 
+function isPrismaBase(node) {
+  if (!node) return false;
+  if (node.type === 'Identifier' && node.name === 'prisma') {
+    return true;
+  }
+  if (node.type === 'MemberExpression') {
+    if (node.property && node.property.type === 'Identifier' && node.property.name === 'prisma') {
+      return true;
+    }
+    return isPrismaBase(node.object);
+  }
+  return false;
+}
+
+function getPrismaModelName(node) {
+  if (!node || node.type !== 'MemberExpression') return null;
+  
+  if (node.property && node.property.type === 'Identifier') {
+    const propName = node.property.name;
+    // Check if the property is one of the RLS models (camelCase or lowercase check)
+    const lowerPropName = propName.toLowerCase();
+    const isModel = RLS_MODELS.some(model => model.toLowerCase() === lowerPropName);
+    
+    if (isModel && isPrismaBase(node.object)) {
+      return propName;
+    }
+  }
+  return null;
+}
+
 const checkFile = (filePath) => {
   const content = fs.readFileSync(filePath, 'utf8');
   
-  const lines = content.split('\n');
-  
-  lines.forEach((line, index) => {
-    if (line.match(prismaUsageRegex)) {
-      const hasContextImport = content.includes('require(\'../utils/context\')') || content.includes('require(\'../../utils/context\')') || content.includes('require("../utils/context")') || content.includes('require("../../utils/context")');
-      if (!hasContextImport) {
-        console.error(`❌ [RLS Linter Error] File ${filePath} accesses an RLS model directly at line ${index + 1} but does not import context helpers.`);
-        console.error(`   Line: ${line.trim()}`);
-        hasError = true;
+  let ast;
+  try {
+    ast = babelParser.parse(content, {
+      sourceType: 'unambiguous',
+      plugins: [
+        'objectRestSpread',
+        'classProperties',
+        'dynamicImport'
+      ]
+    });
+  } catch (err) {
+    console.error(`❌ [RLS Linter] Failed to parse ${filePath}: ${err.message}`);
+    hasError = true;
+    return;
+  }
+
+  const errors = [];
+
+  function checkNode(node, insideContext = false) {
+    if (!node || typeof node !== 'object') return;
+
+    let currentInside = insideContext;
+    if (node.type === 'CallExpression') {
+      const callee = node.callee;
+      if (callee.type === 'Identifier' && (callee.name === 'runAsSystemAdmin' || callee.name === 'runAsBranch')) {
+        currentInside = true;
       }
     }
-  });
+
+    if (node.type === 'CallExpression' && node.callee.type === 'MemberExpression') {
+      const callee = node.callee;
+      const modelName = getPrismaModelName(callee.object);
+      if (modelName) {
+        if (!currentInside) {
+          const loc = node.loc ? node.loc.start.line : 'unknown';
+          errors.push({ line: loc, model: modelName });
+        }
+      }
+    }
+
+    for (const key in node) {
+      if (node.hasOwnProperty(key)) {
+        const val = node[key];
+        if (Array.isArray(val)) {
+          for (const child of val) {
+            checkNode(child, currentInside);
+          }
+        } else if (val && typeof val === 'object') {
+          checkNode(val, currentInside);
+        }
+      }
+    }
+  }
+
+  checkNode(ast.program);
+
+  if (errors.length > 0) {
+    errors.forEach(err => {
+      console.error(`❌ [RLS Linter Error] File ${filePath} accesses RLS model '${err.model}' directly at line ${err.line} outside a runAsSystemAdmin or runAsBranch block.`);
+    });
+    hasError = true;
+  }
 };
 
 const main = () => {
   const baseDir = path.resolve(__dirname, '..');
-  console.log('🔍 Running RLS Static Bypass Check...');
+  console.log('🔍 Running RLS AST-based Bypass Check...');
 
   DIRECTORIES_TO_CHECK.forEach(dir => {
     const fullPath = path.join(baseDir, dir);
@@ -59,10 +136,10 @@ const main = () => {
   });
 
   if (hasError) {
-    console.error('🚨 Static RLS Check Failed! Background jobs must use runAsSystemAdmin or runAsBranch to access RLS models.');
+    console.error('🚨 AST RLS Check Failed! All RLS-protected queries in background jobs, queues, or consumers must be wrapped inside context helpers.');
     process.exit(1);
   } else {
-    console.log('✅ Static RLS Check Passed.');
+    console.log('✅ AST RLS Check Passed.');
     process.exit(0);
   }
 };

@@ -246,7 +246,7 @@ exports.toggleApproval = async (req, res) => {
       const realId = parseInt(id.replace('order-', ''));
       if (isNaN(realId)) return res.status(400).json({ error: 'Invalid Order ID' });
       
-      const { runAsSystemAdmin } = require('../utils/context');
+      const { runAsSystemAdmin, runAsBranch } = require('../utils/context');
       const order = await runAsSystemAdmin(async () => await prisma.order.findUnique({
         where: { id: realId },
         select: { branchId: true }
@@ -257,7 +257,7 @@ exports.toggleApproval = async (req, res) => {
         return res.status(403).json({ error: 'ACCESS_DENIED' });
       }
 
-      await runAsSystemAdmin(async () => await prisma.order.update({
+      await runAsBranch(order.branchId, async () => await prisma.order.update({
         where: { id: realId },
         data: { isRatingApproved: Boolean(isApproved) }
       }));
