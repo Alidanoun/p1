@@ -1,7 +1,9 @@
 const { PrismaClient } = require('@prisma/client');
 const logger = require('../utils/logger');
 const { encrypt, decrypt } = require('../utils/crypto');
+const { traceContext } = require('../utils/context');
 
+const RLS_MODELS = ['Order', 'Lead', 'Opportunity', 'SalesActivity'];
 /**
  * 💎 Optimized Prisma Client (Production Grade)
  * Implements:
@@ -104,7 +106,8 @@ const prisma = basePrisma.$extends({
 
         // 🔍 Automatically append isDeleted: false on find operations
         const SOFT_DELETE_MODELS = [
-          'FinancialLedger', 'LoyaltyLedger', 'SystemAuditLog', 'Order'
+          'FinancialLedger', 'LoyaltyLedger', 'SystemAuditLog', 'Order',
+          'Lead', 'Opportunity', 'SalesActivity'
         ];
         
         if (SOFT_DELETE_MODELS.includes(model)) {
@@ -114,7 +117,31 @@ const prisma = basePrisma.$extends({
           }
         }
 
-        return query(args);
+        // 🛡️ Row-Level Security (Zero-Trust Implementation)
+        if (!RLS_MODELS.includes(model)) {
+          return query(args); // Skip RLS overhead for global models
+        }
+
+        const context = traceContext.getStore();
+        const branchId = context?.branchId;
+        const isAdmin = context?.isAdmin || context?.bypassRls;
+
+        if (branchId) {
+          return basePrisma.$transaction(async (tx) => {
+            await tx.$executeRawUnsafe(`SELECT set_config('app.current_branch_id', $1, true)`, String(branchId));
+            return tx[model][operation](args);
+          });
+        }
+
+        if (isAdmin) {
+          return basePrisma.$transaction(async (tx) => {
+            await tx.$executeRawUnsafe(`SELECT set_config('app.bypass_rls', 'true', true)`);
+            return tx[model][operation](args);
+          });
+        }
+
+        // FAIL-CLOSED: Refuse operation if context is missing for an RLS-enabled table
+        throw new Error(`[Zero-Trust] Access denied to RLS model '${model}'. Missing branch context or explicit admin bypass.`);
       }
     }
   }
