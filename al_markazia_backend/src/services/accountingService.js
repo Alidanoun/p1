@@ -114,33 +114,39 @@ class AccountingService {
    * 🏗️ Canonical Revenue Calculation Logic
    * Purpose: Centralizes the definition of financial success metrics.
    */
-  calculateFinancialMetrics(orderAggregates, refundAggregates, discountAggregates, cancellationAggregates) {
-    // 1. Gross Revenue = Total of all valid (non-cancelled) orders
-    const grossRevenue = toDecimal(orderAggregates.total || 0);
+  calculateFinancialMetrics(orderAggregates, refundAggregates, cancellationAggregates) {
+    // 1. Gross Revenue = Total Value of Products + Delivery (Before Discounts)
+    const subtotal = toDecimal(orderAggregates.subtotal || 0);
+    const delivery = toDecimal(orderAggregates.deliveryFee || 0);
+    const grossRevenue = subtotal.plus(delivery);
     
     // 2. Refunds = Total amount returned to customers
     const totalRefunds = toDecimal(refundAggregates.total || 0);
     
     // 3. Discounts = Total discounts applied (Points, Promo, etc)
-    const totalDiscounts = toDecimal(discountAggregates.total || 0);
+    const totalDiscounts = toDecimal(orderAggregates.discount || 0);
 
-    // 4. Net Revenue = Realized income after refunds
-    // Net Revenue = Gross - Refunds
-    const netRevenue = grossRevenue.minus(totalRefunds);
+    // 4. Net Revenue = Total amount paid by customers minus refunds
+    const totalPaid = toDecimal(orderAggregates.total || 0);
+    const netRevenue = totalPaid.minus(totalRefunds);
     
-    // 5. Tax = 16% portion extracted ONLY from net revenue
-    const taxExtraction = this.extractTax(netRevenue);
+    // 5. Tax = Exact sum of tax from DB
+    const taxTotal = toDecimal(orderAggregates.tax || 0);
+    
+    // 6. Base Revenue = Revenue excluding Tax
+    const baseRevenue = netRevenue.minus(taxTotal);
 
-    // 6. Loss = Total of cancelled orders that weren't refunded (Operational loss)
+    // 7. Loss = Total of cancelled orders that weren't refunded (Operational loss)
     const totalLoss = toDecimal(cancellationAggregates.totalLoss || 0);
 
     return {
       grossRevenue: grossRevenue.toNumber(),
+      deliveryTotal: delivery.toNumber(),
       totalRefunds: totalRefunds.toNumber(),
       totalDiscounts: totalDiscounts.toNumber(),
       netRevenue: netRevenue.toNumber(),
-      taxTotal: taxExtraction.tax,
-      baseRevenue: taxExtraction.base,
+      taxTotal: taxTotal.toNumber(),
+      baseRevenue: baseRevenue.toNumber(),
       orderCount: orderAggregates.count || 0,
       cancelledCount: cancellationAggregates.count || 0,
       totalLoss: totalLoss.toNumber()

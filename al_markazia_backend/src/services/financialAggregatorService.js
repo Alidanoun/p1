@@ -46,8 +46,11 @@ class FinancialAggregatorService {
       },
       _count: { id: true },
       _sum: { 
-        total: true,
-        discount: true
+        subtotal: true,
+        deliveryFee: true,
+        tax: true,
+        discount: true,
+        total: true
       }
     });
 
@@ -55,7 +58,7 @@ class FinancialAggregatorService {
     const refundAggs = await this.prisma.orderCancellation.aggregate({
       where: {
         createdAt: { gte: start, lte: end },
-        order: { branchId: branchId || undefined }
+        order: { branchId: branchId || undefined, isDeleted: false }
       },
       _sum: { refundedAmount: true }
     });
@@ -72,9 +75,15 @@ class FinancialAggregatorService {
 
     // 4. Transform using Canonical Definitions
     return accountingService.calculateFinancialMetrics(
-      { total: orderAggs._sum.total, count: orderAggs._count.id },
+      { 
+        count: orderAggs._count.id,
+        subtotal: orderAggs._sum.subtotal,
+        deliveryFee: orderAggs._sum.deliveryFee,
+        tax: orderAggs._sum.tax,
+        discount: orderAggs._sum.discount,
+        total: orderAggs._sum.total 
+      },
       { total: refundAggs._sum.refundedAmount },
-      { total: orderAggs._sum.discount },
       { count: cancellationAggs._count.id, totalLoss: cancellationAggs._sum.total }
     );
   }
@@ -122,6 +131,8 @@ class FinancialAggregatorService {
     let platformNet = new Decimal(0);
     let platformTax = new Decimal(0);
     let platformDiscounts = new Decimal(0);
+    let platformDelivery = new Decimal(0);
+    let platformBase = new Decimal(0);
     let platformOrders = 0;
 
     for (const branch of branches) {
@@ -137,6 +148,8 @@ class FinancialAggregatorService {
       platformNet = platformNet.plus(toDecimal(metrics.netRevenue));
       platformTax = platformTax.plus(toDecimal(metrics.taxTotal));
       platformDiscounts = platformDiscounts.plus(toDecimal(metrics.totalDiscounts));
+      platformDelivery = platformDelivery.plus(toDecimal(metrics.deliveryTotal || 0));
+      platformBase = platformBase.plus(toDecimal(metrics.baseRevenue || 0));
       platformOrders += metrics.orderCount;
     }
 
@@ -146,6 +159,8 @@ class FinancialAggregatorService {
         totalNet: platformNet.toNumber(),
         totalTax: platformTax.toNumber(),
         totalDiscounts: platformDiscounts.toNumber(),
+        totalDelivery: platformDelivery.toNumber(),
+        totalBase: platformBase.toNumber(),
         totalOrders: platformOrders,
         branchCount: branches.length
       },

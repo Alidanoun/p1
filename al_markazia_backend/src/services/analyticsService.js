@@ -76,8 +76,10 @@ class AnalyticsService {
       topItems: await this._calculateTopItems(start, end, branchId),
       revenue: financialMetrics.netRevenue, // Report net realized income
       grossRevenue: financialMetrics.grossRevenue,
+      baseRevenue: financialMetrics.baseRevenue,
       totalRefunds: financialMetrics.totalRefunds,
-      taxLiability: financialMetrics.taxLiability
+      taxLiability: financialMetrics.taxTotal,
+      deliveryFees: financialMetrics.deliveryTotal
     };
 
     // 🛡️ [P10] Persistence into Metric Store (Async safe-guard)
@@ -214,8 +216,11 @@ class AnalyticsService {
         totalOrders: metrics.orderCount,
         avgOrderValue: metrics.orderCount > 0 ? (metrics.netRevenue / metrics.orderCount) : 0,
         grossRevenue: metrics.grossRevenue,
+        baseRevenue: metrics.baseRevenue,
         totalRefunds: metrics.totalRefunds,
-        totalDiscounts: metrics.totalDiscounts
+        totalDiscounts: metrics.totalDiscounts,
+        taxLiability: metrics.taxTotal,
+        deliveryFees: metrics.deliveryTotal
       },
       chartData,
       topItems: await this._calculateTopItems(start, end, targetBranchId)

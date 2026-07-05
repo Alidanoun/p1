@@ -1065,6 +1065,8 @@ model DailyFinancialSnapshot {
   netRevenue     Decimal  @db.Decimal(10, 2)
   taxTotal       Decimal  @db.Decimal(10, 2)
   discountTotal  Decimal  @db.Decimal(10, 2)
+  deliveryTotal  Decimal? @default(0) @db.Decimal(10, 2)
+  baseRevenue    Decimal? @default(0) @db.Decimal(10, 2)
   orderCount     Int
   cancelledCount Int
   lossTotal      Decimal  @db.Decimal(10, 2)
