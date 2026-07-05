@@ -86,7 +86,12 @@ const prisma = basePrisma.$extends({
 
           const encryptData = (data) => {
             if (!data || typeof data !== 'object') return;
-            ['email', 'phone', 'name'].forEach(field => {
+            // Only encrypt 'name' if the model is not Category (public menu)
+            const fieldsToEncrypt = ['email', 'phone'];
+            if (model !== 'Category') {
+              fieldsToEncrypt.push('name');
+            }
+            fieldsToEncrypt.forEach(field => {
               if (data[field] && typeof data[field] === 'string' && !isAlreadyEncrypted(data[field])) {
                 data[field] = encrypt(data[field]);
               }

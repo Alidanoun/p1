@@ -20,3 +20,5 @@ coverage/
 .nyc_output/
 startup.log
 error.log
+tests/
+

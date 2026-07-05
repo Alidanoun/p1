@@ -426,7 +426,7 @@ exports.createItem = async (req, res) => {
         basePrice: toNumber(newItem.basePrice),
         optionGroups: mappedGroups
       };
-    });
+    }, { maxWait: 15000, timeout: 25000 });
 
     await menuCacheService.invalidate();
 
@@ -659,7 +659,7 @@ exports.updateItem = async (req, res) => {
           modifierGroups: { include: { modifiers: true } }
         }
       });
-    });
+    }, { maxWait: 15000, timeout: 25000 });
 
     await menuCacheService.invalidate();
 

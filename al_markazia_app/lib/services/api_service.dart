@@ -29,12 +29,12 @@ class ApiService {
   Timer? _silentRefreshTimer;
 
   static String get baseUrl {
-    return const String.fromEnvironment('API_URL', defaultValue: 'http://192.168.3.170:5000/api/v1');
+    return const String.fromEnvironment('API_URL', defaultValue: 'http://10.216.143.143:5000/api/v1');
   }
 
   /// 🔌 Socket Base URL (without /api/v1 prefix — Socket.IO connects to root)
   static String get socketUrl {
-    return const String.fromEnvironment('SOCKET_URL', defaultValue: 'http://192.168.3.170:5000');
+    return const String.fromEnvironment('SOCKET_URL', defaultValue: 'http://10.216.143.143:5000');
   }
 
   /// 🏥 Fetch Restaurant Operational Status
