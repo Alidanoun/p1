@@ -4,6 +4,14 @@ ALTER TABLE "Lead" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "Opportunity" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "SalesActivity" ENABLE ROW LEVEL SECURITY;
 
+-- FORCE RLS to apply even to the table owner (prevents table-owner bypass)
+-- CRITICAL: Without this, if the DB user in DATABASE_URL is the table owner,
+-- all RLS policies are silently bypassed, rendering the above useless.
+ALTER TABLE "Order" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "Lead" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "Opportunity" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "SalesActivity" FORCE ROW LEVEL SECURITY;
+
 -- Create policies that enforce Zero-Trust branch isolation
 -- 1. Order Policy
 CREATE POLICY branch_isolation_policy_order ON "Order"

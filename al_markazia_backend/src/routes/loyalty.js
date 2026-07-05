@@ -3,6 +3,7 @@ const router = express.Router();
 const loyaltyController = require('../controllers/loyaltyController');
 const { authenticateToken: authMiddleware, isAdmin: adminMiddleware, isManager } = require('../middleware/auth');
 const { checkPermission } = require('../middleware/permissionMiddleware');
+const markAdminBypass = require('../middleware/markAdminBypass');
 
 /**
  * 🎁 Loyalty Routes
@@ -10,10 +11,10 @@ const { checkPermission } = require('../middleware/permissionMiddleware');
  */
 
 router.get('/status', loyaltyController.getStatus);
-router.get('/settings', authMiddleware, adminMiddleware, loyaltyController.getSettings);
-router.post('/start-now', authMiddleware, adminMiddleware, loyaltyController.startNow);
-router.post('/stop-now', authMiddleware, adminMiddleware, loyaltyController.stopNow);
-router.patch('/settings', authMiddleware, adminMiddleware, loyaltyController.updateSettings);
+router.get('/settings', authMiddleware, adminMiddleware, markAdminBypass, loyaltyController.getSettings);
+router.post('/start-now', authMiddleware, adminMiddleware, markAdminBypass, loyaltyController.startNow);
+router.post('/stop-now', authMiddleware, adminMiddleware, markAdminBypass, loyaltyController.stopNow);
+router.patch('/settings', authMiddleware, adminMiddleware, markAdminBypass, loyaltyController.updateSettings);
 
 // 📱 Mobile App Endpoints
 router.get('/profile', authMiddleware, loyaltyController.getMyLoyaltyProfile);
