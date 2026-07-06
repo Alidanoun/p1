@@ -234,6 +234,7 @@ export default function CRMLeads() {
                 </button>
               </div>
             </form>
+          </div>
         </div>
       )}
 
