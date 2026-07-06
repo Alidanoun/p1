@@ -70,6 +70,12 @@ describe('RLS Integration - Background Jobs', () => {
       return;
     }
     await runAsSystemAdmin(async () => {
+      const orders = await prisma.order.findMany({ where: { branchId: { in: [branchA.id, branchB.id] } }, select: { id: true } });
+      const orderIds = orders.map(o => o.id);
+      if (orderIds.length > 0) {
+        await prisma.orderCancellation.deleteMany({ where: { orderId: { in: orderIds } } });
+        await prisma.orderAuditLog.deleteMany({ where: { orderId: { in: orderIds } } });
+      }
       await prisma.order.deleteMany({
         where: { branchId: { in: [branchA.id, branchB.id] } }
       });
@@ -121,5 +127,48 @@ describe('RLS Integration - Background Jobs', () => {
       where: { branchId: { in: [branchA.id, branchB.id] }, isArchived: true }
     }));
     expect(archivedOrders.length).toBe(2);
+  });
+
+  it('should execute ContractGateway system actions in background contexts without throwing RLS Zero-Trust errors', async () => {
+    const container = require('../src/lib/container');
+    const contractGateway = container.contractGateway;
+
+    // Create a new unarchived delivered order for branch A
+    let order;
+    await runAsSystemAdmin(async () => {
+      order = await prisma.order.create({
+        data: {
+          branchId: branchA.id,
+          customerId: customer.id,
+          orderNumber: `RLS-GW-${RUN_ID}`,
+          customerName: 'RLS Test Customer',
+          customerPhone: '07999999999',
+          status: 'pending',
+          total: 15,
+          subtotal: 15,
+          tax: 0,
+          deliveryFee: 0,
+          orderType: 'pickup'
+        }
+      });
+    });
+
+    // Execute order cancellation via ContractGateway.
+    // This executes as 'SYSTEM' actor, simulating background lifecycle queues (no manual AsyncLocalStorage context set here).
+    const systemActor = { id: 'SYSTEM', role: 'system' };
+    const cancelContext = {
+      reason: 'AUTO_TIMEOUT: Test system cancellation',
+      idempotencyKey: `timeout_test_${order.id}_${Date.now()}`
+    };
+
+    await expect(
+      contractGateway.execute(order.id, 'SYSTEM_CANCEL', cancelContext, systemActor)
+    ).resolves.not.toThrow();
+
+    // Verify order was indeed cancelled
+    const updatedOrder = await runAsSystemAdmin(async () => prisma.order.findUnique({
+      where: { id: order.id }
+    }));
+    expect(updatedOrder.status).toBe('cancelled');
   });
 });

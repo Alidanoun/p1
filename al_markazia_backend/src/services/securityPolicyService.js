@@ -30,7 +30,7 @@ class SecurityPolicyService {
 
     let normalizedRole = user.role.toLowerCase();
     
-    const ALLOWED_ROLES = ['admin', 'branch_manager', 'manager', 'customer', 'staff'];
+    const ALLOWED_ROLES = ['admin', 'branch_manager', 'manager', 'customer', 'staff', 'system'];
 
     if (!ALLOWED_ROLES.includes(normalizedRole)) {
       logger.security('UNAUTHORIZED_ROLE_ACCESS', { userId: user.id, role: user.role, modelName });
@@ -43,6 +43,7 @@ class SecurityPolicyService {
      */
     const SCOPE_MATRIX = {
       admin: { canReadAll: true, canModifyAll: true }, // Global Admin with full access
+      system: { canReadAll: true, canModifyAll: true }, // System background services
       branch_manager: { canReadAll: false, canModifyAll: false },
       manager: { canReadAll: false, canModifyAll: false }
     };
@@ -254,14 +255,15 @@ class SecurityPolicyService {
     // 📊 Define Scope Matrix (Internal copy for lookup)
     const SCOPE_MATRIX = {
       admin: { canReadAll: true, canModifyAll: true },
+      system: { canReadAll: true, canModifyAll: true },
       branch_manager: { canReadAll: false, canModifyAll: false },
       manager: { canReadAll: false, canModifyAll: false }
     };
 
     const scope = SCOPE_MATRIX[role] || { canReadAll: false, canModifyAll: false };
 
-    // 👑 Super Admin bypass
-    if (role === 'admin') return true;
+    // 👑 Super Admin & System bypass
+    if (role === 'admin' || role === 'system') return true;
 
     // 👁️ READ INTENT: Global Admins can see everything
     if (intent === 'read' && scope.canReadAll) return true;
@@ -275,7 +277,7 @@ class SecurityPolicyService {
 
     if (branchId === null || branchId === undefined) {
       // If order has no branch, only global managers/admins can access it
-      return role === 'admin';
+      return role === 'admin' || role === 'system';
     }
 
     if (allowedIds.includes(branchId)) return true;

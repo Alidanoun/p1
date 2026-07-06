@@ -317,6 +317,32 @@ class InMemoryRedisFallback {
     return 0;
   }
 
+  async lrange(key, start, stop) {
+    if (this._isExpired(key)) return [];
+    const list = this.store.get(key);
+    if (Array.isArray(list)) {
+      const startIdx = parseInt(start, 10);
+      const stopIdx = parseInt(stop, 10);
+      const endIdx = stopIdx === -1 ? undefined : stopIdx + 1;
+      return list.slice(startIdx, endIdx);
+    }
+    return [];
+  }
+
+  async lpush(key, ...values) {
+    if (this._isExpired(key)) {
+      this.store.delete(key);
+    }
+    let list = this.store.get(key);
+    if (!Array.isArray(list)) {
+      list = [];
+      this.store.set(key, list);
+    }
+    const flatValues = values.flat();
+    list.unshift(...flatValues.map(v => String(v)));
+    return list.length;
+  }
+
   async ping() {
     return 'PONG';
   }

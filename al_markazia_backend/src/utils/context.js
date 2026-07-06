@@ -4,7 +4,10 @@ const { AsyncLocalStorage } = require('async_hooks');
  * Shared Request Context for Tracing & Logging
  * Prevents circular dependencies between Logger and Middleware.
  */
-const traceContext = new AsyncLocalStorage();
+if (!global.__traceContext) {
+  global.__traceContext = new AsyncLocalStorage();
+}
+const traceContext = global.__traceContext;
 
 const getRequestId = () => {
   const context = traceContext.getStore();
@@ -27,11 +30,37 @@ const getRegion = () => {
 };
 
 const runAsSystemAdmin = (fn) => {
-  return traceContext.run({ isAdmin: true, bypassRls: true }, fn);
+  return new Promise((resolve, reject) => {
+    traceContext.run({ isAdmin: true, bypassRls: true }, () => {
+      try {
+        const res = fn();
+        if (res && typeof res.then === 'function') {
+          res.then(resolve, reject);
+        } else {
+          resolve(res);
+        }
+      } catch (err) {
+        reject(err);
+      }
+    });
+  });
 };
 
 const runAsBranch = (branchId, fn) => {
-  return traceContext.run({ branchId }, fn);
+  return new Promise((resolve, reject) => {
+    traceContext.run({ branchId }, () => {
+      try {
+        const res = fn();
+        if (res && typeof res.then === 'function') {
+          res.then(resolve, reject);
+        } else {
+          resolve(res);
+        }
+      } catch (err) {
+        reject(err);
+      }
+    });
+  });
 };
 
 module.exports = {

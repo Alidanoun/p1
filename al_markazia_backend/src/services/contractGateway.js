@@ -39,8 +39,14 @@ class ContractGateway {
     }
 
     try {
+      let order = null;
+      const { runAsSystemAdmin, runAsBranch } = require('../utils/context');
+
       if (orderId) {
-        const order = await this.prisma.order.findUnique({ where: { id: orderId }, select: { id: true, branchId: true } });
+        order = await runAsSystemAdmin(async () => await this.prisma.order.findUnique({
+          where: { id: orderId },
+          select: { id: true, branchId: true }
+        }));
         if (!order) { await this.redis.del(lockKey); throw new Error('ORDER_NOT_FOUND'); }
 
         const accessIntent = action === 'PREVIEW' ? 'read' : 'write';
@@ -55,9 +61,15 @@ class ContractGateway {
       // 🛡️ [PHASE 2] Enforcement: DTO Contract & State Machine Validation
       await this._validateContract(action, context, orderId, actor);
 
+      // Determine RLS context for execution
+      const targetBranchId = order?.branchId || context?.orderData?.branchId || actor?.branchId;
+      const runContext = targetBranchId
+        ? (fn) => runAsBranch(targetBranchId, fn)
+        : (fn) => runAsSystemAdmin(fn);
+
       // We use require for orchestrator for now if it's not in container
       const orchestrator = require('./orderModificationOrchestrator');
-      const result = await (async () => {
+      const result = await runContext(async () => {
         switch (action) {
           case 'PREVIEW': return await orchestrator.preview(orderId, context.modifications, actor);
           case 'CANCEL': return await this.container.orderLifecycleOrchestrator.cancel(orderId, actor, { ...context, source: 'ADMIN_CANCEL' });
@@ -74,7 +86,7 @@ class ContractGateway {
             // Fallback for non-refactored paths
             return await this._legacyExecute(orderId, action, context, actor);
         }
-      })();
+      });
 
       if (result && result._outboxId) await this.container.outboxService.immediateDispatch(result._outboxId);
       if (idempotencyKey) await this.container.idempotencyService.commit(idempotencyKey, result);
@@ -149,7 +161,7 @@ class ContractGateway {
 
     // 3. State Machine & Branch Isolation Enforcement
     if (orderId) {
-      const order = await this.prisma.order.findUnique({ where: { id: orderId }, select: { status: true, branchId: true } });
+      const order = await require('../utils/context').runAsSystemAdmin(() => this.prisma.order.findUnique({ where: { id: orderId }, select: { status: true, branchId: true } }));
       if (order) {
         // A. State Check
         if (action === 'UPDATE_STATUS') {
