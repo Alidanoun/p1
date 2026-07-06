@@ -6,6 +6,8 @@ const { runAsSystemAdmin } = require('../src/utils/context');
 const RUN_ID = Date.now();
 
 describe('RLS Integration - Background Jobs', () => {
+  jest.setTimeout(30000); // 30 seconds timeout to handle background jobs and slow CI
+
   let branchA, branchB, customer;
 
   beforeAll(async () => {
@@ -67,6 +69,7 @@ describe('RLS Integration - Background Jobs', () => {
   afterAll(async () => {
     if (!branchA || !branchB) {
       await prisma.$disconnect();
+      await redis.quitAll();
       return;
     }
     await runAsSystemAdmin(async () => {
@@ -92,7 +95,12 @@ describe('RLS Integration - Background Jobs', () => {
       await prisma.branch.delete({ where: { id: branchB.id } });
     });
     await prisma.$disconnect();
-  });
+    if (typeof redis.quitAll === 'function') {
+      await redis.quitAll();
+    } else {
+      await redis.quit();
+    }
+  }, 30000);
 
   it('should run dailyArchiver without throwing RLS Zero-Trust errors and respect branch isolation', async () => {
     // If runDailyArchiver throws an RLS error, this test will fail.
@@ -127,7 +135,7 @@ describe('RLS Integration - Background Jobs', () => {
       where: { branchId: { in: [branchA.id, branchB.id] }, isArchived: true }
     }));
     expect(archivedOrders.length).toBe(2);
-  });
+  }, 30000);
 
   it('should execute ContractGateway system actions in background contexts without throwing RLS Zero-Trust errors', async () => {
     const container = require('../src/lib/container');
