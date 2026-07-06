@@ -166,8 +166,8 @@ class ObservabilityService {
       const { runAsSystemAdmin } = require('../utils/context');
       
       const [orders, errorCount] = await Promise.all([
-        runAsSystemAdmin(() => 
-          prisma.order.groupBy({
+        runAsSystemAdmin(async () => 
+          await prisma.order.groupBy({
             by: ['status'],
             where: { createdAt: { gte: oneHourAgo } },
             _count: true

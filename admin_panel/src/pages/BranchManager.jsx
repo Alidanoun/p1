@@ -11,7 +11,8 @@ import {
   Power,
   X,
   AlertTriangle,
-  Shield
+  Shield,
+  Trash2
 } from 'lucide-react';
 import { useSocket } from '../hooks/useSocket';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -28,6 +29,7 @@ const BranchManager = () => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [selectedBranch, setSelectedBranch] = useState(null);
 
   // Form states
@@ -170,6 +172,25 @@ const BranchManager = () => {
     setIsConfirmModalOpen(true);
   };
 
+  const handleDeleteBranch = async () => {
+    setSubmitting(true);
+    try {
+      await api.delete(`/branch/${selectedBranch.id}`);
+      toast.success('تم حذف الفرع بنجاح');
+      setIsDeleteModalOpen(false);
+      setSelectedBranch(null);
+    } catch (err) {
+      toast.error(err.response?.data?.error?.message || err.response?.data?.message || 'حدث خطأ أثناء حذف الفرع');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const openDeleteModal = (branch) => {
+    setSelectedBranch(branch);
+    setIsDeleteModalOpen(true);
+  };
+
   return (
     <div className="p-6 bg-slate-950 min-h-screen text-slate-200">
       {/* 🚀 Header Section */}
@@ -253,6 +274,13 @@ const BranchManager = () => {
                 >
                   {branch.isActive ? <PowerOff className="w-3.5 h-3.5" /> : <Power className="w-3.5 h-3.5" />}
                   {branch.isActive ? 'تعطيل' : 'تفعيل'}
+                </button>
+                <button 
+                  onClick={() => openDeleteModal(branch)}
+                  className="flex items-center justify-center py-2 px-3 bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded-lg transition-colors"
+                  title="حذف الفرع"
+                >
+                  <Trash2 className="w-4 h-4" />
                 </button>
               </div>
             </motion.div>
@@ -398,6 +426,50 @@ const BranchManager = () => {
                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                   ) : (
                     selectedBranch.isActive ? 'نعم، عطّل الفرع' : 'نعم، فعّل الفرع'
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 🔴 Delete Branch Modal */}
+      <AnimatePresence>
+        {isDeleteModalOpen && selectedBranch && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsDeleteModalOpen(false)} />
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative bg-slate-900 border border-red-500/30 rounded-2xl p-6 w-full max-w-md shadow-2xl m-4">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="p-3 rounded-full bg-red-500/10 text-red-500">
+                  <Trash2 className="w-8 h-8" />
+                </div>
+                <h2 className="text-xl font-bold">
+                  حذف فرع {selectedBranch.name}
+                </h2>
+              </div>
+              
+              <div className="bg-red-500/5 border border-red-500/10 rounded-xl p-4 mb-6">
+                <p className="text-slate-300 mb-2 font-medium">هل أنت متأكد من حذف هذا الفرع؟</p>
+                <ul className="list-disc list-inside text-sm text-slate-400 space-y-1">
+                  <li>سيتم إخفاء الفرع من جميع القوائم.</li>
+                  <li>لن يتمكن الموظفون من الدخول إليه.</li>
+                  <li>يتم الحفاظ على السجلات المالية والطلبات السابقة.</li>
+                </ul>
+              </div>
+
+              <div className="flex gap-3">
+                <button type="button" onClick={() => setIsDeleteModalOpen(false)} className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors">إلغاء</button>
+                <button 
+                  type="button" 
+                  onClick={handleDeleteBranch} 
+                  disabled={submitting} 
+                  className="flex-1 py-2 text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors flex justify-center items-center"
+                >
+                  {submitting ? (
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    'نعم، احذف الفرع'
                   )}
                 </button>
               </div>
