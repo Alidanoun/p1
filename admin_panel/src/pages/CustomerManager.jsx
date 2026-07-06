@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { 
   User, ShieldAlert, ShieldOff, Search, Loader2, X, RefreshCw, 
-  Clock, AlertTriangle, TrendingDown, Calendar, ShieldCheck
+  Clock, AlertTriangle, TrendingDown, Calendar, ShieldCheck, History
 } from 'lucide-react';
 import Header from '../components/Header';
 import api, { unwrap } from '../api/client';
+import Customer360 from '../components/Customer360';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { cn } from '../lib/utils';
@@ -44,6 +45,8 @@ const CustomerManager = () => {
     severity: 'MEDIUM',
     durationDays: '0'
   });
+
+  const [selected360CustomerId, setSelected360CustomerId] = useState(null);
 
   const fetchBlacklistCount = useCallback(async () => {
     try {
@@ -226,6 +229,7 @@ const CustomerManager = () => {
                 confirmUnblockId={confirmUnblockId}
                 setConfirmUnblockId={setConfirmUnblockId}
                 onUnblock={handleUnblock}
+                onView360={setSelected360CustomerId}
               />
             ))}
 
@@ -362,12 +366,17 @@ const CustomerManager = () => {
           </div>
         )}
       </AnimatePresence>
+      <Customer360 
+        customerId={selected360CustomerId} 
+        isOpen={selected360CustomerId !== null} 
+        onClose={() => setSelected360CustomerId(null)} 
+      />
     </div>
   );
 };
 
 // Row Component
-const BlacklistRow = ({ customer, unblockingId, confirmUnblockId, setConfirmUnblockId, onUnblock }) => {
+const BlacklistRow = ({ customer, unblockingId, confirmUnblockId, setConfirmUnblockId, onUnblock, onView360 }) => {
   const { status, isTemporary } = useBlacklistStatus(customer);
   const statusConfig = formatBlacklistStatus(status);
 
@@ -416,7 +425,15 @@ const BlacklistRow = ({ customer, unblockingId, confirmUnblockId, setConfirmUnbl
         </div>
       </div>
       
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3">
+        <button 
+          onClick={() => onView360(customer.id)}
+          className="group/btn w-10 h-10 rounded-xl bg-white/5 border border-white/5 text-text-muted hover:bg-primary/10 hover:text-primary hover:border-primary/30 transition-all duration-300"
+          title="عرض بروفايل العميل 360°"
+        >
+          <History className="w-4 h-4 mx-auto group-hover/btn:scale-110 transition-transform" />
+        </button>
+
         <div className="text-left hidden md:block">
           <p className="text-text-muted text-[8px] font-black uppercase mb-1">نوع الحظر</p>
           <div className="flex items-center gap-2">

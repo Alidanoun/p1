@@ -32,7 +32,7 @@ class SalesActivityService {
       });
     }
 
-    return await prisma.$transaction(async (tx) => {
+    const activity = await prisma.$transaction(async (tx) => {
       const activity = await tx.salesActivity.create({
         data: {
           type,
@@ -69,6 +69,12 @@ class SalesActivityService {
       logger.info('[SalesActivityService] Activity logged', { activityId: activity.id, type, branchId });
       return activity;
     });
+
+    if (customerId) {
+      await this.invalidateCustomer360Cache(customerId, branchId);
+    }
+
+    return activity;
   }
 
   /**
@@ -126,14 +132,36 @@ class SalesActivityService {
    * Full profile: orders, loyalty, CRM activities, lead history, opportunities
    */
   async getCustomer360(customerId, branchId) {
-    const [customer, activities, opportunities, recentOrders] = await Promise.all([
+    const redis = require('../lib/redis');
+    const cacheKey = `customer:360:${customerId}:${branchId}`;
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        logger.debug(`[SalesActivityService] Customer 360 cache hit for key: ${cacheKey}`);
+        return JSON.parse(cached);
+      }
+    } catch (err) {
+      logger.error(`[SalesActivityService] Error reading Customer 360 cache`, { error: err.message });
+    }
+
+    const [customer, activities, opportunities, recentOrders, reviews, loyaltyLedgers] = await Promise.all([
       prisma.customer.findUnique({
         where: { id: parseInt(customerId) },
         select: {
           id: true, name: true, phone: true, email: true,
           points: true, walletBalance: true, tier: true,
           totalOrders: true, riskScore: true,
-          createdAt: true, isBlacklisted: true
+          createdAt: true, isBlacklisted: true,
+          leadsConverted: {
+            select: {
+              id: true,
+              name: true,
+              status: true,
+              opportunities: {
+                select: { id: true, title: true, stage: true, value: true }
+              }
+            }
+          }
         }
       }),
       prisma.salesActivity.findMany({
@@ -149,14 +177,55 @@ class SalesActivityService {
       prisma.order.findMany({
         where: { customerId: parseInt(customerId), branchId },
         orderBy: { createdAt: 'desc' },
-        take: 5,
+        take: 10,
         select: { id: true, orderNumber: true, status: true, total: true, createdAt: true }
+      }),
+      prisma.review.findMany({
+        where: { customerId: parseInt(customerId) },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        select: { id: true, rating: true, comment: true, createdAt: true }
+      }),
+      prisma.loyaltyLedger.findMany({
+        where: { customerId: parseInt(customerId) },
+        orderBy: { createdAt: 'desc' },
+        take: 20,
+        select: { id: true, points: true, transactionType: true, description: true, createdAt: true }
       })
     ]);
 
     if (!customer) throw Object.assign(new Error('CUSTOMER_NOT_FOUND'), { statusCode: 404 });
 
-    return { customer, activities, opportunities, recentOrders };
+    const result = { customer, activities, opportunities, recentOrders, reviews, loyaltyLedgers };
+
+    try {
+      await redis.set(cacheKey, JSON.stringify(result), 'EX', 60);
+    } catch (err) {
+      logger.error(`[SalesActivityService] Error setting Customer 360 cache`, { error: err.message });
+    }
+
+    return result;
+  }
+
+  /**
+   * Helper to invalidate Customer 360 cache
+   */
+  async invalidateCustomer360Cache(customerId, branchId = null) {
+    const redis = require('../lib/redis');
+    if (branchId) {
+      const key = `customer:360:${customerId}:${branchId}`;
+      await redis.del(key).catch(err => logger.error(`[SalesActivityService] Cache invalidation error`, { error: err.message }));
+    } else {
+      const pattern = `customer:360:${customerId}:*`;
+      try {
+        const keys = await redis.keys(pattern);
+        if (keys.length > 0) {
+          await redis.del(...keys);
+        }
+      } catch (err) {
+        logger.error(`[SalesActivityService] Cache pattern invalidation error`, { error: err.message });
+      }
+    }
   }
 }
 

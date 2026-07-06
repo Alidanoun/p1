@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api/client';
-import { Plus, Phone, Mail, Trash2, RefreshCw, ArrowRight, UserCheck } from 'lucide-react';
+import { Plus, Phone, Mail, Trash2, RefreshCw, ArrowRight, UserCheck, History } from 'lucide-react';
 import { toast } from 'sonner';
+import Customer360 from '../components/Customer360';
 
 export default function CRMLeads() {
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [formData, setFormData] = useState({ name: '', phone: '', email: '', source: 'WEBSITE', notes: '' });
+  const [selected360CustomerId, setSelected360CustomerId] = useState(null);
 
   useEffect(() => {
     fetchLeads();
@@ -139,6 +141,15 @@ export default function CRMLeads() {
                             <UserCheck />
                           </button>
                         )}
+                        {lead.status === 'CONVERTED' && lead.convertedCustomerId && (
+                          <button
+                            onClick={() => setSelected360CustomerId(lead.convertedCustomerId)}
+                            title="عرض ملف العميل 360°"
+                            className="p-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-xl transition-colors"
+                          >
+                            <History />
+                          </button>
+                        )}
                         <button
                           onClick={() => handleDelete(lead.id)}
                           title="حذف"
@@ -223,9 +234,14 @@ export default function CRMLeads() {
                 </button>
               </div>
             </form>
-          </div>
         </div>
       )}
+
+      <Customer360 
+        customerId={selected360CustomerId} 
+        isOpen={selected360CustomerId !== null} 
+        onClose={() => setSelected360CustomerId(null)} 
+      />
     </div>
   );
 }
