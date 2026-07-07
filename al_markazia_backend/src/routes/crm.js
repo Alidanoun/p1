@@ -15,6 +15,7 @@ const rateLimit = require('express-rate-limit');
 const leadController = require('../controllers/leadController');
 const opportunityController = require('../controllers/opportunityController');
 const salesActivityController = require('../controllers/salesActivityController');
+const customFieldController = require('../controllers/customFieldController');
 const crmAnalyticsService = require('../services/crmAnalyticsService');
 const response = require('../utils/response');
 
@@ -101,6 +102,14 @@ router.post(
   authMiddleware, checkPermission('crm', 'EDIT_PIN'), hasPermission(PERMISSIONS.CRM_EDIT), BranchAccessMiddleware,
   idempotency.guard(true),
   opportunityController.createOpportunity
+);
+
+router.patch(
+  '/opportunities/:id',
+  authMiddleware, checkPermission('crm', 'EDIT_PIN'), hasPermission(PERMISSIONS.CRM_EDIT), BranchAccessMiddleware,
+  idempotency.guard(true),
+  validateId(),
+  opportunityController.updateOpportunity
 );
 
 router.patch(
@@ -203,5 +212,37 @@ router.get('/analytics/activities', authMiddleware, checkPermission('crm', 'VIEW
     return response.error(res, 'حدث خطأ', 'INTERNAL_ERROR', 500);
   }
 });
+
+// ─── Custom Fields Definitions ───────────────────────────────────────────────
+
+// GET definitions for a branch (CRM staff can read them to render forms)
+router.get(
+  '/custom-fields/definitions/:entityType',
+  authMiddleware, checkPermission('crm', 'VIEW'), hasPermission(PERMISSIONS.CRM_VIEW), BranchAccessMiddleware,
+  customFieldController.getDefinitions
+);
+
+// CRUD for definitions (Restricted to Super Admin only)
+router.post(
+  '/custom-fields/definitions',
+  authMiddleware, isAdminMiddleware,
+  idempotency.guard(true),
+  customFieldController.createDefinition
+);
+
+router.patch(
+  '/custom-fields/definitions/:id',
+  authMiddleware, isAdminMiddleware,
+  idempotency.guard(true),
+  validateId(),
+  customFieldController.updateDefinition
+);
+
+router.delete(
+  '/custom-fields/definitions/:id',
+  authMiddleware, isAdminMiddleware,
+  validateId(),
+  customFieldController.deleteDefinition
+);
 
 module.exports = router;

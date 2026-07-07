@@ -3,17 +3,29 @@ import api from '../api/client';
 import { Plus, Phone, Mail, Trash2, RefreshCw, ArrowRight, UserCheck, History } from 'lucide-react';
 import { toast } from 'sonner';
 import Customer360 from '../components/Customer360';
+import DynamicFieldsRenderer from '../components/DynamicFieldsRenderer';
 
 export default function CRMLeads() {
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [formData, setFormData] = useState({ name: '', phone: '', email: '', source: 'WEBSITE', notes: '' });
+  const [formData, setFormData] = useState({ name: '', phone: '', email: '', source: 'WEBSITE', notes: '', customFields: {} });
   const [selected360CustomerId, setSelected360CustomerId] = useState(null);
+  const [customFieldsDefs, setCustomFieldsDefs] = useState([]);
 
   useEffect(() => {
     fetchLeads();
+    fetchCustomFieldsDefs();
   }, []);
+
+  const fetchCustomFieldsDefs = async () => {
+    try {
+      const res = await api.get('/crm/custom-fields/definitions/LEAD');
+      setCustomFieldsDefs(res.data?.data || res.data || []);
+    } catch (err) {
+      console.error('Failed to fetch custom field definitions', err);
+    }
+  };
 
   const fetchLeads = async () => {
     try {
@@ -31,13 +43,16 @@ export default function CRMLeads() {
   const handleAddLead = async (e) => {
     e.preventDefault();
     try {
-      await api.post('/crm/leads', formData);
+      // Include unique idempotency key
+      await api.post('/crm/leads', formData, {
+        headers: { 'Idempotency-Key': crypto.randomUUID() }
+      });
       toast.success('تم إضافة العميل المحتمل بنجاح');
       setShowAddModal(false);
-      setFormData({ name: '', phone: '', email: '', source: 'WEBSITE', notes: '' });
+      setFormData({ name: '', phone: '', email: '', source: 'WEBSITE', notes: '', customFields: {} });
       fetchLeads();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'فشل في الإضافة');
+      toast.error(err.response?.data?.error?.message || err.response?.data?.message || 'فشل في الإضافة');
     }
   };
 
@@ -217,6 +232,20 @@ export default function CRMLeads() {
                   rows="3"
                 ></textarea>
               </div>
+
+              {customFieldsDefs.length > 0 && (
+                <div className="border-t border-gray-100 pt-4 space-y-3">
+                  <h4 className="font-bold text-sm text-gray-700">بيانات إضافية مخصصة</h4>
+                  <DynamicFieldsRenderer
+                    definitions={customFieldsDefs}
+                    values={formData.customFields}
+                    onChange={(key, val) => setFormData(prev => ({
+                      ...prev,
+                      customFields: { ...prev.customFields, [key]: val }
+                    }))}
+                  />
+                </div>
+              )}
               
               <div className="flex justify-end gap-3 pt-4">
                 <button

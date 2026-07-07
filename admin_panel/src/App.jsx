@@ -26,6 +26,7 @@ import CustomerManager from './pages/CustomerManager';
 import DiscountsManager from './pages/DiscountsManager';
 import CRMLeads from './pages/CRMLeads';
 import CRMPipeline from './pages/CRMPipeline';
+import CustomFieldsManager from './pages/CustomFieldsManager';
 import ProtectedRoute from './components/ProtectedRoute';
 import PinGuard from './components/PinGuard';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -197,6 +198,11 @@ function App() {
             <Route path="/crm/pipeline" element={
               <ProtectedRoute requiredRole={['admin', 'manager', 'branch_manager']}>
                 <CRMPipeline />
+              </ProtectedRoute>
+            } />
+            <Route path="/crm/custom-fields" element={
+              <ProtectedRoute requiredRole={['admin']}>
+                <CustomFieldsManager />
               </ProtectedRoute>
             } />
           </Route>

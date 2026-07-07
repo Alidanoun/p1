@@ -3,6 +3,7 @@ import api from '../api/client';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { Plus, Trash2, User, DollarSign } from 'lucide-react';
 import { toast } from 'sonner';
+import DynamicFieldsRenderer from '../components/DynamicFieldsRenderer';
 
 const STAGES = [
   { id: 'NEW', label: 'جديد', color: 'bg-green-100 text-green-700' },
@@ -18,11 +19,22 @@ export default function CRMPipeline() {
   const [opportunities, setOpportunities] = useState({});
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [formData, setFormData] = useState({ title: '', value: '', expectedCloseDate: '' });
+  const [formData, setFormData] = useState({ title: '', value: '', expectedCloseDate: '', customFields: {} });
+  const [customFieldsDefs, setCustomFieldsDefs] = useState([]);
 
   useEffect(() => {
     fetchPipeline();
+    fetchCustomFieldsDefs();
   }, []);
+
+  const fetchCustomFieldsDefs = async () => {
+    try {
+      const res = await api.get('/crm/custom-fields/definitions/OPPORTUNITY');
+      setCustomFieldsDefs(res.data?.data || res.data || []);
+    } catch (err) {
+      console.error('Failed to fetch custom field definitions', err);
+    }
+  };
 
   const fetchPipeline = async () => {
     try {
@@ -97,13 +109,16 @@ export default function CRMPipeline() {
   const handleAddOpportunity = async (e) => {
     e.preventDefault();
     try {
-      await api.post('/crm/opportunities', formData);
+      // Include unique idempotency key
+      await api.post('/crm/opportunities', formData, {
+        headers: { 'Idempotency-Key': crypto.randomUUID() }
+      });
       toast.success('تم إضافة الصفقة بنجاح');
       setShowAddModal(false);
-      setFormData({ title: '', value: '', expectedCloseDate: '' });
+      setFormData({ title: '', value: '', expectedCloseDate: '', customFields: {} });
       fetchPipeline();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'فشل في الإضافة');
+      toast.error(err.response?.data?.error?.message || err.response?.data?.message || 'فشل في الإضافة');
     }
   };
 
@@ -232,6 +247,20 @@ export default function CRMPipeline() {
                   className="w-full border-gray-200 bg-white/50 rounded-xl p-3 outline-none"
                 />
               </div>
+
+              {customFieldsDefs.length > 0 && (
+                <div className="border-t border-gray-100 pt-4 space-y-3">
+                  <h4 className="font-bold text-sm text-gray-700">بيانات إضافية مخصصة</h4>
+                  <DynamicFieldsRenderer
+                    definitions={customFieldsDefs}
+                    values={formData.customFields}
+                    onChange={(key, val) => setFormData(prev => ({
+                      ...prev,
+                      customFields: { ...prev.customFields, [key]: val }
+                    }))}
+                  />
+                </div>
+              )}
               
               <div className="flex justify-end gap-3 pt-4">
                 <button

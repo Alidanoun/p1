@@ -53,10 +53,27 @@ class OpportunityService {
   /**
    * Create a new Opportunity linked to a Lead (optional) or Customer
    */
-  async createOpportunity({ title, leadId, customerId, branchId, assignedToId, value, expectedCloseDate }, actor) {
+  async createOpportunity({ title, leadId, customerId, branchId, assignedToId, value, expectedCloseDate, customFields }, actor) {
     return await prisma.$transaction(async (tx) => {
       // Validate assignee belongs to branch
       await this._validateAssignee(tx, assignedToId, branchId);
+
+      // Intersection migration from Lead if converting
+      let customFieldsMerged = {};
+      if (leadId) {
+        const lead = await tx.lead.findUnique({ where: { id: parseInt(leadId) } });
+        if (lead && lead.customFields) {
+          const customFieldService = require('./customFieldService');
+          const oppDefs = await customFieldService.getDefinitions('OPPORTUNITY', branchId);
+          const oppKeys = new Set(oppDefs.map(d => d.key));
+          customFieldsMerged = Object.fromEntries(
+            Object.entries(lead.customFields || {}).filter(([k]) => oppKeys.has(k))
+          );
+        }
+      }
+      if (customFields) {
+        customFieldsMerged = { ...customFieldsMerged, ...customFields };
+      }
 
       const opportunity = await tx.opportunity.create({
         data: {
@@ -68,7 +85,8 @@ class OpportunityService {
           value: value ? String(value) : '0',             // Schema field: value (Decimal)
           expectedCloseDate: expectedCloseDate ? new Date(expectedCloseDate) : null,
           stage: 'NEW',
-          version: 1
+          version: 1,
+          customFields: customFieldsMerged
         }
       });
 
@@ -281,6 +299,47 @@ class OpportunityService {
       prisma.opportunity.count({ where })
     ]);
     return { opportunities, total, page, limit, pages: Math.ceil(total / limit) };
+  }
+
+  /**
+   * Update Opportunity details and custom fields
+   */
+  async updateOpportunity(opportunityId, { title, value, expectedCloseDate, customFields }, actor) {
+    const opportunity = await prisma.opportunity.findUnique({ where: { id: opportunityId } });
+    if (!opportunity) throw Object.assign(new Error('OPPORTUNITY_NOT_FOUND'), { statusCode: 404 });
+
+    return await prisma.$transaction(async (tx) => {
+      const updated = await tx.opportunity.update({
+        where: { id: opportunityId },
+        data: {
+          ...(title !== undefined && { title }),
+          ...(value !== undefined && { value: String(value) }),
+          ...(expectedCloseDate !== undefined && { expectedCloseDate: expectedCloseDate ? new Date(expectedCloseDate) : null }),
+          ...(customFields !== undefined && { customFields })
+        }
+      });
+
+      // Audit log entry for update
+      await tx.opportunityAuditLog.create({
+        data: {
+          opportunityId: updated.id,
+          eventType: 'OPPORTUNITY_UPDATED',
+          eventAction: 'UPDATED',
+          changedById: actor?.id || null,
+          changedByRole: actor?.role || 'system',
+          previousData: JSON.stringify({ title: opportunity.title, value: opportunity.value }),
+          newData: JSON.stringify({ title: updated.title, value: updated.value })
+        }
+      });
+
+      // Invalidate Customer 360 cache if linked to customer
+      if (updated.customerId) {
+        const salesActivityService = require('./salesActivityService');
+        await salesActivityService.invalidateCustomer360Cache(updated.customerId, updated.branchId);
+      }
+
+      return updated;
+    });
   }
 
   /**

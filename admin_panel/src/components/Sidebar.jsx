@@ -45,11 +45,12 @@ const Sidebar = () => {
       ]
     },
     {
-      label: 'المبيعات و CRM',
+      label: 'إدارة علاقات العملاء (CRM)',
       show: isAdmin || isBranchManager,
       items: [
         { name: 'العملاء المحتملين', icon: User, path: '/crm/leads', show: isAdmin || isBranchManager },
         { name: 'مسار المبيعات', icon: TrendingUp, path: '/crm/pipeline', show: isAdmin || isBranchManager },
+        { name: 'حقول الاستمارات', icon: Settings, path: '/crm/custom-fields', show: isAdmin }
       ]
     },
     {

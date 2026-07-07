@@ -134,6 +134,7 @@ model Branch {
   leads           Lead[]
   opportunities   Opportunity[]
   salesActivities SalesActivity[]
+  customFieldDefinitions CustomFieldDefinition[]
 }
 
 enum PermissionLevel {
@@ -1338,6 +1339,8 @@ model Lead {
   isDeleted Boolean   @default(false)
   deletedAt DateTime?
 
+  customFields Json? @default("{}")
+
   opportunities Opportunity[]
   activities    SalesActivity[]
 
@@ -1381,6 +1384,8 @@ model Opportunity {
   // Soft Delete
   isDeleted         Boolean   @default(false)
   deletedAt         DateTime?
+
+  customFields Json? @default("{}")
 
   auditLogs  OpportunityAuditLog[]
   activities SalesActivity[]
@@ -1457,4 +1462,26 @@ model SalesActivity {
   @@index([opportunityId])
   @@index([leadId, activityDate], map: "idx_activity_lead")
   @@index([customerId, activityDate], map: "idx_activity_customer")
+}
+
+model CustomFieldDefinition {
+  id           Int      @id @default(autoincrement())
+  entityType   String   // LEAD, OPPORTUNITY
+  key          String   // technical key, e.g. "budget_range"
+  label        String   // Arabic display name
+  fieldType    String   // TEXT, NUMBER, DATE, SELECT, BOOLEAN
+  options      Json?    // Array of options for SELECT: ["Low", "Medium", "High"]
+  isRequired   Boolean  @default(false)
+  order        Int      @default(0)
+  isActive     Boolean  @default(true)
+
+  // null means global field for all branches, otherwise branch-specific
+  branchId     String?
+  branch       Branch?  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([entityType, key, branchId])
+  @@index([entityType, branchId, isActive])
 }

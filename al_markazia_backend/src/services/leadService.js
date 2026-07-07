@@ -46,7 +46,7 @@ class LeadService {
    * phone/email/name are encrypted automatically by Prisma Extension.
    * phoneHash/emailHash stored separately for deduplication queries.
    */
-  async createLead({ name, phone, email, source, notes, branchId, assignedToId }, actor) {
+  async createLead({ name, phone, email, source, notes, branchId, assignedToId, customFields }, actor) {
     const phoneHash = this._hash(phone);
     const emailHash = this._hash(email);
 
@@ -79,7 +79,8 @@ class LeadService {
           notes,
           branchId,
           assignedToId: assignedToId || null,
-          status: 'NEW'
+          status: 'NEW',
+          customFields: customFields || {}
         }
       });
 
@@ -150,7 +151,7 @@ class LeadService {
   /**
    * Update lead status or reassign
    */
-  async updateLead(leadId, { status, assignedToId, notes }, actor) {
+  async updateLead(leadId, { status, assignedToId, notes, customFields }, actor) {
     const lead = await prisma.lead.findUnique({ where: { id: leadId } });
     if (!lead) throw Object.assign(new Error('LEAD_NOT_FOUND'), { statusCode: 404 });
     if (lead.status === 'CONVERTED') {
@@ -168,7 +169,8 @@ class LeadService {
         data: {
           ...(status && { status }),
           ...(assignedToId !== undefined && { assignedToId: assignedToId || null }),
-          ...(notes !== undefined && { notes })
+          ...(notes !== undefined && { notes }),
+          ...(customFields !== undefined && { customFields })
         }
       });
 
@@ -179,6 +181,12 @@ class LeadService {
           payload: { leadId, assignedToId, branchId: lead.branchId },
           metadata: { tx, aggregateType: 'Lead', actorId: actor?.id }
         });
+      }
+
+      // Invalidate Customer 360 cache if converted
+      if (updated.convertedCustomerId) {
+        const salesActivityService = require('./salesActivityService');
+        await salesActivityService.invalidateCustomer360Cache(updated.convertedCustomerId, updated.branchId);
       }
 
       return updated;

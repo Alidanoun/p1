@@ -8,12 +8,21 @@ const leadController = {
     try {
       const actor = req.user;
       const branchId = req.authoritativeBranchId || req.body.branchId;
-      const { name, phone, email, source, notes, assignedToId } = req.body;
+      const { name, phone, email, source, notes, assignedToId, customFields } = req.body;
 
       if (!name) return response.error(res, 'اسم العميل المحتمل مطلوب', 'VALIDATION_ERROR', 400);
 
+      // Validate Custom Fields
+      const customFieldService = require('../services/customFieldService');
+      let validatedCustomFields = {};
+      try {
+        validatedCustomFields = await customFieldService.validateCustomFields('LEAD', branchId, customFields);
+      } catch (validationError) {
+        return response.error(res, validationError.errors?.[0]?.message || 'التحقق من الحقول المخصصة فشل', 'VALIDATION_ERROR', 400, { details: validationError.errors });
+      }
+
       const lead = await leadService.createLead(
-        { name, phone, email, source, notes, branchId, assignedToId },
+        { name, phone, email, source, notes, branchId, assignedToId, customFields: validatedCustomFields },
         actor
       );
       return response.success(res, lead, 'تم إضافة العميل المحتمل بنجاح', 201);
@@ -55,8 +64,22 @@ const leadController = {
     try {
       const { id } = req.params;
       const actor = req.user;
-      const { status, assignedToId, notes } = req.body;
-      const updated = await leadService.updateLead(parseInt(id), { status, assignedToId, notes }, actor);
+      const { status, assignedToId, notes, customFields } = req.body;
+
+      // Validate Custom Fields on merged data
+      let validatedCustomFields = undefined;
+      if (customFields !== undefined) {
+        const lead = await leadService.getLeadById(parseInt(id), req.authoritativeBranchId);
+        const merged = { ...(lead.customFields || {}), ...customFields };
+        const customFieldService = require('../services/customFieldService');
+        try {
+          validatedCustomFields = await customFieldService.validateCustomFields('LEAD', lead.branchId, merged);
+        } catch (validationError) {
+          return response.error(res, validationError.errors?.[0]?.message || 'التحقق من الحقول المخصصة فشل', 'VALIDATION_ERROR', 400, { details: validationError.errors });
+        }
+      }
+
+      const updated = await leadService.updateLead(parseInt(id), { status, assignedToId, notes, customFields: validatedCustomFields }, actor);
       return response.success(res, updated, 'تم تحديث العميل المحتمل');
     } catch (err) {
       if (err instanceof ConcurrencyError) return response.error(res, err.message, err.code, 409);

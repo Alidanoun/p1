@@ -8,13 +8,22 @@ const opportunityController = {
     try {
       const actor = req.user;
       const branchId = req.authoritativeBranchId || req.body.branchId;
-      const { title, leadId, customerId, assignedToId, value, expectedCloseDate } = req.body;
+      const { title, leadId, customerId, assignedToId, value, expectedCloseDate, customFields } = req.body;
 
       if (!title) return response.error(res, 'عنوان الصفقة مطلوب', 'VALIDATION_ERROR', 400);
       if (!leadId && !customerId) return response.error(res, 'يجب ربط الصفقة بعميل محتمل أو عميل مسجل', 'VALIDATION_ERROR', 400);
 
+      // Validate Custom Fields
+      const customFieldService = require('../services/customFieldService');
+      let validatedCustomFields = {};
+      try {
+        validatedCustomFields = await customFieldService.validateCustomFields('OPPORTUNITY', branchId, customFields);
+      } catch (validationError) {
+        return response.error(res, validationError.errors?.[0]?.message || 'التحقق من الحقول المخصصة فشل', 'VALIDATION_ERROR', 400, { details: validationError.errors });
+      }
+
       const opportunity = await opportunityService.createOpportunity(
-        { title, leadId, customerId, branchId, assignedToId, value, expectedCloseDate },
+        { title, leadId, customerId, branchId, assignedToId, value, expectedCloseDate, customFields: validatedCustomFields },
         actor
       );
       return response.success(res, opportunity, 'تم إنشاء الصفقة بنجاح', 201);
@@ -22,6 +31,39 @@ const opportunityController = {
       if (err.message === 'INVALID_ASSIGNMENT') return response.error(res, err.message, 'INVALID_ASSIGNMENT', 400);
       logger.error('[OpportunityController] createOpportunity error', { error: err.message });
       return response.error(res, 'حدث خطأ أثناء إنشاء الصفقة', 'INTERNAL_ERROR', 500);
+    }
+  },
+
+  async updateOpportunity(req, res) {
+    try {
+      const { id } = req.params;
+      const actor = req.user;
+      const { title, value, expectedCloseDate, customFields } = req.body;
+
+      let validatedCustomFields = undefined;
+      if (customFields !== undefined) {
+        const prisma = require('../lib/prisma');
+        const opportunity = await prisma.opportunity.findUnique({ where: { id: parseInt(id) } });
+        if (!opportunity) return response.error(res, 'الصفقة غير موجودة', 'NOT_FOUND', 404);
+        const merged = { ...(opportunity.customFields || {}), ...customFields };
+        const customFieldService = require('../services/customFieldService');
+        try {
+          validatedCustomFields = await customFieldService.validateCustomFields('OPPORTUNITY', opportunity.branchId, merged);
+        } catch (validationError) {
+          return response.error(res, validationError.errors?.[0]?.message || 'التحقق من الحقول المخصصة فشل', 'VALIDATION_ERROR', 400, { details: validationError.errors });
+        }
+      }
+
+      const result = await opportunityService.updateOpportunity(
+        parseInt(id),
+        { title, value, expectedCloseDate, customFields: validatedCustomFields },
+        actor
+      );
+      return response.success(res, result, 'تم تحديث الصفقة بنجاح');
+    } catch (err) {
+      if (err.message === 'OPPORTUNITY_NOT_FOUND') return response.error(res, 'الصفقة غير موجودة', 'NOT_FOUND', 404);
+      logger.error('[OpportunityController] updateOpportunity error', { error: err.message });
+      return response.error(res, 'حدث خطأ أثناء تحديث الصفقة', 'INTERNAL_ERROR', 500);
     }
   },
 
