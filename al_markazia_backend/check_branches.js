@@ -1,0 +1,1 @@
+const { PrismaClient } = require('@prisma/client'); const { decrypt } = require('./src/utils/crypto'); const prisma = new PrismaClient(); async function run() { const branches = await prisma.branch.findMany(); console.log(branches.map(b => ({ id: b.id, name: decrypt(b.name), isDeleted: b.isDeleted }))); } run().finally(() => prisma.$disconnect());

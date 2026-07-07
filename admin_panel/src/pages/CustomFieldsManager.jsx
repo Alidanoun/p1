@@ -155,15 +155,15 @@ export default function CustomFieldsManager() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 text-slate-900 dark:text-slate-100">
       {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white/50 backdrop-blur-md p-6 rounded-3xl border border-white/20 shadow-sm">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white/50 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-3xl border border-white/20 dark:border-slate-700 shadow-sm">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
             <Settings className="text-primary animate-spin-slow" />
             إدارة الحقول المخصصة (Custom Fields)
           </h1>
-          <p className="text-gray-500 mt-1">تخصيص استمارات العملاء المحتملين والصفقات لكل فرع برمجياً</p>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">تخصيص استمارات العملاء المحتملين والصفقات لكل فرع برمجياً</p>
         </div>
         <button
           onClick={() => setShowAddModal(true)}
@@ -174,16 +174,16 @@ export default function CustomFieldsManager() {
       </div>
 
       {/* Filters bar */}
-      <div className="bg-white/60 backdrop-blur-md p-4 rounded-2xl border border-gray-100 shadow-sm flex flex-col md:flex-row gap-4">
+      <div className="bg-white/60 dark:bg-slate-800/80 backdrop-blur-md p-4 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm flex flex-col md:flex-row gap-4">
         <div className="flex-1">
-          <label className="block text-xs font-semibold text-gray-500 mb-1">الكيان (Entity Type)</label>
+          <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">الكيان (Entity Type)</label>
           <div className="flex gap-2">
             <button
               onClick={() => setEntityType('LEAD')}
               className={`flex-1 py-2 px-4 rounded-xl font-bold transition-all ${
                 entityType === 'LEAD'
                   ? 'bg-primary text-white shadow-md shadow-primary/25'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-600'
               }`}
             >
               عميل محتمل (Lead)
@@ -193,7 +193,7 @@ export default function CustomFieldsManager() {
               className={`flex-1 py-2 px-4 rounded-xl font-bold transition-all ${
                 entityType === 'OPPORTUNITY'
                   ? 'bg-primary text-white shadow-md shadow-primary/25'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-600'
               }`}
             >
               صفقة / فرصة مبيعات (Opportunity)
@@ -202,11 +202,11 @@ export default function CustomFieldsManager() {
         </div>
 
         <div className="w-full md:w-72">
-          <label className="block text-xs font-semibold text-gray-500 mb-1">الفرع (Branch Context)</label>
+          <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">الفرع (Branch Context)</label>
           <select
             value={selectedBranchId}
             onChange={(e) => setSelectedBranchId(e.target.value)}
-            className="w-full border-gray-200 bg-white/50 rounded-xl p-2.5 outline-none"
+            className="w-full border-gray-200 dark:border-slate-600 bg-white/50 dark:bg-slate-700 dark:text-white rounded-xl p-2.5 outline-none"
           >
             <option value="">كافة الفروع (عام)</option>
             {branches.map(b => (
@@ -217,24 +217,24 @@ export default function CustomFieldsManager() {
       </div>
 
       {/* Definitions Table */}
-      <div className="bg-white/70 backdrop-blur-xl rounded-3xl border border-white/40 shadow-sm overflow-hidden">
+      <div className="bg-white/70 dark:bg-slate-800/80 backdrop-blur-xl rounded-3xl border border-white/40 dark:border-slate-700 shadow-sm overflow-hidden">
         {loading ? (
-          <div className="p-12 text-center text-gray-500 font-medium">جاري تحميل حقول الكيان المخصصة...</div>
+          <div className="p-12 text-center text-gray-500 dark:text-gray-400 font-medium">جاري تحميل حقول الكيان المخصصة...</div>
         ) : definitions.length === 0 ? (
-          <div className="p-12 text-center text-gray-400">لا توجد حقول مخصصة معرّفة لهذا الفلتر حالياً.</div>
+          <div className="p-12 text-center text-gray-400 dark:text-gray-500">لا توجد حقول مخصصة معرّفة لهذا الفلتر حالياً.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-right">
               <thead>
-                <tr className="bg-gray-50/50 border-b border-gray-100">
-                  <th className="p-4 text-gray-600 font-semibold">المسمى المعروض</th>
-                  <th className="p-4 text-gray-600 font-semibold">المفتاح التقني (Key)</th>
-                  <th className="p-4 text-gray-600 font-semibold">نوع الحقل</th>
-                  <th className="p-4 text-gray-600 font-semibold">الفرع</th>
-                  <th className="p-4 text-gray-600 font-semibold">إلزامي؟</th>
-                  <th className="p-4 text-gray-600 font-semibold">الترتيب</th>
-                  <th className="p-4 text-gray-600 font-semibold">الحالة</th>
-                  <th className="p-4 text-gray-600 font-semibold text-left">الإجراءات</th>
+                <tr className="bg-gray-50/50 dark:bg-slate-900/50 border-b border-gray-100 dark:border-slate-700">
+                  <th className="p-4 text-gray-600 dark:text-gray-300 font-semibold">المسمى المعروض</th>
+                  <th className="p-4 text-gray-600 dark:text-gray-300 font-semibold">المفتاح التقني (Key)</th>
+                  <th className="p-4 text-gray-600 dark:text-gray-300 font-semibold">نوع الحقل</th>
+                  <th className="p-4 text-gray-600 dark:text-gray-300 font-semibold">الفرع</th>
+                  <th className="p-4 text-gray-600 dark:text-gray-300 font-semibold">إلزامي؟</th>
+                  <th className="p-4 text-gray-600 dark:text-gray-300 font-semibold">الترتيب</th>
+                  <th className="p-4 text-gray-600 dark:text-gray-300 font-semibold">الحالة</th>
+                  <th className="p-4 text-gray-600 dark:text-gray-300 font-semibold text-left">الإجراءات</th>
                 </tr>
               </thead>
               <tbody>
@@ -244,31 +244,31 @@ export default function CustomFieldsManager() {
                     : 'عام (كافة الفروع)';
 
                   return (
-                    <tr key={def.id} className="border-b border-gray-100 hover:bg-gray-50/40 transition-colors">
-                      <td className="p-4 font-bold text-gray-800">{def.label}</td>
-                      <td className="p-4 text-gray-500 font-mono text-sm">{def.key}</td>
-                      <td className="p-4 text-gray-600">
+                    <tr key={def.id} className="border-b border-gray-100 dark:border-slate-700 hover:bg-gray-50/40 dark:hover:bg-slate-700/50 transition-colors">
+                      <td className="p-4 font-bold text-gray-800 dark:text-white">{def.label}</td>
+                      <td className="p-4 text-gray-500 dark:text-gray-400 font-mono text-sm">{def.key}</td>
+                      <td className="p-4 text-gray-600 dark:text-gray-300">
                         {FIELD_TYPES.find(t => t.id === def.fieldType)?.label || def.fieldType}
                       </td>
-                      <td className="p-4 text-gray-600 flex items-center gap-1.5">
-                        {def.branchId ? <Building size={14} className="text-primary" /> : <Shield size={14} className="text-gray-400" />}
+                      <td className="p-4 text-gray-600 dark:text-gray-300 flex items-center gap-1.5">
+                        {def.branchId ? <Building size={14} className="text-primary" /> : <Shield size={14} className="text-gray-400 dark:text-gray-500" />}
                         {branchName}
                       </td>
-                      <td className="p-4 text-gray-600">
+                      <td className="p-4 text-gray-600 dark:text-gray-300">
                         {def.isRequired ? (
-                          <span className="text-red-600 bg-red-50 px-2 py-0.5 rounded-md text-xs font-semibold">مطلوب</span>
+                          <span className="text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 px-2 py-0.5 rounded-md text-xs font-semibold">مطلوب</span>
                         ) : (
-                          <span className="text-gray-400 text-xs">اختياري</span>
+                          <span className="text-gray-400 dark:text-gray-500 text-xs">اختياري</span>
                         )}
                       </td>
-                      <td className="p-4 text-gray-600 font-semibold">{def.order}</td>
+                      <td className="p-4 text-gray-600 dark:text-gray-300 font-semibold">{def.order}</td>
                       <td className="p-4">
                         {def.isActive ? (
-                          <span className="text-green-700 bg-green-50 px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1 w-fit">
+                          <span className="text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/30 px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1 w-fit">
                             <Check size={12} /> نشط
                           </span>
                         ) : (
-                          <span className="text-gray-400 bg-gray-50 px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1 w-fit">
+                          <span className="text-gray-400 dark:text-gray-500 bg-gray-50 dark:bg-slate-700 px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1 w-fit">
                             <X size={12} /> معطل
                           </span>
                         )}
@@ -276,14 +276,14 @@ export default function CustomFieldsManager() {
                       <td className="p-4 text-left space-x-2 space-x-reverse">
                         <button
                           onClick={() => openEditModal(def)}
-                          className="text-primary hover:bg-primary/10 p-2 rounded-xl transition-all"
+                          className="text-primary hover:bg-primary/10 dark:hover:bg-primary/20 p-2 rounded-xl transition-all"
                           title="تعديل الحقل"
                         >
                           <Edit3 size={18} />
                         </button>
                         <button
                           onClick={() => handleSoftDelete(def.id)}
-                          className="text-red-500 hover:bg-red-50 p-2 rounded-xl transition-all"
+                          className="text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 p-2 rounded-xl transition-all"
                           title="تعطيل/حذف"
                         >
                           <Trash2 size={18} />
@@ -300,43 +300,43 @@ export default function CustomFieldsManager() {
 
       {/* Add Definition Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="bg-white/90 backdrop-blur-xl rounded-3xl p-8 w-full max-w-lg shadow-2xl border border-white max-h-[90vh] overflow-y-auto">
-            <h2 className="text-2xl font-bold mb-6 text-gray-800">إضافة تعريف حقل مخصص</h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-black/60 backdrop-blur-sm">
+          <div className="bg-white/90 dark:bg-slate-800/95 backdrop-blur-xl rounded-3xl p-8 w-full max-w-lg shadow-2xl border border-white dark:border-slate-700 max-h-[90vh] overflow-y-auto">
+            <h2 className="text-2xl font-bold mb-6 text-gray-800 dark:text-white">إضافة تعريف حقل مخصص</h2>
             <form onSubmit={handleAddDefinition} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">المفتاح التقني (Technical Key) *</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">المفتاح التقني (Technical Key) *</label>
                 <input
                   type="text"
                   required
                   pattern="^[a-zA-Z0-9_]+$"
                   value={formData.key}
                   onChange={(e) => setFormData({ ...formData, key: e.target.value })}
-                  className="w-full border-gray-200 bg-white/50 rounded-xl p-3 focus:ring-2 focus:ring-primary/20 outline-none font-mono"
+                  className="w-full border-gray-200 dark:border-slate-600 bg-white/50 dark:bg-slate-700 dark:text-white rounded-xl p-3 focus:ring-2 focus:ring-primary/20 outline-none font-mono"
                   placeholder="e.g. expected_budget"
                 />
-                <p className="text-xs text-gray-400 mt-1">يجب أن يحتوي فقط على أحرف إنجليزية وأرقام وعلامة _ دون مسافات</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">يجب أن يحتوي فقط على أحرف إنجليزية وأرقام وعلامة _ دون مسافات</p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">الاسم المعروض بالعربية *</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">الاسم المعروض بالعربية *</label>
                 <input
                   type="text"
                   required
                   value={formData.label}
                   onChange={(e) => setFormData({ ...formData, label: e.target.value })}
-                  className="w-full border-gray-200 bg-white/50 rounded-xl p-3 focus:ring-2 focus:ring-primary/20 outline-none"
+                  className="w-full border-gray-200 dark:border-slate-600 bg-white/50 dark:bg-slate-700 dark:text-white rounded-xl p-3 focus:ring-2 focus:ring-primary/20 outline-none"
                   placeholder="مثال: ميزانية العقد المتوقعة"
                 />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">نوع البيانات *</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">نوع البيانات *</label>
                   <select
                     value={formData.fieldType}
                     onChange={(e) => setFormData({ ...formData, fieldType: e.target.value })}
-                    className="w-full border-gray-200 bg-white/50 rounded-xl p-3 outline-none"
+                    className="w-full border-gray-200 dark:border-slate-600 bg-white/50 dark:bg-slate-700 dark:text-white rounded-xl p-3 outline-none"
                   >
                     {FIELD_TYPES.map(t => (
                       <option key={t.id} value={t.id}>{t.label}</option>
@@ -345,11 +345,11 @@ export default function CustomFieldsManager() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">تحديد الفرع</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">تحديد الفرع</label>
                   <select
                     value={formData.branchId}
                     onChange={(e) => setFormData({ ...formData, branchId: e.target.value })}
-                    className="w-full border-gray-200 bg-white/50 rounded-xl p-3 outline-none"
+                    className="w-full border-gray-200 dark:border-slate-600 bg-white/50 dark:bg-slate-700 dark:text-white rounded-xl p-3 outline-none"
                   >
                     <option value="">كافة الفروع (عام)</option>
                     {branches.map(b => (
@@ -361,13 +361,13 @@ export default function CustomFieldsManager() {
 
               {formData.fieldType === 'SELECT' && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">خيارات القائمة (مفصولة بفاصلة) *</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">خيارات القائمة (مفصولة بفاصلة) *</label>
                   <input
                     type="text"
                     required
                     value={formData.optionsText}
                     onChange={(e) => setFormData({ ...formData, optionsText: e.target.value })}
-                    className="w-full border-gray-200 bg-white/50 rounded-xl p-3 focus:ring-2 focus:ring-primary/20 outline-none"
+                    className="w-full border-gray-200 dark:border-slate-600 bg-white/50 dark:bg-slate-700 dark:text-white rounded-xl p-3 focus:ring-2 focus:ring-primary/20 outline-none"
                     placeholder="مثال: منخفض, متوسط, مرتفع"
                   />
                 </div>
@@ -375,25 +375,25 @@ export default function CustomFieldsManager() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">الترتيب المعروض (Order)</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">الترتيب المعروض (Order)</label>
                   <input
                     type="number"
                     value={formData.order}
                     onChange={(e) => setFormData({ ...formData, order: e.target.value })}
-                    className="w-full border-gray-200 bg-white/50 rounded-xl p-3 focus:ring-2 focus:ring-primary/20 outline-none"
+                    className="w-full border-gray-200 dark:border-slate-600 bg-white/50 dark:bg-slate-700 dark:text-white rounded-xl p-3 focus:ring-2 focus:ring-primary/20 outline-none"
                     placeholder="0"
                   />
                 </div>
 
                 <div className="flex items-center gap-2 pt-5">
                   <input
-                    type="checkbox"
-                    id="isRequiredAdd"
-                    checked={formData.isRequired}
-                    onChange={(e) => setFormData({ ...formData, isRequired: e.target.checked })}
-                    className="rounded text-primary focus:ring-primary border-gray-300 w-5 h-5"
+                     type="checkbox"
+                     id="isRequiredAdd"
+                     checked={formData.isRequired}
+                     onChange={(e) => setFormData({ ...formData, isRequired: e.target.checked })}
+                     className="rounded text-primary focus:ring-primary border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 w-5 h-5"
                   />
-                  <label htmlFor="isRequiredAdd" className="text-sm font-medium text-gray-700 cursor-pointer">
+                  <label htmlFor="isRequiredAdd" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
                     حقل إلزامي (Required)
                   </label>
                 </div>
@@ -403,7 +403,7 @@ export default function CustomFieldsManager() {
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="px-5 py-2.5 rounded-xl text-gray-600 hover:bg-gray-100 transition-colors"
+                  className="px-5 py-2.5 rounded-xl text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
                 >
                   إلغاء
                 </button>
@@ -421,27 +421,27 @@ export default function CustomFieldsManager() {
 
       {/* Edit Definition Modal */}
       {showEditModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="bg-white/90 backdrop-blur-xl rounded-3xl p-8 w-full max-w-lg shadow-2xl border border-white max-h-[90vh] overflow-y-auto">
-            <h2 className="text-2xl font-bold mb-6 text-gray-800">تعديل تعريف حقل مخصص</h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-black/60 backdrop-blur-sm">
+          <div className="bg-white/90 dark:bg-slate-800/95 backdrop-blur-xl rounded-3xl p-8 w-full max-w-lg shadow-2xl border border-white dark:border-slate-700 max-h-[90vh] overflow-y-auto">
+            <h2 className="text-2xl font-bold mb-6 text-gray-800 dark:text-white">تعديل تعريف حقل مخصص</h2>
             <form onSubmit={handleEditDefinition} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">الاسم المعروض بالعربية *</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">الاسم المعروض بالعربية *</label>
                 <input
                   type="text"
                   required
                   value={editFormData.label}
                   onChange={(e) => setEditFormData({ ...editFormData, label: e.target.value })}
-                  className="w-full border-gray-200 bg-white/50 rounded-xl p-3 focus:ring-2 focus:ring-primary/20 outline-none"
+                  className="w-full border-gray-200 dark:border-slate-600 bg-white/50 dark:bg-slate-700 dark:text-white rounded-xl p-3 focus:ring-2 focus:ring-primary/20 outline-none"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">نوع البيانات *</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">نوع البيانات *</label>
                 <select
                   value={editFormData.fieldType}
                   onChange={(e) => setEditFormData({ ...editFormData, fieldType: e.target.value })}
-                  className="w-full border-gray-200 bg-white/50 rounded-xl p-3 outline-none"
+                  className="w-full border-gray-200 dark:border-slate-600 bg-white/50 dark:bg-slate-700 dark:text-white rounded-xl p-3 outline-none"
                 >
                   {FIELD_TYPES.map(t => (
                     <option key={t.id} value={t.id}>{t.label}</option>
@@ -451,25 +451,25 @@ export default function CustomFieldsManager() {
 
               {editFormData.fieldType === 'SELECT' && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">خيارات القائمة (مفصولة بفاصلة) *</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">خيارات القائمة (مفصولة بفاصلة) *</label>
                   <input
                     type="text"
                     required
                     value={editFormData.optionsText}
                     onChange={(e) => setEditFormData({ ...editFormData, optionsText: e.target.value })}
-                    className="w-full border-gray-200 bg-white/50 rounded-xl p-3 focus:ring-2 focus:ring-primary/20 outline-none"
+                    className="w-full border-gray-200 dark:border-slate-600 bg-white/50 dark:bg-slate-700 dark:text-white rounded-xl p-3 focus:ring-2 focus:ring-primary/20 outline-none"
                   />
                 </div>
               )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">الترتيب المعروض (Order)</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">الترتيب المعروض (Order)</label>
                   <input
                     type="number"
                     value={editFormData.order}
                     onChange={(e) => setEditFormData({ ...editFormData, order: e.target.value })}
-                    className="w-full border-gray-200 bg-white/50 rounded-xl p-3 focus:ring-2 focus:ring-primary/20 outline-none"
+                    className="w-full border-gray-200 dark:border-slate-600 bg-white/50 dark:bg-slate-700 dark:text-white rounded-xl p-3 focus:ring-2 focus:ring-primary/20 outline-none"
                   />
                 </div>
 
@@ -480,9 +480,9 @@ export default function CustomFieldsManager() {
                       id="isRequiredEdit"
                       checked={editFormData.isRequired}
                       onChange={(e) => setEditFormData({ ...editFormData, isRequired: e.target.checked })}
-                      className="rounded text-primary focus:ring-primary border-gray-300 w-5 h-5"
+                      className="rounded text-primary focus:ring-primary border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 w-5 h-5"
                     />
-                    <label htmlFor="isRequiredEdit" className="text-sm font-medium text-gray-700 cursor-pointer">
+                    <label htmlFor="isRequiredEdit" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
                       حقل إلزامي (Required)
                     </label>
                   </div>
@@ -493,9 +493,9 @@ export default function CustomFieldsManager() {
                       id="isActiveEdit"
                       checked={editFormData.isActive}
                       onChange={(e) => setEditFormData({ ...editFormData, isActive: e.target.checked })}
-                      className="rounded text-primary focus:ring-primary border-gray-300 w-5 h-5"
+                      className="rounded text-primary focus:ring-primary border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 w-5 h-5"
                     />
-                    <label htmlFor="isActiveEdit" className="text-sm font-medium text-gray-700 cursor-pointer">
+                    <label htmlFor="isActiveEdit" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
                       الحقل نشط (Active)
                     </label>
                   </div>
@@ -506,7 +506,7 @@ export default function CustomFieldsManager() {
                 <button
                   type="button"
                   onClick={() => setShowEditModal(false)}
-                  className="px-5 py-2.5 rounded-xl text-gray-600 hover:bg-gray-100 transition-colors"
+                  className="px-5 py-2.5 rounded-xl text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
                 >
                   إلغاء
                 </button>

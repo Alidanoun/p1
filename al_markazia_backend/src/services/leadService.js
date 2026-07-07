@@ -111,8 +111,8 @@ class LeadService {
    * Convert a Lead to a Customer atomically.
    * Uses optimistic locking to prevent double-conversion race conditions.
    */
-  async convertLead(leadId, customerId, actor) {
-    const lead = await prisma.lead.findUnique({ where: { id: leadId } });
+  async convertLead(leadId, customerId, branchId, actor) {
+    const lead = await prisma.lead.findFirst({ where: { id: leadId, branchId } });
     if (!lead) throw Object.assign(new Error('LEAD_NOT_FOUND'), { statusCode: 404 });
     if (lead.status === 'CONVERTED' || lead.isConverted) {
       throw Object.assign(new Error('LEAD_ALREADY_CONVERTED'), {
@@ -123,7 +123,7 @@ class LeadService {
 
     return await prisma.$transaction(async (tx) => {
       const result = await tx.lead.updateMany({
-        where: { id: leadId, isConverted: false, status: { not: 'CONVERTED' } },
+        where: { id: leadId, branchId, isConverted: false, status: { not: 'CONVERTED' } },
         data: {
           status: 'CONVERTED',
           isConverted: true,

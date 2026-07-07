@@ -3,8 +3,8 @@
 @theme {
   --color-background: var(--bg-app);
   --color-card: var(--bg-card);
-  --color-primary: #f97316;
-  --color-primary-hover: #ea580c;
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
   --color-text-main: var(--text-main);
   --color-text-muted: var(--text-muted);
   --color-danger: #ef4444;
@@ -52,6 +52,11 @@
     overflow-x: hidden;
     -webkit-font-smoothing: antialiased;
     transition: background-color 0.3s ease, color 0.3s ease;
+  }
+
+  select option {
+    background-color: var(--bg-card);
+    color: var(--text-main);
   }
 }
 

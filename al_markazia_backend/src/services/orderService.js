@@ -865,16 +865,20 @@ class OrderService {
    * ⭐ Submit Order Rating
    */
   async submitOrderRating(orderId, user, rating, comment) {
-    // 🗑️ Handle rating removal
+    if (!orderId) throw new Error('ORDER_NOT_FOUND');
+
+    // 🗑️ Handle rating removal (Admin only)
     if (rating === null) {
-      await this.prisma.order.update({
+      const updatedOrder = await this.prisma.order.update({
         where: { id: orderId },
         data: { rating: null, ratingComment: null, isRatingApproved: false }
       });
+      await this.bumpBranchVersion(updatedOrder.branchId);
       return { success: true, message: 'Rating removed' };
     }
 
-    if (!rating || !Number.isInteger(rating) || rating < 1 || rating > 5) {
+    const ratingNum = parseInt(rating);
+    if (isNaN(ratingNum) || ratingNum < 1 || ratingNum > 5) {
       throw new Error('INVALID_RATING');
     }
 
@@ -885,40 +889,53 @@ class OrderService {
 
     if (!order) throw new Error('ORDER_NOT_FOUND');
 
-    // 🛡️ [SEC-FIX] Granular Authorization Guard
+    // 1. Delivered Status Check
+    if (order.status !== 'delivered') {
+      throw new Error('INVALID_STATE: لا يمكن تقييم الطلب إلا بعد توصيله بنجاح');
+    }
+
+    // 2. Ownership Check (Granular)
     if (user) {
       const role = user.role?.toLowerCase();
-      
-      // Customer: Must be the owner of the order
       if (role === 'customer') {
         if (order.customer?.uuid !== user.id) {
           throw new Error('ORDER_FORBIDDEN');
         }
       }
-      
-      // Manager/Branch Manager: Must belong to the same branch
       if (['manager', 'branch_manager'].includes(role)) {
         if (order.branchId !== user.branchId) {
           throw new Error('ORDER_FORBIDDEN');
         }
       }
-      
-      // Admin: Restricted admins must belong to the same branch
       if (role === 'admin' && user.branchId && order.branchId !== user.branchId) {
         throw new Error('ORDER_FORBIDDEN');
       }
     } else {
-      // Guest users cannot rate orders
       throw new Error('ORDER_FORBIDDEN');
     }
 
+    // 3. Prevent duplicate order rating overwrites
+    if (order.rating !== null) {
+      throw new Error('INVALID_STATE: لقد قمت بتقييم هذا الطلب مسبقاً');
+    }
+
+    const cleanComment = comment ? comment.trim() : null;
     const isFirstTimeRating = !order.rating;
 
+    // Update order with rating
     const updatedOrder = await this.prisma.order.update({
       where: { id: orderId, version: order.version },
-      data: { rating, ratingComment: comment, isRatingApproved: false, version: { increment: 1 } },
+      data: {
+        rating: ratingNum,
+        ratingComment: cleanComment,
+        isRatingApproved: false,
+        version: { increment: 1 }
+      },
       include: ORDER_INCLUDE_FULL
     });
+
+    // Invalidate live/branch analytics cache
+    await this.bumpBranchVersion(updatedOrder.branchId);
 
     // 🎁 Reward points for the review
     if (isFirstTimeRating && order.customerId) {
@@ -2306,63 +2323,6 @@ class OrderService {
     }
   }
 
-  /**
-   * ⭐ Submit Order Rating (Direct Order Review)
-   */
-  async submitOrderRating(orderId, actor, rating, comment) {
-    if (!orderId) throw new Error('ORDER_NOT_FOUND');
-    const ratingNum = parseInt(rating);
-    if (isNaN(ratingNum) || ratingNum < 1 || ratingNum > 5) {
-      throw new Error('INVALID_RATING');
-    }
-
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
-      select: { id: true, status: true, rating: true, branchId: true, customer: { select: { uuid: true } } }
-    });
-
-    if (!order) throw new Error('ORDER_NOT_FOUND');
-    
-    // 1. Delivered Status Check
-    if (order.status !== 'delivered') {
-      throw new Error('INVALID_STATE: لا يمكن تقييم الطلب إلا بعد توصيله بنجاح');
-    }
-
-    // 2. Ownership Check
-    if (actor && actor.role === 'customer' && order.customer?.uuid !== actor.id) {
-      throw new Error('ORDER_FORBIDDEN');
-    }
-
-    // 3. Prevent duplicate order rating overwrites
-    if (order.rating !== null) {
-      throw new Error('INVALID_STATE: لقد قمت بتقييم هذا الطلب مسبقاً');
-    }
-
-    const cleanComment = comment ? xss(comment.trim()) : null;
-
-    // Update order with rating
-    const updatedOrder = await this.prisma.order.update({
-      where: { id: orderId },
-      data: {
-        rating: ratingNum,
-        ratingComment: cleanComment,
-        isRatingApproved: false // Requires admin moderation by default
-      }
-    });
-
-    // Invalidate live/branch analytics cache
-    await this.bumpBranchVersion(updatedOrder.branchId);
-
-    return {
-      success: true,
-      message: 'تم استلام تقييمك للطلب بنجاح، شكراً لك!',
-      data: {
-        orderId: updatedOrder.id,
-        rating: updatedOrder.rating,
-        isApproved: updatedOrder.isRatingApproved
-      }
-    };
-  }
 }
 
 // --- 🛡️ Backward Compatibility ---

@@ -88,6 +88,8 @@ class MenuItem {
   final String image;
   final bool isFeatured;
   final List<OptionGroup> optionGroups;
+  final double rating;
+  final int ratingCount;
 
   MenuItem({
     required this.id,
@@ -101,6 +103,8 @@ class MenuItem {
     required this.image,
     this.isFeatured = false,
     required this.optionGroups,
+    this.rating = 0.0,
+    this.ratingCount = 0,
   });
 
   factory MenuItem.fromJson(Map<String, dynamic> json) {
@@ -128,6 +132,8 @@ class MenuItem {
       optionGroups: json['optionGroups'] != null 
           ? List<OptionGroup>.from(json['optionGroups'].map((x) => OptionGroup.fromJson(x)))
           : [],
+      rating: double.tryParse(json['cachedAvgRating']?.toString() ?? '0') ?? 0.0,
+      ratingCount: json['cachedReviewCount'] is int ? json['cachedReviewCount'] : int.tryParse(json['cachedReviewCount']?.toString() ?? '0') ?? 0,
     );
   }
 
@@ -229,6 +235,8 @@ class Review {
   final String comment;
   final String createdAt;
   final bool isVerifiedPurchase;
+  final String? adminReply;
+  final String? adminReplyCreatedAt;
 
   Review({
     required this.id,
@@ -237,16 +245,34 @@ class Review {
     required this.comment,
     required this.createdAt,
     this.isVerifiedPurchase = false,
+    this.adminReply,
+    this.adminReplyCreatedAt,
   });
 
   factory Review.fromJson(Map<String, dynamic> json) {
+    String? replyText;
+    String? replyDate;
+    if (json['replies'] != null && (json['replies'] as List).isNotEmpty) {
+      replyText = json['replies'][0]['content'];
+      replyDate = json['replies'][0]['createdAt'];
+    }
+
+    String custName = 'Customer';
+    if (json['customer'] != null && json['customer']['name'] != null) {
+      custName = json['customer']['name'];
+    } else if (json['customerName'] != null) {
+      custName = json['customerName'];
+    }
+
     return Review(
       id: json['id'] ?? 0,
-      customerName: json['customerName'] ?? 'Customer',
+      customerName: custName,
       rating: json['rating'] ?? 5,
       comment: json['comment'] ?? '',
       createdAt: json['createdAt'] ?? '',
       isVerifiedPurchase: json['isVerifiedPurchase'] ?? false,
+      adminReply: replyText,
+      adminReplyCreatedAt: replyDate,
     );
   }
 }

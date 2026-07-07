@@ -21,6 +21,7 @@ router.post('/:id/flag', authenticateToken, flagLimiter, reviewController.flagRe
 router.get('/stats', authenticateToken, isManager, checkPermission('reviews', 'VIEW'), BranchAccessMiddleware, reviewController.getReviewStats);
 router.get('/', authenticateToken, isManager, checkPermission('reviews', 'VIEW'), BranchAccessMiddleware, reviewController.getAllReviews);
 router.put('/:id/approve', authenticateToken, isManager, checkPermission('reviews', 'EDIT_PIN'), BranchAccessMiddleware, reviewController.toggleApproval);
+router.post('/:id/reply', authenticateToken, isManager, checkPermission('reviews', 'EDIT_PIN'), BranchAccessMiddleware, reviewController.addReply);
 router.delete('/:id', authenticateToken, isManager, checkPermission('reviews', 'EDIT_PIN'), BranchAccessMiddleware, reviewController.deleteReview);
 
 module.exports = router;

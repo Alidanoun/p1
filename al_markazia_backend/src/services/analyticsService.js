@@ -187,17 +187,31 @@ class AnalyticsService {
         branchId: targetBranchId || undefined,
         isDeleted: false
       },
-      select: { createdAt: true, status: true }
+      select: { createdAt: true, status: true },
+      orderBy: { createdAt: 'asc' }
     });
 
     const chartMap = {};
+    const chartMapOrder = []; // to preserve chronological order
     orders.forEach(o => {
       const dt = DateTime.fromJSDate(o.createdAt).setZone(tz);
-      const label = period === 'today' ? `${dt.hour}:00` : dt.toFormat('ccc', { locale: 'ar-EG' });
-      chartMap[label] = (chartMap[label] || 0) + 1;
+      let label;
+      if (period === 'today') {
+        label = dt.toFormat('hh:00 a', { locale: 'ar-EG' });
+      } else if (period === 'week') {
+        label = dt.toFormat('cccc (dd/MM)', { locale: 'ar-EG' });
+      } else {
+        label = dt.toFormat('dd LLLL', { locale: 'ar-EG' });
+      }
+      
+      if (!chartMap[label]) {
+        chartMap[label] = 0;
+        chartMapOrder.push(label);
+      }
+      chartMap[label]++;
     });
 
-    const chartData = Object.entries(chartMap).map(([label, count]) => ({ label, count }));
+    const chartData = chartMapOrder.map(label => ({ label, count: chartMap[label] }));
 
     // 3. Fetch Top Items (Optimization: Only if items exist)
     const topItemsData = await this.prisma.order.findMany({

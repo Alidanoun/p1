@@ -96,10 +96,11 @@ const leadController = {
       const { id } = req.params;
       const { customerId } = req.body;
       const actor = req.user;
+      const branchId = req.authoritativeBranchId;
 
       if (!customerId) return response.error(res, 'customerId مطلوب', 'VALIDATION_ERROR', 400);
 
-      const result = await leadService.convertLead(parseInt(id), parseInt(customerId), actor);
+      const result = await leadService.convertLead(parseInt(id), parseInt(customerId), branchId, actor);
       return response.success(res, result, 'تم تحويل العميل المحتمل بنجاح');
     } catch (err) {
       if (err instanceof ConcurrencyError) {
@@ -107,6 +108,9 @@ const leadController = {
       }
       if (err.message === 'LEAD_ALREADY_CONVERTED') {
         return response.error(res, err.message, 'LEAD_ALREADY_CONVERTED', 409);
+      }
+      if (err.code === 'P2003') {
+        return response.error(res, 'العميل المدخل غير موجود في النظام', 'CUSTOMER_NOT_FOUND', 400);
       }
       logger.error('[LeadController] convertLead error', { error: err.message });
       return response.error(res, 'حدث خطأ أثناء تحويل العميل', 'INTERNAL_ERROR', 500);

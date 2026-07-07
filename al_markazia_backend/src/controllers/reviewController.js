@@ -44,7 +44,7 @@ exports.submitReview = async (req, res) => {
         orderItems: { some: { itemId: itemIdInt } }
       },
       orderBy: { createdAt: 'desc' },
-      select: { id: true }
+      select: { id: true, branchId: true }
     }));
 
     if (!purchasedOrder) {
@@ -81,6 +81,7 @@ exports.submitReview = async (req, res) => {
         itemId: itemIdInt,
         customerId: customer.id,
         orderId: purchasedOrder.id,
+        branchId: purchasedOrder.branchId,
         rating: ratingInt,
         comment: cleanComment,
         isVerifiedPurchase: true,
@@ -136,7 +137,8 @@ exports.getItemReviews = async (req, res) => {
           status: true,
           isVerifiedPurchase: true,
           createdAt: true,
-          customer: { select: { name: true } }
+          customer: { select: { name: true } },
+          replies: { select: { id: true, content: true, authorRole: true, createdAt: true } }
         }
       }),
       prisma.review.count({ where: { itemId, status: 'APPROVED' } })
@@ -183,7 +185,8 @@ exports.getAllReviews = async (req, res) => {
         where: reviewFilter,
         include: {
           item: { select: { title: true, id: true, image: true } },
-          customer: { select: { name: true, phone: true } }
+          customer: { select: { name: true, phone: true } },
+          replies: { select: { id: true, content: true, authorRole: true, createdAt: true } }
         }
       }),
       prisma.order.findMany({
@@ -316,6 +319,48 @@ exports.toggleApproval = async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ error: 'Failed to update status' });
+  }
+};
+
+/**
+ * 👮 Admin: Add a reply to a review
+ */
+exports.addReply = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { content } = req.body;
+
+    if (!content || content.trim().length === 0) {
+      return res.status(400).json({ success: false, error: 'محتوى الرد مطلوب' });
+    }
+
+    const reviewId = parseInt(id);
+    if (isNaN(reviewId)) return res.status(400).json({ error: 'Invalid Review ID' });
+
+    const review = await prisma.review.findUnique({
+      where: { id: reviewId },
+      select: { branchId: true }
+    });
+
+    if (!review) return res.status(404).json({ error: 'Review not found' });
+
+    if (req.user.role !== 'admin' && review.branchId !== req.user.branchId) {
+      return res.status(403).json({ error: 'ACCESS_DENIED' });
+    }
+
+    const reply = await prisma.reply.create({
+      data: {
+        reviewId: reviewId,
+        authorId: String(req.user.id),
+        authorRole: req.user.role === 'admin' ? 'ADMIN' : 'BRANCH_MANAGER',
+        content: content.trim()
+      }
+    });
+
+    res.status(201).json({ success: true, data: reply });
+  } catch (error) {
+    logger.error('Add reply error', { error: error.message });
+    res.status(500).json({ success: false, error: 'Internal server error' });
   }
 };
 

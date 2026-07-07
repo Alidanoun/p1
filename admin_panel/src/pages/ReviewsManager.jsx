@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { CheckCircle, XCircle, Trash2, Star, Search, Filter, Phone, Clock, FileText, Tag } from 'lucide-react';
+import { CheckCircle, XCircle, Trash2, Star, Search, Filter, Phone, Clock, FileText, Tag, MessageSquareReply } from 'lucide-react';
 import { toast } from 'sonner';
 import Header from '../components/Header';
 import api, { unwrap } from '../api/client';
@@ -20,6 +20,8 @@ const ReviewsManager = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [confirmConfig, setConfirmConfig] = useState(null);
+  const [activeReplyId, setActiveReplyId] = useState(null);
+  const [replyContent, setReplyContent] = useState('');
 
   useEffect(() => {
     fetchReviews();
@@ -46,6 +48,19 @@ const ReviewsManager = () => {
       toast.success(newStatus ? 'تمت الموافقة على التقييم' : 'تم إخفاء التقييم');
     } catch {
       toast.error('فشل في تعديل حالة التقييم');
+    }
+  };
+
+  const submitReply = async (id) => {
+    if (!replyContent.trim()) return toast.error('محتوى الرد مطلوب');
+    try {
+      const { data } = unwrap(await api.post(`/reviews/${id}/reply`, { content: replyContent }));
+      setReviews(reviews.map(r => r.id === id ? { ...r, replies: [...(r.replies || []), data] } : r));
+      setActiveReplyId(null);
+      setReplyContent('');
+      toast.success('تمت إضافة الرد بنجاح');
+    } catch {
+      toast.error('فشل في إضافة الرد');
     }
   };
 
@@ -206,6 +221,57 @@ const ReviewsManager = () => {
                       <span>طبق:</span>
                       <span className="text-white">{review.item?.title || 'طبق محذوف'}</span>
                     </div>
+                  )}
+
+                  {review.replies && review.replies.length > 0 && (
+                    <div className="mt-4 space-y-2">
+                      {review.replies.map(reply => (
+                        <div key={reply.id} className="bg-primary/10 border border-primary/20 p-3 rounded-xl text-sm">
+                          <div className="flex items-center gap-2 mb-1">
+                            <MessageSquareReply className="w-4 h-4 text-primary" />
+                            <span className="font-bold text-primary">رد الإدارة</span>
+                            <span className="text-white/40 text-[10px] mr-auto">{format(new Date(reply.createdAt), 'yyyy-MM-dd HH:mm', { locale: ar })}</span>
+                          </div>
+                          <p className="text-white/80">{reply.content}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {activeReplyId === review.id ? (
+                    <div className="mt-4 flex gap-2">
+                      <textarea
+                        className="glass-input flex-1 min-h-[80px] text-sm p-3 resize-none border-primary/50 focus:border-primary"
+                        placeholder="اكتب رد الإدارة هنا ليظهر للعميل..."
+                        value={replyContent}
+                        onChange={(e) => setReplyContent(e.target.value)}
+                        autoFocus
+                      />
+                      <div className="flex flex-col gap-2">
+                        <button 
+                          onClick={() => submitReply(review.id)}
+                          className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-bold shadow-lg hover:shadow-primary/20 transition-all flex-1"
+                        >
+                          إرسال الرد
+                        </button>
+                        <button 
+                          onClick={() => { setActiveReplyId(null); setReplyContent(''); }}
+                          className="bg-white/10 text-white px-4 py-2 rounded-lg text-sm hover:bg-white/20 transition-all"
+                        >
+                          إلغاء
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    review.type === 'item_review' && canEdit && (!review.replies || review.replies.length === 0) && (
+                      <button 
+                        onClick={() => setActiveReplyId(review.id)}
+                        className="mt-2 text-sm text-primary flex items-center gap-1 hover:underline font-bold"
+                      >
+                        <MessageSquareReply className="w-4 h-4" />
+                        إضافة رد
+                      </button>
+                    )
                   )}
                 </div>
 

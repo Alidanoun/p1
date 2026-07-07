@@ -10,7 +10,8 @@ import {
   ChevronDown,
   RefreshCw,
   ArrowUpRight,
-  ArrowDownRight
+  ArrowDownRight,
+  Calendar
 } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -26,6 +27,15 @@ const Analytics = () => {
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState('week'); // today, week, month
   const [source, setSource] = useState('all'); // all, app, manual
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  // 🕒 Live Clock Effect
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   const fetchStats = useCallback(async () => {
     setLoading(true);
@@ -79,18 +89,36 @@ const Analytics = () => {
 
   return (
     <div className="p-4 md:p-8 max-w-[1600px] mx-auto min-h-screen pb-20">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
-        <Header 
-          title="مركز التحليلات المتقدمة" 
-          subtitle="مراقبة أداء المطعم، ساعات الذروة، وأكثر الوجبات طلباً" 
-        />
-        
-        <div className="flex items-center gap-3 bg-card/40 backdrop-blur-md p-1.5 rounded-2xl border border-white/5 shadow-2xl">
+      <Header 
+        title="مركز التحليلات المتقدمة" 
+        subtitle="مراقبة أداء المطعم، ساعات الذروة، وأكثر الوجبات طلباً" 
+      />
+
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8 mt-2 relative z-10">
+        {/* 📅 Live Clock Badge */}
+        <div className="flex items-center gap-3 bg-card/40 backdrop-blur-md px-5 py-2.5 rounded-2xl border border-white/5 shadow-2xl">
+          <div className="flex items-center gap-2 text-text-muted">
+            <Calendar className="w-4 h-4 text-primary" />
+            <span className="text-sm font-bold font-mono">
+              {currentTime.toLocaleDateString('ar-EG', { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' })}
+            </span>
+          </div>
+          <div className="h-5 w-[1px] bg-white/10 mx-1" />
+          <div className="flex items-center gap-2 text-text-muted">
+            <Clock className="w-4 h-4 text-amber-500" />
+            <span className="text-sm font-bold font-mono" dir="ltr">
+              {currentTime.toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            </span>
+          </div>
+        </div>
+
+        {/* ⏱️ Period Filters */}
+        <div className="flex items-center gap-2 bg-card/40 backdrop-blur-md p-1.5 rounded-2xl border border-white/5 shadow-2xl">
           {['today', 'week', 'month'].map((p) => (
             <button
               key={p}
               onClick={() => setPeriod(p)}
-              className={`px-6 py-2 rounded-xl text-xs font-bold transition-all ${
+              className={`px-8 py-2.5 rounded-xl text-sm font-bold transition-all ${
                 period === p 
                 ? 'bg-primary text-white shadow-lg shadow-primary/20' 
                 : 'text-text-muted hover:text-white hover:bg-white/5'
@@ -110,6 +138,7 @@ const Analytics = () => {
           icon={<DollarSign className="text-emerald-500" />} 
           trend={null} 
           isPositive={true}
+          lastUpdate={currentTime}
         />
         <StatCard 
           title="عدد الطلبات" 
@@ -117,6 +146,7 @@ const Analytics = () => {
           icon={<ShoppingBag className="text-primary" />} 
           trend={null} 
           isPositive={true}
+          lastUpdate={currentTime}
         />
         <StatCard 
           title="متوسط قيمة الطلب" 
@@ -124,11 +154,13 @@ const Analytics = () => {
           icon={<TrendingUp className="text-blue-500" />} 
           trend={null} 
           isPositive={false}
+          lastUpdate={currentTime}
         />
         <StatCard 
           title={period === 'today' ? "ساعة الذروة المتوقعة" : "اليوم الأكثر طلباً"} 
           value={data.overview.totalOrders > 0 ? (peakHourInfo?.label || "---") : "---"} 
           icon={<Clock className="text-amber-500" />} 
+          lastUpdate={currentTime}
         />
       </div>
 
@@ -164,6 +196,7 @@ const Analytics = () => {
                     <Area 
                       type="monotone" 
                       dataKey="count" 
+                      name="عدد الطلبات"
                       stroke="#FF7F3E" 
                       strokeWidth={3}
                       fillOpacity={1} 
@@ -254,23 +287,33 @@ const Analytics = () => {
   );
 };
 
-const StatCard = ({ title, value, icon, trend, isPositive }) => (
-  <div className="bg-card/40 backdrop-blur-md p-6 rounded-3xl border border-white/5 shadow-2xl relative overflow-hidden group hover:border-primary/20 transition-all">
-    <div className="flex items-center justify-between mb-4">
-      <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center group-hover:scale-110 transition-transform">
-        {icon}
-      </div>
-      {trend && (
-        <div className={`flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full ${
-          isPositive ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'
-        }`}>
-          {isPositive ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
-          {trend}
+const StatCard = ({ title, value, icon, trend, isPositive, lastUpdate }) => (
+  <div className="bg-card/40 backdrop-blur-md p-6 rounded-3xl border border-white/5 shadow-2xl relative overflow-hidden group hover:border-primary/20 transition-all flex flex-col justify-between">
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center group-hover:scale-110 transition-transform">
+          {icon}
         </div>
-      )}
+        {trend && (
+          <div className={`flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full ${
+            isPositive ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'
+          }`}>
+            {isPositive ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+            {trend}
+          </div>
+        )}
+      </div>
+      <p className="text-text-muted text-xs font-bold mb-1">{title}</p>
+      <h3 className="text-2xl font-bold text-white tracking-tight">{value}</h3>
     </div>
-    <p className="text-text-muted text-xs font-bold mb-1">{title}</p>
-    <h3 className="text-2xl font-bold text-white tracking-tight">{value}</h3>
+    {lastUpdate && (
+      <div className="mt-4 pt-3 border-t border-white/5 flex justify-between items-center text-[10px] text-text-muted">
+        <span>آخر تحديث:</span>
+        <span className="font-mono bg-white/5 px-2 py-0.5 rounded text-white/70">
+          {lastUpdate.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })} - {lastUpdate.toLocaleDateString('ar-EG', { month: 'short', day: 'numeric' })}
+        </span>
+      </div>
+    )}
   </div>
 );
 

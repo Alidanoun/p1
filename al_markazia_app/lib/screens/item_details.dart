@@ -88,12 +88,6 @@ class _ItemDetailsSheetState extends State<ItemDetailsSheet> {
     super.dispose();
   }
 
-  double get averageRating {
-    if (_reviews.isEmpty) return 0.0;
-    final total = _reviews.fold(0, (sum, item) => sum + item.rating);
-    return total / _reviews.length;
-  }
-
   double get unitPrice {
     double price = widget.item.basePrice;
     
@@ -338,11 +332,11 @@ class _ItemDetailsSheetState extends State<ItemDetailsSheet> {
                           const Icon(Icons.star, color: Colors.orange, size: 18),
                           const SizedBox(width: 4),
                           Text(
-                            _reviews.isEmpty ? AppLocalizations.of(context)!.newTag : averageRating.toStringAsFixed(1),
+                            widget.item.ratingCount == 0 ? AppLocalizations.of(context)!.newTag : widget.item.rating.toStringAsFixed(1),
                             style: const TextStyle(fontWeight: FontWeight.bold)
                           ),
-                          if (_reviews.isNotEmpty)
-                            Text(" (${_reviews.length})", style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                          if (widget.item.ratingCount > 0)
+                            Text(" (${widget.item.ratingCount})", style: const TextStyle(color: Colors.grey, fontSize: 12)),
                           const SizedBox(width: 16),
                           const Icon(Icons.schedule, color: Colors.grey, size: 18),
                           const SizedBox(width: 4),
@@ -476,6 +470,34 @@ class _ItemDetailsSheetState extends State<ItemDetailsSheet> {
                               if (review.comment.isNotEmpty) ...[
                                 const SizedBox(height: 8),
                                 Text(review.comment, style: const TextStyle(fontSize: 13)),
+                              ],
+                              if (review.adminReply != null && review.adminReply!.isNotEmpty) ...[
+                                const SizedBox(height: 12),
+                                Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: Theme.of(context).primaryColor.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: Theme.of(context).primaryColor.withOpacity(0.2)),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Icon(Icons.storefront, size: 14, color: Theme.of(context).primaryColor),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            "رد الإدارة",
+                                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Theme.of(context).primaryColor),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(review.adminReply!, style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : Colors.black87)),
+                                    ],
+                                  ),
+                                ),
                               ]
                             ],
                           ),
