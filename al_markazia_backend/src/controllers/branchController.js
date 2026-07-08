@@ -169,7 +169,7 @@ exports.getAllBranches = async (req, res) => {
         isEmergencyClosed: true,
         users: {
           where: { role: { in: ['MANAGER', 'BRANCH_MANAGER'] } },
-          select: { email: true, plainPin: true },
+          select: { email: true, pinHash: true },
           take: 1
         }
       },

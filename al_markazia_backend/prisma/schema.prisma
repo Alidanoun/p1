@@ -57,7 +57,6 @@ model User {
   quietHoursStart Int     @default(23)
   quietHoursEnd   Int     @default(7)
   pinHash         String?
-  plainPin        String?
 
   // CRM Module Relations
   assignedLeads            Lead[]                @relation("LeadAssignment")

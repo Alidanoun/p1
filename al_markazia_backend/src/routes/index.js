@@ -77,7 +77,8 @@ router.use('/crm', crmRoutes);
 // System & Admin
 const path = require('path');
 const { searchLimiter } = require('../middleware/rateLimiter');
-router.use('/uploads', searchLimiter, express.static(path.join(__dirname, '../../uploads'), {
+const { authenticateToken } = require('../middleware/auth');
+router.use('/uploads', searchLimiter, authenticateToken, express.static(path.join(__dirname, '../../uploads'), {
   index: false, // Disable directory listing
   dotfiles: 'ignore' // Block access to hidden files
 }));

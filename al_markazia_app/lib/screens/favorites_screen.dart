@@ -11,6 +11,7 @@ import 'package:provider/provider.dart';
 import '../features/cart/cart_controller.dart';
 import '../widgets/custom_snackbar.dart';
 import '../models/cart_item.dart';
+import '../widgets/auth_image.dart';
 
 class FavoritesScreen extends StatefulWidget {
   const FavoritesScreen({super.key});
@@ -163,7 +164,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
                     ),
                     clipBehavior: Clip.antiAlias,
                     child: item.image.isNotEmpty
-                        ? CachedNetworkImage(
+                        ? AuthImage(
                             imageUrl: item.image,
                             fit: BoxFit.cover,
                             placeholder: (context, url) => const Center(child: CircularProgressIndicator(strokeWidth: 2)),

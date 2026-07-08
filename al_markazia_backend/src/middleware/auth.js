@@ -10,7 +10,7 @@ const redis = require('../lib/redis');
  */
 const authenticateToken = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
-  const token = (authHeader && authHeader.split(' ')[1]) || req.cookies?.accessToken;
+  const token = (authHeader && authHeader.split(' ')[1]) || req.cookies?.accessToken || req.query?.token;
 
   if (!token) {
     logger.security('Access denied: No token provided', { ip: req.ip, endpoint: req.originalUrl });

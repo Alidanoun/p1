@@ -135,7 +135,6 @@ exports.updateBranchCredentials = async (req, res) => {
 
     if (pin && pin.length === 4) {
       updateData.pinHash = await bcrypt.hash(pin, BCRYPT_ROUNDS);
-      updateData.plainPin = pin;
     }
 
     await prisma.user.update({

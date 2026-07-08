@@ -12,6 +12,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../services/api_service.dart';
 import '../models/restaurant_status.dart';
+import '../widgets/auth_image.dart';
 
 class CartScreen extends StatefulWidget {
   const CartScreen({super.key});
@@ -252,7 +253,7 @@ class _CartScreenState extends State<CartScreen> {
                 borderRadius: BorderRadius.circular(40),
                 child: item.image.isNotEmpty
                     ? (item.image.startsWith('http')
-                        ? CachedNetworkImage(
+                        ? AuthImage(
                             imageUrl: item.image,
                             fit: BoxFit.cover,
                             placeholder: (context, url) => const Center(child: CircularProgressIndicator(strokeWidth: 2)),

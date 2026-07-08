@@ -13,6 +13,7 @@ import '../l10n/generated/app_localizations.dart';
 import '../utils/time_formatter.dart';
 // import 'package:share_plus/share_plus.dart';
 import '../features/auth/auth_controller.dart';
+import '../widgets/auth_image.dart';
 
 class ItemDetailsSheet extends StatefulWidget {
   final MenuItem item;
@@ -196,7 +197,7 @@ class _ItemDetailsSheetState extends State<ItemDetailsSheet> {
                           ? ClipRRect(
                               borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
                               child: widget.item.image.startsWith('http')
-                                  ? CachedNetworkImage(
+                                  ? AuthImage(
                                       imageUrl: widget.item.image,
                                       fit: BoxFit.cover,
                                       placeholder: (context, url) => Center(

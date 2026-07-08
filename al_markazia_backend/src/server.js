@@ -191,7 +191,8 @@ async function startServer() {
 
     // 🖼️ Serve Static Files (Uploaded Images)
     const path = require('path');
-    app.use('/uploads', (req, res, next) => {
+    const { authenticateToken } = require('./middleware/auth');
+    app.use('/uploads', authenticateToken, (req, res, next) => {
       if (!/\.(webp|jpeg|jpg|png)$/i.test(req.path)) {
         return res.status(403).end();
       }

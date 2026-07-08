@@ -16,6 +16,7 @@ import '../widgets/skeletons/featured_slider_skeleton.dart';
 import '../utils/time_formatter.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import '../models/order_model.dart';
+import '../widgets/auth_image.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -491,7 +492,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       if (item.image.isNotEmpty)
                         item.image.startsWith('http')
-                          ? CachedNetworkImage(
+                          ? AuthImage(
                               imageUrl: item.image,
                               fit: BoxFit.cover,
                             )
@@ -970,7 +971,7 @@ class _HomeScreenState extends State<HomeScreen> {
               // Background Image (Full bleed or large center)
               if (item.image.isNotEmpty)
                 item.image.startsWith('http') 
-                  ? CachedNetworkImage(
+                  ? AuthImage(
                       imageUrl: item.image,
                       fit: BoxFit.cover,
                       placeholder: (context, url) => Container(
