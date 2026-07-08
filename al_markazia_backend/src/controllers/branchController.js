@@ -150,13 +150,16 @@ exports.toggleItemAvailability = async (req, res) => {
 exports.getAllBranches = async (req, res) => {
   try {
     const user = req.user;
+    const branchPolicy = require('../policies/branchPolicy');
+    const policyFilter = await branchPolicy.getHardenedFilter(user.uuid);
+    
     const where = { isDeleted: false };
- 
-    // 🛡️ [SEC-FIX] Branch Isolation for Managers
-    if (user?.role?.toUpperCase() === 'BRANCH_MANAGER' && user?.branchId) {
-      where.id = user.branchId;
+    if (policyFilter.id === -1) {
+      where.id = -1;
+    } else if (policyFilter.branchId) {
+      where.id = policyFilter.branchId;
     }
- 
+
     const branches = await prisma.branch.findMany({
       where,
       select: {

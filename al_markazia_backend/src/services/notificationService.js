@@ -127,14 +127,20 @@ class NotificationService {
           createdAt: notif.createdAt || new Date()
         };
 
-        const SecurityPolicyService = require('./securityPolicyService');
-        const wrappedPayload = SecurityPolicyService.wrapPayload(socketPayload);
-
+        const branchPolicy = require('../policies/branchPolicy');
+        const wrappedPayload = branchPolicy.wrapPayload(socketPayload);
+        
         if (target.isBroadcast) {
           io.emit('notification:new', wrappedPayload);
-        } else if (userId) {
-          const { SOCKET_ROOMS } = require('../shared/socketEvents');
-          io.to(SOCKET_ROOMS.CUSTOMER(userId)).emit('notification:new', wrappedPayload);
+        } else {
+          const rooms = await branchPolicy.getTargetRooms({ 
+            type: notif.type, 
+            branchId: orderContext?.branchId, 
+            customerUuid: userId 
+          });
+          rooms.forEach(room => {
+            io.to(room).emit('notification:new', wrappedPayload);
+          });
         }
       }
 
@@ -262,22 +268,24 @@ class NotificationService {
 
   async _attemptFCMPush(notif, order, target) {
     const firebaseService = require('./firebaseService');
+    const { fcmBreaker } = require('../middleware/notificationCircuitBreaker');
+
     if (target.isBroadcast) {
-      await firebaseService.sendBroadcast(notif.title, notif.body, { type: 'broadcast', logId: String(notif.id) });
+      await fcmBreaker.fire(firebaseService.sendBroadcast.bind(firebaseService), notif.title, notif.body, { type: 'broadcast', logId: String(notif.id) });
     } else {
       const promises = [];
       const targets = [];
       
       if (target.isToAdmin && notif.userId === 'admin') {
         promises.push(
-          firebaseService.sendToTopic('staff_orders', notif.title, notif.body, { type: 'order_created', logId: String(notif.id) })
+          fcmBreaker.fire(firebaseService.sendToTopic.bind(firebaseService), 'staff_orders', notif.title, notif.body, { type: 'order_created', logId: String(notif.id) })
         );
         targets.push('admin');
       }
       
       if (target.isToCustomer && notif.userId !== 'admin' && order.customer?.fcmToken) {
         promises.push(
-          firebaseService.sendToToken(order.customer.fcmToken, notif.title, notif.body, { type: notif.type, logId: String(notif.id) })
+          fcmBreaker.fire(firebaseService.sendToToken.bind(firebaseService), order.customer.fcmToken, notif.title, notif.body, { type: notif.type, logId: String(notif.id) })
         );
         targets.push('customer');
       }
@@ -322,9 +330,10 @@ class NotificationService {
 
       // Attempt immediate delivery
       const firebaseService = require('./firebaseService');
+      const { fcmBreaker } = require('../middleware/notificationCircuitBreaker');
       
       if (customer?.fcmToken) {
-        await firebaseService.sendToToken(customer.fcmToken, safeTitle, safeMessage, { ...metadata, logId: String(notification.id) });
+        await fcmBreaker.fire(firebaseService.sendToToken.bind(firebaseService), customer.fcmToken, safeTitle, safeMessage, { ...metadata, logId: String(notification.id) });
         await this.prisma.notificationLog.update({ where: { id: notification.id }, data: { status: 'SENT', sentAt: new Date() } });
       }
 
