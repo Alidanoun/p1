@@ -151,7 +151,7 @@ exports.getAllBranches = async (req, res) => {
   try {
     const user = req.user;
     const branchPolicy = require('../policies/branchPolicy');
-    const policyFilter = await branchPolicy.getHardenedFilter(user.uuid);
+    const policyFilter = await branchPolicy.getHardenedFilter(user.id);
     
     const where = { isDeleted: false };
     if (policyFilter.id === -1) {
